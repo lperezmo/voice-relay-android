@@ -35,7 +35,7 @@ class FixGrammarActivity : AppCompatActivity() {
         val apiKey = SecretStore(this).getApiKey()
         when {
             text.isNullOrBlank() -> return finishWith("Nothing selected")
-            apiKey.isBlank() -> return finishWith("Set your OpenAI API key in Phone Whisper")
+            apiKey.isBlank() -> return finishWith("Set your OpenAI API key in Whisper LP")
         }
 
         setContentView(LinearLayout(this).apply {
@@ -55,10 +55,13 @@ class FixGrammarActivity : AppCompatActivity() {
         val client = OpenAiClient(apiKey)
         val model = settings.cleanupModel
         val instructions = Prompts.forRequest(Prompts.TYPED, settings.vocabulary)
+        val usage = UsageStore(this)
         lifecycleScope.launch {
             val started = System.currentTimeMillis()
             val outcome = withContext(Dispatchers.IO) {
-                DictationPipeline.fixTyped(text!!) { client.cleanup(it, model, instructions) }
+                DictationPipeline.fixTyped(text!!) { input ->
+                    client.cleanup(input, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
+                }
             }
             // Metadata only, never the text.
             Log.i("PhoneWhisper", "Selection fix: ${text.length} chars, ${System.currentTimeMillis() - started} ms, " +
@@ -82,7 +85,7 @@ class FixGrammarActivity : AppCompatActivity() {
     }
 
     private fun copy(text: String) {
-        val clip = ClipData.newPlainText("Phone Whisper", text)
+        val clip = ClipData.newPlainText("Whisper LP", text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
         }

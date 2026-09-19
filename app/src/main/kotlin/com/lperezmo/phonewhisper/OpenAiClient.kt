@@ -21,15 +21,22 @@ class OpenAiClient(
     private val baseUrl: String = DEFAULT_BASE_URL,
     private val http: OkHttpClient = sharedHttp,
 ) {
-    data class Result(val text: String?, val error: String?, val httpCode: Int = 0) {
+    /** [inputTokens] / [outputTokens] come from the Responses API `usage` block, for the cost estimate. */
+    data class Result(
+        val text: String?,
+        val error: String?,
+        val httpCode: Int = 0,
+        val inputTokens: Int = 0,
+        val outputTokens: Int = 0,
+    ) {
         val ok get() = !text.isNullOrBlank()
     }
 
-    /** An encoded recording: WAV, or AAC in an .m4a container. */
-    class Audio(val bytes: ByteArray, val filename: String, val mime: String) {
+    /** An encoded recording: WAV, or AAC in an .m4a container. [seconds] is the clip length, for usage. */
+    class Audio(val bytes: ByteArray, val filename: String, val mime: String, val seconds: Double = 0.0) {
         companion object {
-            fun wav(bytes: ByteArray) = Audio(bytes, "audio.wav", "audio/wav")
-            fun m4a(bytes: ByteArray) = Audio(bytes, "audio.m4a", "audio/mp4")
+            fun wav(bytes: ByteArray, seconds: Double = 0.0) = Audio(bytes, "audio.wav", "audio/wav", seconds)
+            fun m4a(bytes: ByteArray, seconds: Double = 0.0) = Audio(bytes, "audio.m4a", "audio/mp4", seconds)
         }
     }
 
@@ -148,9 +155,15 @@ class OpenAiClient(
             if (obj.has("text")) Result(obj.getString("text").trim(), null) else null
         }
 
-        /** Reads `output_text` when present, else the first output_text part of the first message. */
+        /** Reads `output_text` when present, else the first output_text part of the first message, plus token usage. */
         fun parseResponsesText(json: String): Result = parse(json) { obj ->
-            obj.optString("output_text").takeIf { it.isNotBlank() }?.let { return@parse Result(it.trim(), null) }
+            val usage = obj.optJSONObject("usage")
+            fun withUsage(text: String) = Result(
+                text.trim(), null,
+                inputTokens = usage?.optInt("input_tokens") ?: 0,
+                outputTokens = usage?.optInt("output_tokens") ?: 0,
+            )
+            obj.optString("output_text").takeIf { it.isNotBlank() }?.let { return@parse withUsage(it) }
             val output = obj.optJSONArray("output") ?: return@parse null
             for (i in 0 until output.length()) {
                 val item = output.getJSONObject(i)
@@ -158,7 +171,7 @@ class OpenAiClient(
                 val content = item.optJSONArray("content") ?: continue
                 for (j in 0 until content.length()) {
                     val part = content.getJSONObject(j)
-                    if (part.optString("type") == "output_text") return@parse Result(part.getString("text").trim(), null)
+                    if (part.optString("type") == "output_text") return@parse withUsage(part.getString("text"))
                 }
             }
             null

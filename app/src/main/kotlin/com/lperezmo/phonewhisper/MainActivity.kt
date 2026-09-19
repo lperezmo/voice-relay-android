@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cleanupModelSub: TextView
     private lateinit var promptRowSub: TextView
     private lateinit var cleanupContainer: LinearLayout
+    private lateinit var usageMonthSub: TextView
+    private lateinit var usageTotalSub: TextView
+    private lateinit var usage: UsageStore
 
     private val promptRows = mutableMapOf<String, PromptRowViews>()
 
@@ -46,6 +49,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
         secrets = SecretStore(this)
+        usage = UsageStore(this)
 
         val root = vertical(0, 0)
 
@@ -124,6 +128,22 @@ class MainActivity : AppCompatActivity() {
         cleanupContainer.addView(promptRow)
         root.addView(cleanupContainer)
 
+        // --- Usage ---
+        root.addView(sectionHeader("Usage (estimate)"))
+        val monthRow = settingsRow("This month", "")
+        usageMonthSub = monthRow.findViewWithTag("subtitle")
+        root.addView(monthRow)
+        val totalRow = settingsRow("Since reset", "") { confirmUsageReset() }
+        usageTotalSub = totalRow.findViewWithTag("subtitle")
+        root.addView(totalRow)
+        root.addView(TextView(this).apply {
+            text = "Counted on this phone from list prices. Your OpenAI usage page is the actual bill. " +
+                "Tap Since reset to start over."
+            textSize = 12f
+            setTextColor(attrColor(android.R.attr.textColorSecondary))
+            setPadding(dp(24), 0, dp(24), dp(32))
+        })
+
         setContentView(ScrollView(this).apply {
             setBackgroundColor(attrColor(android.R.attr.colorBackground))
             addView(root)
@@ -161,6 +181,11 @@ class MainActivity : AppCompatActivity() {
         cleanupContainer.visibility = if (settings.cleanupEnabled) View.VISIBLE else View.GONE
         cleanupModelSub.text = settings.cleanupModel
         promptRowSub.text = settings.cleanupPrompt
+        usageMonthSub.text = usage.thisMonth().summary()
+        val since = usage.since.takeIf { it > 0 }?.let {
+            " (since " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it)) + ")"
+        }.orEmpty()
+        usageTotalSub.text = usage.allTime().summary() + since
 
         val ready = audio && acc && apiKey.isNotBlank()
         statusSubtitle.text = when {
@@ -182,7 +207,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Accessibility access")
             .setMessage(
-                "Phone Whisper uses the accessibility service to show the floating dictation button " +
+                "Whisper LP uses the accessibility service to show the floating dictation button " +
                     "and to type your dictated text into the text field you are using.\n\n" +
                     "It only reads the screen at the moment it inserts text, to find the focused field. " +
                     "It does not record, store, or send screen content anywhere.\n\n" +
@@ -190,6 +215,15 @@ class MainActivity : AppCompatActivity() {
             )
             .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun confirmUsageReset() {
+        AlertDialog.Builder(this)
+            .setTitle("Reset usage?")
+            .setMessage("Clears this month and the running total on this phone. Your OpenAI account is not affected.")
+            .setPositiveButton("Reset") { _, _ -> usage.reset(); refresh() }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

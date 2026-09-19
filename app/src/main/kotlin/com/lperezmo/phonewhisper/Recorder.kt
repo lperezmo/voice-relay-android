@@ -11,9 +11,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 16 kHz mono PCM16 microphone capture on a background thread.
  *
  * Capped at [maxSeconds]; when the cap is reached, [onLimit] fires on the
- * capture thread and the caller is expected to stop.
+ * capture thread and the caller is expected to stop. [capAt] lowers the cap
+ * while recording (the screen locked mid-dictation).
  */
-class Recorder(private val maxSeconds: Int = 600, private val onLimit: () -> Unit = {}) {
+class Recorder(maxSeconds: Int = 600, private val onLimit: () -> Unit = {}) {
+    @Volatile
+    var maxSeconds: Int = maxSeconds
+        private set
     private val running = AtomicBoolean(false)
     private var record: AudioRecord? = null
     private var thread: Thread? = null
@@ -36,14 +40,13 @@ class Recorder(private val maxSeconds: Int = 600, private val onLimit: () -> Uni
         record = rec
         running.set(true)
         rec.startRecording()
-        val maxBytes = maxSeconds * SAMPLE_RATE * 2
         val out = buffer
         thread = Thread({
             val chunk = ByteArray(minBuf)
             while (running.get()) {
                 val n = rec.read(chunk, 0, chunk.size)
                 if (n > 0) out.write(chunk, 0, n)
-                if (out.size() >= maxBytes) {
+                if (out.size() >= maxSeconds * SAMPLE_RATE * 2) {
                     onLimit()
                     break
                 }
@@ -65,6 +68,14 @@ class Recorder(private val maxSeconds: Int = 600, private val onLimit: () -> Uni
     }
 
     val isRecording get() = running.get()
+
+    /** Seconds captured so far. */
+    val elapsedSeconds get() = buffer.size() / (SAMPLE_RATE * 2.0)
+
+    /** Lowers the cap (never raises it). */
+    fun capAt(seconds: Int) {
+        if (seconds < maxSeconds) maxSeconds = seconds
+    }
 
     companion object {
         const val SAMPLE_RATE = 16000

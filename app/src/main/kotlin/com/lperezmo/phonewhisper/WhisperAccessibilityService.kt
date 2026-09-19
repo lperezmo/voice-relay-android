@@ -1,6 +1,11 @@
 package com.lperezmo.phonewhisper
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -18,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +41,9 @@ import kotlin.math.abs
  *   RETRY --tap--> WORKING (same audio)   RETRY --long-press--> IDLE (audio discarded)
  *   IDLE --long-press--> WORKING (grammar fix of the selection or focused field) --> IDLE
  *
+ * While the phone is locked, recordings are capped by [LockScreenLimits]. After
+ * text lands in a field, the feedback bubble offers undo for a few seconds.
+ *
  * The overlay is a TYPE_ACCESSIBILITY_OVERLAY window, and the service only
  * reads the screen when inserting text (see [TextInjector]).
  */
@@ -50,6 +59,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val RING_DP = 56
         private const val FEEDBACK_OFFSET_DP = 64
         private const val MIN_CLIP_SECONDS = 0.3
+        private const val MAX_SECONDS = 600
+        private const val UNDO_WINDOW_MS = 5000L
 
         private const val COLOR_IDLE = 0xDD1C1C1E.toInt()
         private const val COLOR_RECORDING = 0xDDEF4444.toInt()
@@ -71,6 +82,18 @@ class WhisperAccessibilityService : AccessibilityService() {
     private lateinit var settings: AppSettings
     private lateinit var secrets: SecretStore
     private lateinit var injector: TextInjector
+    private lateinit var usage: UsageStore
+    private val lockLimits = LockScreenLimits()
+
+    /** Unlock resets the locked-recording count; locking mid-dictation caps the running recording. */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_USER_PRESENT -> lockLimits.onUnlock()
+                Intent.ACTION_SCREEN_OFF -> recorder?.let { it.capAt(lockLimits.capWhenLocked(it.elapsedSeconds)) }
+            }
+        }
+    }
 
     private var overlayView: FrameLayout? = null
     private var button: ImageView? = null
@@ -80,6 +103,9 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
     private val hideFeedback = Runnable {
+        feedbackLayoutParams?.let { setFeedbackTouchable(it, false) }
+        feedbackView?.setOnClickListener(null)
+        feedbackView?.isClickable = false
         feedbackView?.animate()?.alpha(0f)?.setDuration(180)?.withEndAction {
             feedbackView?.visibility = View.GONE
         }?.start()
@@ -94,14 +120,26 @@ class WhisperAccessibilityService : AccessibilityService() {
         settings = AppSettings(this)
         secrets = SecretStore(this)
         injector = TextInjector(this)
+        usage = UsageStore(this)
+        ContextCompat.registerReceiver(
+            this, screenReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         showOverlay()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null && ::injector.isInitialized) injector.onEvent(event)
+    }
     override fun onInterrupt() {}
 
     override fun onDestroy() {
         instance = null
+        try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
         recorder?.stop()
         scope.cancel()
         removeOverlay()
@@ -133,14 +171,22 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     private fun startRecording() {
         if (secrets.getApiKey().isBlank()) {
-            showFeedback("Set your OpenAI API key in Phone Whisper", 3000)
+            showFeedback("Set your OpenAI API key in Whisper LP", 3000)
             return
         }
-        val rec = Recorder(onLimit = { handler.post { if (state == State.RECORDING) stopAndProcess() } })
+        val locked = (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        val decision = lockLimits.onStart(locked, MAX_SECONDS)
+        if (decision !is LockScreenLimits.Decision.Allow) {
+            showFeedback("Unlock your phone to keep dictating (${lockLimits.maxRecordings} locked recordings used)", 3500)
+            return
+        }
+        val rec = Recorder(decision.maxSeconds, onLimit = {
+            handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) }
+        })
         try {
             rec.start()
         } catch (_: SecurityException) {
-            showFeedback("Grant microphone access in Phone Whisper", 3000)
+            showFeedback("Grant microphone access in Whisper LP", 3000)
             return
         } catch (e: IllegalStateException) {
             showFeedback(e.message ?: "Microphone unavailable", 3000)
@@ -148,24 +194,34 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
         recorder = rec
         setState(State.RECORDING)
+        injector.rememberFocus()
         OpenAiClient(secrets.getApiKey()).prewarm()
+        decision.remaining?.let { left ->
+            showFeedback("Phone locked: stops after ${decision.maxSeconds / 60} min, $left more before you must unlock", 3000)
+        }
     }
 
-    private fun stopAndProcess() {
-        val pcm = recorder?.stop() ?: ByteArray(0)
+    private fun stopAndProcess(hitLimit: Boolean = false) {
+        val rec = recorder
+        val pcm = rec?.stop() ?: ByteArray(0)
         recorder = null
         if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
+            injector.forgetSnapshot()
             setState(State.IDLE)
             showFeedback("Too short, nothing sent")
             return
         }
+        if (hitLimit && rec != null) {
+            showFeedback("Stopped at the ${rec.maxSeconds / 60} min limit, transcribing", 2500)
+        }
         setState(State.WORKING)
         scope.launch {
+            val seconds = Recorder.durationSeconds(pcm)
             val audio = withContext(Dispatchers.Default) {
-                AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it) }
-                    ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm))
+                AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
+                    ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
             }
-            Log.i(TAG, "Recorded %.1f s".format(Recorder.durationSeconds(pcm)))
+            Log.i(TAG, "Recorded %.1f s".format(seconds))
             process(audio)
         }
     }
@@ -174,7 +230,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
             setState(State.IDLE)
-            showFeedback("Set your OpenAI API key in Phone Whisper", 3000)
+            showFeedback("Set your OpenAI API key in Whisper LP", 3000)
             return
         }
         setState(State.WORKING)
@@ -209,10 +265,17 @@ class WhisperAccessibilityService : AccessibilityService() {
         val cleaner = if (settings.cleanupEnabled) {
             val model = settings.cleanupModel
             val instructions = Prompts.forRequest(settings.cleanupPrompt, vocabulary)
-            DictationPipeline.Cleaner { client.cleanup(it, model, instructions) }
+            DictationPipeline.Cleaner { text ->
+                client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
+            }
         } else null
         return DictationPipeline(
-            transcriber = { client.transcribe(it, transcriptionModel, vocabulary, languages) },
+            transcriber = { audio ->
+                client.transcribe(audio, transcriptionModel, vocabulary, languages).also {
+                    // A clean response is billed even when it heard no speech.
+                    if (it.error == null) usage.recordTranscription(transcriptionModel, audio.seconds)
+                }
+            },
             cleaner = cleaner,
             log = { Log.i(TAG, "Dictation: $it") },
         )
@@ -226,7 +289,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     private fun fixFocusedText() {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
-            showFeedback("Set your OpenAI API key in Phone Whisper", 3000)
+            showFeedback("Set your OpenAI API key in Whisper LP", 3000)
             return
         }
         val range = injector.readFocusedRange()
@@ -243,14 +306,16 @@ class WhisperAccessibilityService : AccessibilityService() {
         work = scope.launch {
             val started = System.currentTimeMillis()
             val outcome = withContext(Dispatchers.IO) {
-                DictationPipeline.fixTyped(original) { client.cleanup(it, model, instructions) }
+                DictationPipeline.fixTyped(original) { text ->
+                    client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
+                }
             }
             Log.i(TAG, "Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
             setState(State.IDLE)
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> when {
                     outcome.text == original -> showFeedback("Looks good already")
-                    injector.replace(range, outcome.text) -> showFeedback("Grammar fixed")
+                    injector.replace(range, outcome.text) -> offerUndo("Grammar fixed")
                     else -> {
                         injector.copyToClipboard(outcome.text)
                         showFeedback("Text changed while fixing, fixed version copied to clipboard", 3000)
@@ -262,13 +327,26 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun deliver(text: String, note: String?) {
+    private suspend fun deliver(text: String, note: String?) {
         val message = when (injector.inject(text)) {
-            TextInjector.Outcome.INSERTED, TextInjector.Outcome.PASTED -> note
+            TextInjector.Outcome.INSERTED -> return offerUndo(note ?: "Inserted")
+            TextInjector.Outcome.PASTED -> note
             TextInjector.Outcome.COPIED_NO_FIELD -> "No text field focused, copied to clipboard"
             TextInjector.Outcome.COPIED_FAILED -> "Could not insert, copied to clipboard"
         }
         message?.let { showFeedback(it, 2500) }
+    }
+
+    /** Shows [message] with a tap-to-undo for a few seconds after text lands in a field. */
+    private fun offerUndo(message: String) {
+        if (!injector.canUndo) return showFeedback(message)
+        showFeedback("$message. Tap here to undo", UNDO_WINDOW_MS) {
+            when (injector.undo()) {
+                TextInjector.UndoResult.UNDONE -> showFeedback("Undone")
+                TextInjector.UndoResult.CHANGED_SINCE -> showFeedback("The text changed since, nothing undone", 2500)
+                TextInjector.UndoResult.NOTHING -> {}
+            }
+        }
     }
 
     private fun setState(new: State) {
@@ -437,13 +515,26 @@ class WhisperAccessibilityService : AccessibilityService() {
         feedbackParams.y = maxOf(margin, bubbleParams.y - margin)
     }
 
-    private fun showFeedback(text: String, durationMs: Long = 2000) {
+    /**
+     * Shows a message next to the button. With [onClick] the bubble takes touches
+     * until it hides; otherwise touches pass through it to the app underneath.
+     */
+    private fun showFeedback(text: String, durationMs: Long = 2000, onClick: (() -> Unit)? = null) {
         val view = feedbackView ?: return
         val bubbleParams = layoutParams ?: return
         val feedbackParams = feedbackLayoutParams ?: return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
         view.text = text
+        setFeedbackTouchable(feedbackParams, onClick != null)
+        view.setOnClickListener(onClick?.let { action ->
+            View.OnClickListener {
+                handler.removeCallbacks(hideFeedback)
+                hideFeedback.run()
+                action()
+            }
+        })
+        view.isClickable = onClick != null
         positionFeedback(feedbackParams, bubbleParams)
         wm.updateViewLayout(view, feedbackParams)
 
@@ -453,6 +544,14 @@ class WhisperAccessibilityService : AccessibilityService() {
         view.alpha = 0f
         view.animate().alpha(1f).setDuration(120).start()
         handler.postDelayed(hideFeedback, durationMs)
+    }
+
+    private fun setFeedbackTouchable(params: WindowManager.LayoutParams, touchable: Boolean) {
+        val flags = if (touchable) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (flags == params.flags) return
+        params.flags = flags
+        feedbackView?.let { (getSystemService(WINDOW_SERVICE) as WindowManager).updateViewLayout(it, params) }
     }
 
     private fun startPulse() {
