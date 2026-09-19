@@ -1,0 +1,17 @@
+Phone Whisper Android
+Copyright 2026 lperezmo
+
+This product is a modified version of Phone Whisper
+(https://github.com/kafkasl/phone-whisper), licensed under the Apache
+License, Version 2.0. The original commit history is preserved in this
+repository.
+
+Changes from upstream include: a new application id and package
+(com.lperezmo.phonewhisper), release signing, updated Android SDK and build
+tooling, a pinned and checksum-verified sherpa-onnx native library fetch, and
+subsequent changes recorded in the git history.
+
+This product also bundles sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx)
+Kotlin bindings and native libraries, licensed under the Apache License,
+Version 2.0, and ONNX Runtime (https://github.com/microsoft/onnxruntime),
+licensed under the MIT License.

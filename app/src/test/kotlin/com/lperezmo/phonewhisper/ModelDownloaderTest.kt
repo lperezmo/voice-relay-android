@@ -1,4 +1,4 @@
-package com.kafkasl.phonewhisper
+package com.lperezmo.phonewhisper
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream

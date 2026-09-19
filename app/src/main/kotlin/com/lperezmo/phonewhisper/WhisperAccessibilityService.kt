@@ -1,4 +1,4 @@
-package com.kafkasl.phonewhisper
+package com.lperezmo.phonewhisper
 
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData

@@ -1,4 +1,4 @@
-package com.kafkasl.phonewhisper
+package com.lperezmo.phonewhisper
 
 /** Wraps raw PCM bytes in a WAV container. */
 object WavWriter {
