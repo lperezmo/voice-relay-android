@@ -1,39 +1,29 @@
-# Privacy Policy for Phone Whisper
+# Privacy Policy for Phone Whisper Android
 
-Phone Whisper is an Android dictation app that records speech, transcribes it, and inserts the result into text fields across apps.
+Phone Whisper Android is a personal Android dictation app that records speech, transcribes it,
+and inserts the result into text fields across apps. It is based on
+[kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper).
 
 ## Data handling
 
-Phone Whisper supports two transcription modes.
+Recorded audio is sent directly from the device to OpenAI's transcription API to generate text.
+There is no on-device speech recognition.
 
-### Local mode
-
-In local mode, audio is processed on-device using local speech recognition models. Audio does not leave the device.
-
-### Cloud mode
-
-In cloud mode, recorded audio is sent directly from the device to OpenAI's transcription API to generate text.
-
-If optional cleanup is enabled, the transcribed text is also sent directly from the device to OpenAI's chat API to improve punctuation, capitalization, and clarity.
+If optional cleanup is enabled, the transcribed text is also sent directly from the device to
+OpenAI to improve punctuation, capitalization, and clarity.
 
 ## API keys
 
-If you use cloud features, your OpenAI API key is stored locally on your device in app storage and used to authenticate requests sent directly to OpenAI.
-
-I do not operate a relay server for these requests.
+Your OpenAI API key is stored on your device in app storage and used only to authenticate
+requests sent directly to OpenAI. There is no relay server.
 
 ## Accessibility Service
 
-Phone Whisper uses Android Accessibility Service only to identify the currently focused text field and insert dictated text after you explicitly interact with the floating overlay button.
-
-Phone Whisper is not designed to monitor browsing, collect screen content for analytics, or perform background automation.
+The app uses Android Accessibility Service only to identify the currently focused text field and
+insert dictated text after you explicitly interact with the floating overlay button. It does not
+monitor browsing, collect screen content for analytics, or perform background automation.
 
 ## Data collection
 
-I do not run a backend for Phone Whisper and do not collect user accounts, analytics, or uploaded recordings myself.
-
-Third-party services you choose to use, such as OpenAI, may process data according to their own terms and privacy policies.
-
-## Contact
-
-For questions about privacy, contact: pol.avms@gmail.com
+The app has no backend and collects no accounts, analytics, or recordings. OpenAI processes the
+data you send according to its own terms and privacy policies.

@@ -67,9 +67,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         }?.start()
     }
 
-    // Local transcription engine (loaded lazily)
-    private var localTranscriber: LocalTranscriber? = null
-
     private val dp get() = resources.displayMetrics.density
     private val screenW get() = resources.displayMetrics.widthPixels
     private val screenH get() = resources.displayMetrics.heightPixels
@@ -77,8 +74,6 @@ class WhisperAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         showOverlay()
-        // Try to load local model in background
-        thread { initLocalModel() }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -89,28 +84,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         removeOverlay()
         super.onDestroy()
     }
-
-    private fun initLocalModel() {
-        val modelName = prefs().getString("model_name", "") ?: ""
-        if (modelName.isBlank()) {
-            // Auto-detect first available model
-            val models = LocalTranscriber.availableModels(this)
-            if (models.isNotEmpty()) {
-                Log.i(TAG, "Auto-detected model: ${models.first()}")
-                localTranscriber = LocalTranscriber.create(this, models.first())
-            }
-        } else {
-            localTranscriber = LocalTranscriber.create(this, modelName)
-        }
-        if (localTranscriber != null) {
-            Log.i(TAG, "Local transcription ready")
-        } else {
-            Log.i(TAG, "No local model found, will use API")
-        }
-    }
-
-    /** Reload local model (called from MainActivity when settings change) */
-    fun reloadModel() { thread { initLocalModel() } }
 
     // --- Overlay ---
 
@@ -357,43 +330,7 @@ class WhisperAccessibilityService : AccessibilityService() {
 
         if (pcm.isEmpty()) { reset("No audio captured"); return }
 
-        val useLocal = prefs().getBoolean("use_local", true)
-        val local = localTranscriber
-
-        if (useLocal && local != null) {
-            transcribeLocal(pcm, local)
-        } else {
-            transcribeApi(pcm)
-        }
-    }
-
-    private fun transcribeLocal(pcm: ByteArray, transcriber: LocalTranscriber) {
-        thread {
-            try {
-                // Convert 16-bit PCM bytes to float samples
-                val samples = FloatArray(pcm.size / 2)
-                for (i in samples.indices) {
-                    val lo = pcm[i * 2].toInt() and 0xFF
-                    val hi = pcm[i * 2 + 1].toInt()
-                    samples[i] = ((hi shl 8) or lo).toShort().toFloat() / 32768f
-                }
-
-                val t0 = System.currentTimeMillis()
-                val text = transcriber.transcribe(samples, SAMPLE_RATE)
-                val ms = System.currentTimeMillis() - t0
-                Log.i(TAG, "Local transcription: ${ms}ms, ${samples.size / SAMPLE_RATE}s audio")
-
-                handleTranscriptionResult(text)
-            } catch (e: Exception) {
-                Log.e(TAG, "Local transcription failed", e)
-                handler.post {
-                    toast("Local error: ${e.message}")
-                    state = State.IDLE
-                    setBusy(false)
-                    setAppearance(COLOR_IDLE)
-                }
-            }
-        }
+        transcribeApi(pcm)
     }
 
     private fun transcribeApi(pcm: ByteArray) {

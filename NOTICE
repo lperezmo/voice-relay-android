@@ -8,10 +8,6 @@ repository.
 
 Changes from upstream include: a new application id and package
 (com.lperezmo.phonewhisper), release signing, updated Android SDK and build
-tooling, a pinned and checksum-verified sherpa-onnx native library fetch, and
-subsequent changes recorded in the git history.
+tooling, removal of on-device speech recognition, and subsequent changes
+recorded in the git history.
 
-This product also bundles sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx)
-Kotlin bindings and native libraries, licensed under the Apache License,
-Version 2.0, and ONNX Runtime (https://github.com/microsoft/onnxruntime),
-licensed under the MIT License.
