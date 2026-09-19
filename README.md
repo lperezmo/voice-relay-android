@@ -2,57 +2,62 @@
   <img src="docs/logo.svg" width="128" height="128" alt="Phone Whisper Logo">
 </p>
 
-# Phone Whisper
+# Phone Whisper Android
 
-Push-to-talk dictation for Android.
+Push-to-talk dictation for Android, based on
+[kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper) (Apache-2.0, see
+[NOTICE](NOTICE)).
 
-Phone Whisper lets you speak into most apps without switching keyboards. Tap the floating button, speak, tap again, and your text is inserted into the currently focused text field when the app exposes a standard Android input field.\
+Tap the floating button, speak, tap again, and the text is inserted into the currently
+focused text field, without switching away from your keyboard.
 
 It supports:
 
 - **Local on-device transcription** with sherpa-onnx
-- **Cloud transcription** with OpenAI Whisper
+- **Cloud transcription** with OpenAI
 - **Optional cleanup** with OpenAI to fix punctuation and grammar
-
-If you try it and it genuinely saves you time, consider [sponsoring](https://github.com/sponsors/kafkasl)
-
-
-## Why I built this
-
-- I like SwiftKey and want to keep it as keyboard but...
-- Most keyboard dictation felt too inaccurate
-- Gemini's voice input auto submits your transcription (which is pretty bad) so you can't edit it before sending
-- Post processing yields much better results, specially adding a list of keywords and technical terms you often use
-- Inserting text into the field you're already using lets you keep editing it like any other draft.
 
 ## Install
 
-### Easiest: download the APK
-
-Grab the latest APK from [GitHub Releases](https://github.com/kafkasl/phone-whisper/releases).
-
-Open it on your phone, install it, then launch the app once to finish setup.
-
-### Build from source
-
-Requires JDK 17 and Android SDK.
+Sideload the signed APK over ADB. Prefer `adb install` over opening the APK from a browser
+or file manager: on Android 13+ an APK opened that way needs "Allow restricted settings"
+before its accessibility service can be enabled.
 
 ```bash
-git clone https://github.com/kafkasl/phone-whisper.git && cd phone-whisper
-make build
+adb install -r phone-whisper-android-vX.Y.Z.apk
 ```
 
-APK output:
+## Building locally (Windows)
+
+Requirements: JDK 21, the Android SDK command-line tools with `platforms;android-36` and
+`build-tools;36.0.0`, and Python for the helper scripts.
 
 ```bash
-app/build/outputs/apk/debug/app-debug.apk
+echo 'sdk.dir=D:/Android/Sdk' > local.properties   # your SDK path
+bash scripts/fetch_sherpa.sh                        # pinned sherpa-onnx native libs
+python scripts/make_keystore.py                     # once; skip if signing.properties exists
+./gradlew.bat assembleRelease testReleaseUnitTest
+adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-If you use ADB:
+`scripts/fetch_sherpa.sh` downloads the sherpa-onnx Android libraries for the pinned version,
+verifies the archive's SHA-256, copies only `libsherpa-onnx-jni.so` and `libonnxruntime.so`
+into `app/src/main/jniLibs/arm64-v8a/` (gitignored), and reports their 16 KB page alignment.
+The vendored Kotlin bindings in `app/src/main/kotlin/com/k2fsa/sherpa/onnx/` must match that
+version.
 
-```bash
-make adb-install
-```
+### Signing
+
+Release builds are signed with one keystore everywhere. Android only upgrades an installed
+app when the new APK has the same signing key, so a build signed with a different key must be
+uninstalled first, which deletes its settings and downloaded models.
+
+- Locally, `app/build.gradle.kts` reads the gitignored `signing.properties` written by
+  `scripts/make_keystore.py` (keystore at `.signing/release.jks`).
+- In CI, the same values come from the `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and
+  `KEY_PASSWORD` environment variables, which take precedence.
+
+Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
 
 ## How it works
 
@@ -99,7 +104,7 @@ Full policy: [PRIVACY.md](PRIVACY.md)
 Models are stored in app storage under:
 
 ```bash
-/data/data/com.kafkasl.phonewhisper/files/models/
+/data/data/com.lperezmo.phonewhisper/files/models/
 ```
 
 Current catalog:
@@ -112,15 +117,6 @@ Current catalog:
 | Moonshine Tiny | 103 MB | Fastest |
 
 The app downloads and extracts models directly from the sherpa-onnx release archives.
-
-## Development
-
-```bash
-make build       # build debug APK
-make test        # run unit tests
-make adb-install # build + install via ADB
-make clean       # clean build artifacts
-```
 
 ## App compatibility
 
@@ -149,12 +145,6 @@ Once text is inserted into the native input box, Termux sends it to the terminal
 - Local models are large
 - Cloud mode requires your own OpenAI API key
 
-## Support the project
-
-If Phone Whisper saves you time, you can sponsor the project on GitHub:
-
-- https://github.com/sponsors/kafkasl
-
 ## License
 
-Personal project. Do whatever you want with it.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
