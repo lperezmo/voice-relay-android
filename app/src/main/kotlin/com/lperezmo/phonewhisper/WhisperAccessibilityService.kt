@@ -9,6 +9,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
@@ -32,6 +33,7 @@ import kotlin.math.abs
  *   IDLE --tap--> RECORDING --tap--> WORKING --text--> IDLE
  *                                        \--network error--> RETRY
  *   RETRY --tap--> WORKING (same audio)   RETRY --long-press--> IDLE (audio discarded)
+ *   IDLE --long-press--> WORKING (grammar fix of the selection or focused field) --> IDLE
  *
  * The overlay is a TYPE_ACCESSIBILITY_OVERLAY window, and the service only
  * reads the screen when inserting text (see [TextInjector]).
@@ -64,7 +66,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var work: Job? = null
     private var recorder: Recorder? = null
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
-    private var pendingWav: ByteArray? = null
+    private var pendingAudio: OpenAiClient.Audio? = null
 
     private lateinit var settings: AppSettings
     private lateinit var secrets: SecretStore
@@ -113,15 +115,19 @@ class WhisperAccessibilityService : AccessibilityService() {
             State.IDLE -> startRecording()
             State.RECORDING -> stopAndProcess()
             State.WORKING -> {}
-            State.RETRY -> pendingWav?.let { process(it) } ?: setState(State.IDLE)
+            State.RETRY -> pendingAudio?.let { process(it) } ?: setState(State.IDLE)
         }
     }
 
     private fun onLongPress() {
-        if (state == State.RETRY) {
-            pendingWav = null
-            setState(State.IDLE)
-            showFeedback("Recording discarded")
+        when (state) {
+            State.IDLE -> fixFocusedText()
+            State.RETRY -> {
+                pendingAudio = null
+                setState(State.IDLE)
+                showFeedback("Recording discarded")
+            }
+            else -> {}
         }
     }
 
@@ -142,6 +148,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
         recorder = rec
         setState(State.RECORDING)
+        OpenAiClient(secrets.getApiKey()).prewarm()
     }
 
     private fun stopAndProcess() {
@@ -152,10 +159,18 @@ class WhisperAccessibilityService : AccessibilityService() {
             showFeedback("Too short, nothing sent")
             return
         }
-        process(WavWriter.encode(pcm))
+        setState(State.WORKING)
+        scope.launch {
+            val audio = withContext(Dispatchers.Default) {
+                AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it) }
+                    ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm))
+            }
+            Log.i(TAG, "Recorded %.1f s".format(Recorder.durationSeconds(pcm)))
+            process(audio)
+        }
     }
 
-    private fun process(wav: ByteArray) {
+    private fun process(audio: OpenAiClient.Audio) {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
             setState(State.IDLE)
@@ -165,21 +180,21 @@ class WhisperAccessibilityService : AccessibilityService() {
         setState(State.WORKING)
         val pipeline = buildPipeline(OpenAiClient(apiKey))
         work = scope.launch {
-            val outcome = withContext(Dispatchers.IO) { pipeline.run(wav) }
+            val outcome = withContext(Dispatchers.IO) { pipeline.run(audio) }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
-                    pendingWav = null
+                    pendingAudio = null
                     setState(State.IDLE)
                     deliver(outcome.text, outcome.note)
                 }
                 DictationPipeline.Outcome.NoSpeech -> {
-                    pendingWav = null
+                    pendingAudio = null
                     setState(State.IDLE)
                     showFeedback("No speech detected")
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     Log.w(TAG, "Transcription failed: ${outcome.error}")
-                    pendingWav = wav
+                    pendingAudio = audio
                     setState(State.RETRY)
                     showFeedback("Failed: ${outcome.error.take(80)}\nTap to retry, hold to discard", 5000)
                 }
@@ -199,7 +214,52 @@ class WhisperAccessibilityService : AccessibilityService() {
         return DictationPipeline(
             transcriber = { client.transcribe(it, transcriptionModel, vocabulary, languages) },
             cleaner = cleaner,
+            log = { Log.i(TAG, "Dictation: $it") },
         )
+    }
+
+    /**
+     * Grammar fix for typed text: the selection in the focused field, or the
+     * whole field when nothing is selected. Uses the cleanup model with the
+     * typed-text prompt, regardless of whether dictation cleanup is on.
+     */
+    private fun fixFocusedText() {
+        val apiKey = secrets.getApiKey()
+        if (apiKey.isBlank()) {
+            showFeedback("Set your OpenAI API key in Phone Whisper", 3000)
+            return
+        }
+        val range = injector.readFocusedRange()
+        if (range == null) {
+            showFeedback("Select text, or focus a field with text, to fix grammar", 3000)
+            return
+        }
+        overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        setState(State.WORKING)
+        val client = OpenAiClient(apiKey)
+        val model = settings.cleanupModel
+        val instructions = Prompts.forRequest(Prompts.TYPED, settings.vocabulary)
+        val original = range.target
+        work = scope.launch {
+            val started = System.currentTimeMillis()
+            val outcome = withContext(Dispatchers.IO) {
+                DictationPipeline.fixTyped(original) { client.cleanup(it, model, instructions) }
+            }
+            Log.i(TAG, "Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
+            setState(State.IDLE)
+            when (outcome) {
+                is DictationPipeline.Outcome.Text -> when {
+                    outcome.text == original -> showFeedback("Looks good already")
+                    injector.replace(range, outcome.text) -> showFeedback("Grammar fixed")
+                    else -> {
+                        injector.copyToClipboard(outcome.text)
+                        showFeedback("Text changed while fixing, fixed version copied to clipboard", 3000)
+                    }
+                }
+                is DictationPipeline.Outcome.Failed -> showFeedback("Fix failed: ${outcome.error.take(80)}", 3000)
+                DictationPipeline.Outcome.NoSpeech -> {}
+            }
+        }
     }
 
     private fun deliver(text: String, note: String?) {

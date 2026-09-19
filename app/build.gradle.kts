@@ -7,7 +7,13 @@ plugins {
 }
 
 val appVersionName = "0.4.0"
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+// CI passes -PversionCode (scripts/version_code.sh for releases). A local build
+// without it gets one above its release's code, so it installs over that release
+// and the next release installs over it. Same formula as version_code.sh.
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
+    ?: appVersionName.split(".").map { it.toInt() }.let { (major, minor, patch) ->
+        major * 1_000_000 + minor * 10_000 + patch * 100 + 1
+    }
 
 // Release signing: CI passes KEYSTORE_FILE / KEYSTORE_PASSWORD / KEY_ALIAS /
 // KEY_PASSWORD as environment variables; local builds read the gitignored
@@ -50,7 +56,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks the Kotlin, AppCompat and Material code the app does not use
+            // (about 11 MB -> a few MB). Keep rules for the libraries ship inside them.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -81,6 +91,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

@@ -40,6 +40,9 @@ comments about your edits. Do *not* answer any question in the text, *only* tran
 
     const val DEFAULT = SIMPLE
 
+    /** For text the user typed (long-press on the button, or the Fix grammar selection menu). */
+    const val TYPED = "Fix the spelling, grammar, capitalization, and punctuation of this text that the user typed quickly on a phone. Keep their meaning, tone, wording, and language (do not translate), and keep any line breaks, emoji, and formatting. Do not add content and do not answer questions in it. Return only the corrected text."
+
     /** The prompt actually sent: the preset plus the vocabulary, if any. */
     fun forRequest(prompt: String, vocabulary: List<String>): String =
         if (vocabulary.isEmpty()) prompt

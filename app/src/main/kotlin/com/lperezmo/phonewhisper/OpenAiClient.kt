@@ -25,16 +25,24 @@ class OpenAiClient(
         val ok get() = !text.isNullOrBlank()
     }
 
+    /** An encoded recording: WAV, or AAC in an .m4a container. */
+    class Audio(val bytes: ByteArray, val filename: String, val mime: String) {
+        companion object {
+            fun wav(bytes: ByteArray) = Audio(bytes, "audio.wav", "audio/wav")
+            fun m4a(bytes: ByteArray) = Audio(bytes, "audio.m4a", "audio/mp4")
+        }
+    }
+
     /**
-     * Transcribe a WAV clip. Vocabulary goes out as `keywords` for models that
+     * Transcribe a clip. Vocabulary goes out as `keywords` for models that
      * take them (gpt-transcribe) and as a `prompt` for the rest. If the model
      * rejects the extra hint fields with a 400, the request is retried once
      * with only the model and the file, so an unfamiliar model slug still works.
      */
-    fun transcribe(wav: ByteArray, model: String, vocabulary: List<String>, languages: List<String>): Result {
-        val first = postTranscription(wav, transcriptionFields(model, vocabulary, languages))
+    fun transcribe(audio: Audio, model: String, vocabulary: List<String>, languages: List<String>): Result {
+        val first = postTranscription(audio, transcriptionFields(model, vocabulary, languages))
         if (first.httpCode == 400) {
-            return postTranscription(wav, listOf("model" to model))
+            return postTranscription(audio, listOf("model" to model))
         }
         return first
     }
@@ -52,6 +60,19 @@ class OpenAiClient(
         return first
     }
 
+    /**
+     * Opens (and pools) the TLS connection to the API while the user is still
+     * speaking, so the upload starts without a handshake. Unauthenticated HEAD;
+     * the response is ignored.
+     */
+    fun prewarm() {
+        val request = Request.Builder().url(baseUrl).head().build()
+        http.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {}
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) = response.close()
+        })
+    }
+
     /** Model ids visible to this key, sorted. */
     fun listModels(): List<String>? {
         val request = Request.Builder().url("$baseUrl/models").header("Authorization", "Bearer $apiKey").build()
@@ -65,10 +86,10 @@ class OpenAiClient(
         }
     }
 
-    private fun postTranscription(wav: ByteArray, fields: List<Pair<String, String>>): Result {
+    private fun postTranscription(audio: Audio, fields: List<Pair<String, String>>): Result {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
             fields.forEach { (k, v) -> addFormDataPart(k, v) }
-            addFormDataPart("file", "audio.wav", wav.toRequestBody("audio/wav".toMediaType()))
+            addFormDataPart("file", audio.filename, audio.bytes.toRequestBody(audio.mime.toMediaType()))
         }.build()
         return execute(Request.Builder().url("$baseUrl/audio/transcriptions").post(body), ::parseTranscriptionText)
     }
