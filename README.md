@@ -53,6 +53,15 @@ uninstalled first, which deletes its settings.
 
 Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
 
+## Releases
+
+CI builds an unsigned APK for every pull request (`.github/workflows/android-build.yml`).
+Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
+`fix:` commit cuts a version, tags it, and attaches the signed APK to the GitHub release;
+`chore:`, `docs:`, `ci:` and `refactor:` commits do not. `versionName` is `0.4.0`, and it is
+owned by semantic-release, so never edit it by hand. `versionCode` is derived from it by
+`scripts/version_code.sh`, so every release upgrades in place over the previous one.
+
 ## How it works
 
 1. A small overlay button floats on screen

@@ -9,3 +9,4 @@ signing.properties
 *.jks
 *.keystore
 *.aab
+node_modules/
