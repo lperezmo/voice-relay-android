@@ -14,7 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * capture thread and the caller is expected to stop. [capAt] lowers the cap
  * while recording (the screen locked mid-dictation).
  */
-class Recorder(maxSeconds: Int = 600, private val onLimit: () -> Unit = {}) {
+class Recorder(
+    maxSeconds: Int = 600,
+    private val onLimit: () -> Unit = {},
+    /** Each captured PCM chunk as it arrives, on the capture thread (live transcription). */
+    private val onChunk: ((ByteArray, Int) -> Unit)? = null,
+) {
     @Volatile
     var maxSeconds: Int = maxSeconds
         private set
@@ -45,7 +50,10 @@ class Recorder(maxSeconds: Int = 600, private val onLimit: () -> Unit = {}) {
             val chunk = ByteArray(minBuf)
             while (running.get()) {
                 val n = rec.read(chunk, 0, chunk.size)
-                if (n > 0) out.write(chunk, 0, n)
+                if (n > 0) {
+                    out.write(chunk, 0, n)
+                    onChunk?.invoke(chunk, n)
+                }
                 if (out.size() >= maxSeconds * SAMPLE_RATE * 2) {
                     onLimit()
                     break

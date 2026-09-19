@@ -76,6 +76,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var work: Job? = null
     private var recorder: Recorder? = null
+    /** The live transcription stream for the current recording, in live mode. */
+    private var live: LiveTranscription? = null
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
 
@@ -141,6 +143,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         instance = null
         try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
         recorder?.stop()
+        live?.cancel()
         scope.cancel()
         removeOverlay()
         super.onDestroy()
@@ -180,19 +183,30 @@ class WhisperAccessibilityService : AccessibilityService() {
             showFeedback("Unlock your phone to keep dictating (${lockLimits.maxRecordings} locked recordings used)", 3500)
             return
         }
-        val rec = Recorder(decision.maxSeconds, onLimit = {
-            handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) }
-        })
+        val session = if (settings.liveTranscription) {
+            LiveTranscription(
+                secrets.getApiKey(), settings.liveModel, settings.vocabulary, settings.languages,
+                log = { Log.i(TAG, it) },
+            ).also { it.start() }
+        } else null
+        val rec = Recorder(
+            decision.maxSeconds,
+            onLimit = { handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) } },
+            onChunk = session?.let { s -> { chunk, n -> s.append(chunk, n) } },
+        )
         try {
             rec.start()
         } catch (_: SecurityException) {
+            session?.cancel()
             showFeedback("Grant microphone access in Whisper LP", 3000)
             return
         } catch (e: IllegalStateException) {
+            session?.cancel()
             showFeedback(e.message ?: "Microphone unavailable", 3000)
             return
         }
         recorder = rec
+        live = session
         setState(State.RECORDING)
         injector.rememberFocus()
         OpenAiClient(secrets.getApiKey()).prewarm()
@@ -205,7 +219,10 @@ class WhisperAccessibilityService : AccessibilityService() {
         val rec = recorder
         val pcm = rec?.stop() ?: ByteArray(0)
         recorder = null
+        val session = live
+        live = null
         if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
+            session?.cancel()
             injector.forgetSnapshot()
             setState(State.IDLE)
             showFeedback("Too short, nothing sent")
@@ -215,18 +232,26 @@ class WhisperAccessibilityService : AccessibilityService() {
             showFeedback("Stopped at the ${rec.maxSeconds / 60} min limit, transcribing", 2500)
         }
         setState(State.WORKING)
-        scope.launch {
-            val seconds = Recorder.durationSeconds(pcm)
-            val audio = withContext(Dispatchers.Default) {
-                AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
-                    ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
-            }
-            Log.i(TAG, "Recorded %.1f s".format(seconds))
-            process(audio)
+        val seconds = Recorder.durationSeconds(pcm)
+        Log.i(TAG, "Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
+        if (session != null) {
+            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm)
+        } else {
+            scope.launch { process(withContext(Dispatchers.Default) { encode(pcm, seconds) }) }
         }
     }
 
-    private fun process(audio: OpenAiClient.Audio) {
+    private fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio =
+        AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
+            ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
+
+    /**
+     * Transcribe and clean up [audio]. With a [session] (live mode) the transcript
+     * comes from the live stream, and [pcm] is the fallback: if the live session
+     * fails, the same recording goes through the standard upload instead, and it is
+     * what a retry resends.
+     */
+    private fun process(audio: OpenAiClient.Audio, session: LiveTranscription? = null, pcm: ByteArray? = null) {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
             setState(State.IDLE)
@@ -234,7 +259,20 @@ class WhisperAccessibilityService : AccessibilityService() {
             return
         }
         setState(State.WORKING)
-        val pipeline = buildPipeline(OpenAiClient(apiKey))
+        val client = OpenAiClient(apiKey)
+        val standard = standardTranscriber(client)
+        var uploaded: OpenAiClient.Audio? = null
+        val transcriber = if (session == null || pcm == null) standard else DictationPipeline.Transcriber { clip ->
+            val result = session.finish()
+            if (result.error == null) {
+                usage.recordTranscription(settings.liveModel, clip.seconds)
+                result
+            } else {
+                Log.w(TAG, "Live transcription failed (${result.error}), using the standard upload")
+                encode(pcm, clip.seconds).also { uploaded = it }.let { standard.transcribe(it) }
+            }
+        }
+        val pipeline = buildPipeline(client, transcriber)
         work = scope.launch {
             val outcome = withContext(Dispatchers.IO) { pipeline.run(audio) }
             when (outcome) {
@@ -250,7 +288,8 @@ class WhisperAccessibilityService : AccessibilityService() {
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     Log.w(TAG, "Transcription failed: ${outcome.error}")
-                    pendingAudio = audio
+                    pendingAudio = if (pcm == null) audio
+                        else uploaded ?: withContext(Dispatchers.Default) { encode(pcm, audio.seconds) }
                     setState(State.RETRY)
                     showFeedback("Failed: ${outcome.error.take(80)}\nTap to retry, hold to discard", 5000)
                 }
@@ -258,24 +297,28 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun buildPipeline(client: OpenAiClient): DictationPipeline {
+    private fun standardTranscriber(client: OpenAiClient): DictationPipeline.Transcriber {
         val vocabulary = settings.vocabulary
         val languages = settings.languages
-        val transcriptionModel = settings.transcriptionModel
+        val model = settings.transcriptionModel
+        return DictationPipeline.Transcriber { audio ->
+            client.transcribe(audio, model, vocabulary, languages).also {
+                // A clean response is billed even when it heard no speech.
+                if (it.error == null) usage.recordTranscription(model, audio.seconds)
+            }
+        }
+    }
+
+    private fun buildPipeline(client: OpenAiClient, transcriber: DictationPipeline.Transcriber): DictationPipeline {
         val cleaner = if (settings.cleanupEnabled) {
             val model = settings.cleanupModel
-            val instructions = Prompts.forRequest(settings.cleanupPrompt, vocabulary)
+            val instructions = Prompts.forRequest(settings.cleanupPrompt, settings.vocabulary)
             DictationPipeline.Cleaner { text ->
                 client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
             }
         } else null
         return DictationPipeline(
-            transcriber = { audio ->
-                client.transcribe(audio, transcriptionModel, vocabulary, languages).also {
-                    // A clean response is billed even when it heard no speech.
-                    if (it.error == null) usage.recordTranscription(transcriptionModel, audio.seconds)
-                }
-            },
+            transcriber = transcriber,
             cleaner = cleaner,
             log = { Log.i(TAG, "Dictation: $it") },
         )

@@ -10,6 +10,15 @@ class AppSettings(context: Context) {
         get() = prefs.getString("transcription_model", null) ?: DEFAULT_TRANSCRIPTION_MODEL
         set(v) = prefs.edit().putString("transcription_model", v).apply()
 
+    /** Live mode: stream to the Realtime API while talking instead of uploading after stop. */
+    var liveTranscription: Boolean
+        get() = prefs.getBoolean("live_transcription", false)
+        set(v) = prefs.edit().putBoolean("live_transcription", v).apply()
+
+    var liveModel: String
+        get() = prefs.getString("live_model", null) ?: DEFAULT_LIVE_MODEL
+        set(v) = prefs.edit().putString("live_model", v).apply()
+
     var cleanupEnabled: Boolean
         get() = prefs.getBoolean("use_post_processing", true)
         set(v) = prefs.edit().putBoolean("use_post_processing", v).apply()
@@ -44,6 +53,7 @@ class AppSettings(context: Context) {
 
     companion object {
         const val DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe"
+        const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
         const val DEFAULT_CLEANUP_MODEL = "gpt-5.6-luna"
         const val DEFAULT_LANGUAGES = "en, es"
 

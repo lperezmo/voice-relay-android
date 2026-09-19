@@ -62,6 +62,7 @@ accessibility service at all.
 | Setting | Default | Notes |
 |---|---|---|
 | API key | none | Stored encrypted with an Android Keystore key. A dedicated key with a spend cap is a good idea. |
+| Live transcription | off | Streams the audio to the Realtime API (`gpt-live-transcribe`) while you talk, so the transcript is ready about 0.5 s after you stop, however long you spoke. About $0.017/min versus $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
 | Transcription model | `gpt-transcribe` | Picker lists the speech models your key can use, plus **Other** for any model id. |
 | Languages | `en, es` | Sent as hints so mixed-language dictation is recognized. Empty = auto-detect. |
 | Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
@@ -180,6 +181,7 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `Recorder.kt` | 16 kHz mono microphone capture, 10-minute cap (lower on the lock screen) |
 | `LockScreenLimits.kt` | 2-minute and 5-recording limits while the phone is locked |
 | `AacEncoder.kt` | PCM to AAC `.m4a` for upload |
+| `LiveTranscription.kt` | Live mode: Realtime API WebSocket stream, 16 to 24 kHz resampling |
 | `DictationPipeline.kt` | Transcribe, clean up, plausibility guard, grammar fix; timing log |
 | `OpenAiClient.kt` | Transcription, Responses API cleanup, model list, connection prewarm |
 | `TextInjector.kt` | Find the field, insert at the cursor, replace a range, undo, clipboard fallback |
@@ -197,7 +199,8 @@ Ideas, not commitments, roughly in order of usefulness:
 - **Hide the button in chosen apps** (games, video, banking), or while no keyboard is open.
 - **Translate mode:** dictate in one language and insert another (for example Spanish in,
   English out).
-- **Live partial transcripts** for long dictation, using a streaming transcription model.
+- **Live partial transcripts** shown on screen while you talk (live mode already streams; the
+  partial text is not displayed yet).
 - **Google Play (internal testing):** the accessibility disclosure is already in place; this
   still needs Play's accessibility permission declaration and review.
 

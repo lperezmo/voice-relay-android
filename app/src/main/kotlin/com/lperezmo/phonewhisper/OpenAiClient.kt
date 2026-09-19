@@ -123,7 +123,7 @@ class OpenAiClient(
     companion object {
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
-        private val sharedHttp = OkHttpClient.Builder()
+        internal val sharedHttp = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
