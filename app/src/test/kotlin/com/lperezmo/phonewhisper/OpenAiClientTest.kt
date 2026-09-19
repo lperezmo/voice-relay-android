@@ -41,17 +41,26 @@ class OpenAiClientTest {
 
     @Test fun `transcribe returns text and sends auth`() {
         server.enqueue(MockResponse().setBody("""{"text": " Hello there. "}"""))
-        val r = client.transcribe(ByteArray(10), "gpt-transcribe", emptyList(), listOf("en"))
+        val r = client.transcribe(OpenAiClient.Audio.wav(ByteArray(10)), "gpt-transcribe", emptyList(), listOf("en"))
         assertEquals("Hello there.", r.text)
         val req = server.takeRequest()
         assertEquals("/v1/audio/transcriptions", req.path)
+        assertTrue(req.body.readUtf8().contains("filename=\"audio.wav\""))
         assertEquals("Bearer sk-test", req.getHeader("Authorization"))
+    }
+
+    @Test fun `m4a audio is sent with its own filename and type`() {
+        server.enqueue(MockResponse().setBody("""{"text":"ok"}"""))
+        client.transcribe(OpenAiClient.Audio.m4a(ByteArray(10)), "gpt-transcribe", emptyList(), emptyList())
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("filename=\"audio.m4a\""))
+        assertTrue(body.contains("Content-Type: audio/mp4"))
     }
 
     @Test fun `transcribe retries once without hints on 400`() {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"Unknown parameter: keywords"}}"""))
         server.enqueue(MockResponse().setBody("""{"text":"ok"}"""))
-        val r = client.transcribe(ByteArray(10), "gpt-transcribe", listOf("x"), listOf("en"))
+        val r = client.transcribe(OpenAiClient.Audio.wav(ByteArray(10)), "gpt-transcribe", listOf("x"), listOf("en"))
         assertEquals("ok", r.text)
         server.takeRequest()
         val retry = server.takeRequest().body.readUtf8()
@@ -61,7 +70,7 @@ class OpenAiClientTest {
 
     @Test fun `auth error surfaces message and code`() {
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"message":"Incorrect API key provided."}}"""))
-        val r = client.transcribe(ByteArray(10), "gpt-transcribe", emptyList(), emptyList())
+        val r = client.transcribe(OpenAiClient.Audio.wav(ByteArray(10)), "gpt-transcribe", emptyList(), emptyList())
         assertNull(r.text)
         assertEquals("Incorrect API key provided.", r.error)
         assertEquals(401, r.httpCode)

@@ -22,6 +22,20 @@
             </intent-filter>
         </activity>
 
+        <!-- "Fix grammar" in every app's text-selection menu. -->
+        <activity
+            android:name=".FixGrammarActivity"
+            android:exported="true"
+            android:label="@string/fix_grammar"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.PhoneWhisper.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".WhisperAccessibilityService"
             android:exported="false"

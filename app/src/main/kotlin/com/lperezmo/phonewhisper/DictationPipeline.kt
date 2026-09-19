@@ -8,8 +8,11 @@ package com.lperezmo.phonewhisper
 class DictationPipeline(
     private val transcriber: Transcriber,
     private val cleaner: Cleaner?,
+    /** Receives one metadata line per run (sizes and timings, never text). */
+    private val log: (String) -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    fun interface Transcriber { fun transcribe(wav: ByteArray): OpenAiClient.Result }
+    fun interface Transcriber { fun transcribe(audio: OpenAiClient.Audio): OpenAiClient.Result }
     fun interface Cleaner { fun cleanup(text: String): OpenAiClient.Result }
 
     sealed class Outcome {
@@ -20,14 +23,19 @@ class DictationPipeline(
         data class Failed(val error: String) : Outcome()
     }
 
-    fun run(wav: ByteArray): Outcome {
-        val heard = transcriber.transcribe(wav)
+    fun run(audio: OpenAiClient.Audio): Outcome {
+        val t0 = clock()
+        val heard = transcriber.transcribe(audio)
+        val t1 = clock()
+        val timing = "upload ${audio.filename} ${audio.bytes.size / 1024} KB, transcribe ${t1 - t0} ms"
         if (!heard.ok) {
+            log("$timing, ${if (heard.error == null) "no speech" else "failed (HTTP ${heard.httpCode})"}")
             return if (heard.error == null) Outcome.NoSpeech else Outcome.Failed(heard.error)
         }
         val raw = heard.text!!
-        val cleaner = cleaner ?: return Outcome.Text(raw)
+        val cleaner = cleaner ?: return Outcome.Text(raw).also { log("$timing, cleanup off") }
         val cleaned = cleaner.cleanup(raw)
+        log("$timing, cleanup ${clock() - t1} ms${if (cleaned.ok) "" else " (failed)"}")
         return when {
             !cleaned.ok -> Outcome.Text(raw, "Cleanup failed, inserted raw text")
             !plausibleCleanup(raw, cleaned.text!!) -> Outcome.Text(raw, "Cleanup changed too much, inserted raw text")
@@ -36,6 +44,20 @@ class DictationPipeline(
     }
 
     companion object {
+        /**
+         * Grammar fix for text the user typed. Failures are reported rather than
+         * silently keeping the original, since the user explicitly asked for a fix.
+         */
+        fun fixTyped(text: String, cleaner: Cleaner): Outcome {
+            if (text.isBlank()) return Outcome.NoSpeech
+            val fixed = cleaner.cleanup(text)
+            return when {
+                !fixed.ok -> Outcome.Failed(fixed.error ?: "Empty response")
+                !plausibleCleanup(text, fixed.text!!) -> Outcome.Failed("The fix changed too much, kept your text")
+                else -> Outcome.Text(fixed.text)
+            }
+        }
+
         /**
          * Rejects cleanups that are clearly not a cleanup: an answer to a dictated
          * question (much longer) or a lost sentence (much shorter). Command mode

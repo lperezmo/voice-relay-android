@@ -28,6 +28,30 @@ class TextInjector(private val service: AccessibilityService) {
 
     enum class Outcome { INSERTED, PASTED, COPIED_NO_FIELD, COPIED_FAILED }
 
+    /** Text of the focused editable field and the range to fix: the selection, or all of it. */
+    class FieldRange(val node: AccessibilityNodeInfo, val fullText: String, val start: Int, val end: Int) {
+        val target get() = fullText.substring(start, end)
+    }
+
+    /** The range a grammar fix should apply to, or null when no editable, readable field is focused. */
+    fun readFocusedRange(): FieldRange? {
+        val node = findFocusedInput() ?: return null
+        if (!node.isEditable || node.isPassword) return null
+        val text = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        if (text.isBlank()) return null
+        val (start, end) = fixRange(text.length, node.textSelectionStart, node.textSelectionEnd)
+        return FieldRange(node, text, start, end)
+    }
+
+    /** Swaps [range] for [replacement]; only if the field still holds the text that was read. */
+    fun replace(range: FieldRange, replacement: String): Boolean {
+        range.node.refresh()
+        val now = if (range.node.isShowingHintText) "" else range.node.text?.toString().orEmpty()
+        if (now != range.fullText) return false
+        val updated = range.fullText.replaceRange(range.start, range.end, replacement)
+        return setTextAndCursor(range.node, updated, range.start + replacement.length)
+    }
+
     fun inject(text: String): Outcome {
         val target = findFocusedInput()
         if (target == null) {
@@ -64,14 +88,18 @@ class TextInjector(private val service: AccessibilityService) {
         // An empty field reports its hint as its text; treat that as empty.
         val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
         val updated = insertAtSelection(current, node.textSelectionStart, node.textSelectionEnd, text)
+        return setTextAndCursor(node, updated.text, updated.cursor)
+    }
+
+    private fun setTextAndCursor(node: AccessibilityNodeInfo, text: String, cursorAt: Int): Boolean {
         val args = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, updated.text)
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return false
-        // Put the cursor after the inserted text instead of wherever the app resets it.
+        // Put the cursor after the new text instead of wherever the app resets it.
         val cursor = Bundle().apply {
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, updated.cursor)
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, updated.cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursorAt)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursorAt)
         }
         node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, cursor)
         return true
@@ -87,7 +115,7 @@ class TextInjector(private val service: AccessibilityService) {
         it.label?.toString()?.contains("paste", ignoreCase = true) == true
     }
 
-    private fun copyToClipboard(text: String) {
+    fun copyToClipboard(text: String) {
         val clip = ClipData.newPlainText("Phone Whisper", text)
         // Keeps the dictation out of clipboard previews and keyboard clipboard history.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -112,6 +140,13 @@ class TextInjector(private val service: AccessibilityService) {
 
     companion object {
         private const val TAG = "PhoneWhisper"
+
+        /** A non-empty valid selection, otherwise the whole text. */
+        fun fixRange(length: Int, selStart: Int, selEnd: Int): Pair<Int, Int> {
+            val lo = minOf(selStart, selEnd)
+            val hi = maxOf(selStart, selEnd)
+            return if (lo in 0 until hi && hi <= length) lo to hi else 0 to length
+        }
 
         /**
          * Replace the selection (or insert at the cursor, or append when there is
