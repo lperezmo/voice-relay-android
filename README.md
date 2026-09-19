@@ -144,7 +144,7 @@ Back up `.signing/release.jks` and `signing.properties`; losing them means reins
 CI builds and tests an unsigned APK for every pull request (`.github/workflows/android-build.yml`).
 Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
 `fix:` commit cuts a version, tags it, and attaches the signed APK to the GitHub release;
-`chore:`, `docs:`, `ci:` and `refactor:` commits do not. `versionName` is `0.4.0`, and it is
+`chore:`, `docs:`, `ci:` and `refactor:` commits do not. `versionName` is `0.5.0`, and it is
 owned by semantic-release, so never edit it by hand. `versionCode` is derived from it by
 `scripts/version_code.sh`.
 
