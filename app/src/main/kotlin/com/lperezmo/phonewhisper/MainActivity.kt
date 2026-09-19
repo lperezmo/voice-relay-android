@@ -37,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cleanupModelSub: TextView
     private lateinit var promptRowSub: TextView
     private lateinit var cleanupContainer: LinearLayout
+    private lateinit var liveSwitch: MaterialSwitch
+    private lateinit var liveSub: TextView
     private lateinit var usageMonthSub: TextView
     private lateinit var usageTotalSub: TextView
     private lateinit var usage: UsageStore
@@ -84,6 +86,14 @@ class MainActivity : AppCompatActivity() {
         val keyRow = settingsRow("API key", "Tap to set") { promptApiKey() }
         keyRowSub = keyRow.findViewWithTag("subtitle")
         root.addView(keyRow)
+
+        liveSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val liveRow = settingsRow("Live transcription", "", liveSwitch) {
+            settings.liveTranscription = !settings.liveTranscription
+            refresh()
+        }
+        liveSub = liveRow.findViewWithTag("subtitle")
+        root.addView(liveRow)
 
         val transcribeRow = settingsRow("Transcription model", "") {
             pickModel("Transcription model", AppSettings.DEFAULT_TRANSCRIPTION_MODEL, OpenAiClient::transcriptionModels) {
@@ -174,7 +184,16 @@ class MainActivity : AppCompatActivity() {
             apiKey.length > 8 -> "${apiKey.take(3)}...${apiKey.takeLast(4)}"
             else -> "Set"
         }
-        transcribeModelSub.text = settings.transcriptionModel
+        liveSwitch.isChecked = settings.liveTranscription
+        liveSub.text = if (settings.liveTranscription) {
+            "On: streams while you talk with ${settings.liveModel} (about \$0.017/min), so text is ready " +
+                "right after you stop. Falls back to the upload below if the stream fails."
+        } else {
+            "Off: uploads the recording after you stop, using the model below. Turn on to stream while you talk."
+        }
+        transcribeModelSub.text = if (settings.liveTranscription) {
+            "${settings.transcriptionModel} (fallback and retries)"
+        } else settings.transcriptionModel
         languagesSub.text = settings.languages.joinToString(", ").ifEmpty { "Auto-detect" }
         vocabularySub.text = settings.vocabulary.joinToString(", ").ifEmpty { "Names and terms to spell exactly. Tap to add." }
         cleanupSwitch.isChecked = settings.cleanupEnabled

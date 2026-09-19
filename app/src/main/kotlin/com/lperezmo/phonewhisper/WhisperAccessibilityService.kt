@@ -61,6 +61,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MIN_CLIP_SECONDS = 0.3
         private const val MAX_SECONDS = 600
         private const val UNDO_WINDOW_MS = 5000L
+        private const val DRAFT_INTERVAL_MS = 250L
 
         private const val COLOR_IDLE = 0xDD1C1C1E.toInt()
         private const val COLOR_RECORDING = 0xDDEF4444.toInt()
@@ -76,6 +77,14 @@ class WhisperAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var work: Job? = null
     private var recorder: Recorder? = null
+    /** The live transcription stream for the current recording, in live mode. */
+    private var live: LiveTranscription? = null
+    /** Words typed into the field while talking (live mode), and what has been heard so far. */
+    private var draft: TextInjector.LiveDraft? = null
+    private var pendingDraft: TextInjector.LiveDraft? = null
+    private val partial = StringBuilder()
+    /** Field updates are batched: at most one every [DRAFT_INTERVAL_MS]. */
+    private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
 
@@ -141,6 +150,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         instance = null
         try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
         recorder?.stop()
+        live?.cancel()
         scope.cancel()
         removeOverlay()
         super.onDestroy()
@@ -153,7 +163,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             State.IDLE -> startRecording()
             State.RECORDING -> stopAndProcess()
             State.WORKING -> {}
-            State.RETRY -> pendingAudio?.let { process(it) } ?: setState(State.IDLE)
+            State.RETRY -> pendingAudio?.let { process(it, draft = pendingDraft) } ?: setState(State.IDLE)
         }
     }
 
@@ -162,6 +172,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             State.IDLE -> fixFocusedText()
             State.RETRY -> {
                 pendingAudio = null
+                pendingDraft = null
                 setState(State.IDLE)
                 showFeedback("Recording discarded")
             }
@@ -180,24 +191,50 @@ class WhisperAccessibilityService : AccessibilityService() {
             showFeedback("Unlock your phone to keep dictating (${lockLimits.maxRecordings} locked recordings used)", 3500)
             return
         }
-        val rec = Recorder(decision.maxSeconds, onLimit = {
-            handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) }
-        })
+        val session = if (settings.liveTranscription) {
+            LiveTranscription(
+                secrets.getApiKey(), settings.liveModel, settings.vocabulary, settings.languages,
+                log = { Log.i(TAG, it) },
+            ).also { it.start() }
+        } else null
+        val rec = Recorder(
+            decision.maxSeconds,
+            onLimit = { handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) } },
+            onChunk = session?.let { s -> { chunk, n -> s.append(chunk, n) } },
+        )
         try {
             rec.start()
         } catch (_: SecurityException) {
+            session?.cancel()
             showFeedback("Grant microphone access in Whisper LP", 3000)
             return
         } catch (e: IllegalStateException) {
+            session?.cancel()
             showFeedback(e.message ?: "Microphone unavailable", 3000)
             return
         }
         recorder = rec
+        live = session
         setState(State.RECORDING)
         injector.rememberFocus()
+        if (session != null) startLiveTyping(session)
         OpenAiClient(secrets.getApiKey()).prewarm()
         decision.remaining?.let { left ->
             showFeedback("Phone locked: stops after ${decision.maxSeconds / 60} min, $left more before you must unlock", 3000)
+        }
+    }
+
+    /** Types recognized words into the focused field as they arrive. */
+    private fun startLiveTyping(session: LiveTranscription) {
+        partial.clear()
+        pendingDraft = null
+        draft = injector.beginDraft()
+        Log.i(TAG, "Live typing: ${if (draft != null) "into the focused field" else "no editable field"}")
+        session.onDelta = { piece ->
+            handler.post {
+                partial.append(piece)
+                if (draft != null && !handler.hasCallbacks(draftTick)) handler.postDelayed(draftTick, DRAFT_INTERVAL_MS)
+            }
         }
     }
 
@@ -205,7 +242,16 @@ class WhisperAccessibilityService : AccessibilityService() {
         val rec = recorder
         val pcm = rec?.stop() ?: ByteArray(0)
         recorder = null
+        val session = live
+        live = null
+        val typed = draft
+        draft = null
+        handler.removeCallbacks(draftTick)
+        // Everything heard so far goes into the field now, before the final text.
+        typed?.update(partial.toString().trim())
         if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
+            typed?.update("")
+            session?.cancel()
             injector.forgetSnapshot()
             setState(State.IDLE)
             showFeedback("Too short, nothing sent")
@@ -215,18 +261,31 @@ class WhisperAccessibilityService : AccessibilityService() {
             showFeedback("Stopped at the ${rec.maxSeconds / 60} min limit, transcribing", 2500)
         }
         setState(State.WORKING)
-        scope.launch {
-            val seconds = Recorder.durationSeconds(pcm)
-            val audio = withContext(Dispatchers.Default) {
-                AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
-                    ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
-            }
-            Log.i(TAG, "Recorded %.1f s".format(seconds))
-            process(audio)
+        val seconds = Recorder.durationSeconds(pcm)
+        Log.i(TAG, "Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
+        if (session != null) {
+            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
+        } else {
+            scope.launch { process(withContext(Dispatchers.Default) { encode(pcm, seconds) }) }
         }
     }
 
-    private fun process(audio: OpenAiClient.Audio) {
+    private fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio =
+        AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
+            ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
+
+    /**
+     * Transcribe and clean up [audio]. With a [session] (live mode) the transcript
+     * comes from the live stream, and [pcm] is the fallback: if the live session
+     * fails, the same recording goes through the standard upload instead, and it is
+     * what a retry resends.
+     */
+    private fun process(
+        audio: OpenAiClient.Audio,
+        session: LiveTranscription? = null,
+        pcm: ByteArray? = null,
+        draft: TextInjector.LiveDraft? = null,
+    ) {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
             setState(State.IDLE)
@@ -234,48 +293,71 @@ class WhisperAccessibilityService : AccessibilityService() {
             return
         }
         setState(State.WORKING)
-        val pipeline = buildPipeline(OpenAiClient(apiKey))
+        val client = OpenAiClient(apiKey)
+        val standard = standardTranscriber(client)
+        var uploaded: OpenAiClient.Audio? = null
+        val transcriber = if (session == null || pcm == null) standard else DictationPipeline.Transcriber { clip ->
+            val result = session.finish()
+            if (result.error == null) {
+                usage.recordTranscription(settings.liveModel, clip.seconds)
+                result
+            } else {
+                Log.w(TAG, "Live transcription failed (${result.error}), using the standard upload")
+                encode(pcm, clip.seconds).also { uploaded = it }.let { standard.transcribe(it) }
+            }
+        }
+        val pipeline = buildPipeline(client, transcriber)
         work = scope.launch {
             val outcome = withContext(Dispatchers.IO) { pipeline.run(audio) }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
                     pendingAudio = null
+                    pendingDraft = null
                     setState(State.IDLE)
-                    deliver(outcome.text, outcome.note)
+                    deliver(outcome.text, outcome.note, draft)
                 }
                 DictationPipeline.Outcome.NoSpeech -> {
                     pendingAudio = null
+                    pendingDraft = null
+                    draft?.update("")
                     setState(State.IDLE)
                     showFeedback("No speech detected")
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     Log.w(TAG, "Transcription failed: ${outcome.error}")
-                    pendingAudio = audio
+                    pendingAudio = if (pcm == null) audio
+                        else uploaded ?: withContext(Dispatchers.Default) { encode(pcm, audio.seconds) }
+                    pendingDraft = draft
                     setState(State.RETRY)
-                    showFeedback("Failed: ${outcome.error.take(80)}\nTap to retry, hold to discard", 5000)
+                    val kept = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
+                    showFeedback("Failed: ${outcome.error.take(80)}$kept\nTap to retry, hold to discard", 6000)
                 }
             }
         }
     }
 
-    private fun buildPipeline(client: OpenAiClient): DictationPipeline {
+    private fun standardTranscriber(client: OpenAiClient): DictationPipeline.Transcriber {
         val vocabulary = settings.vocabulary
         val languages = settings.languages
-        val transcriptionModel = settings.transcriptionModel
+        val model = settings.transcriptionModel
+        return DictationPipeline.Transcriber { audio ->
+            client.transcribe(audio, model, vocabulary, languages).also {
+                // A clean response is billed even when it heard no speech.
+                if (it.error == null) usage.recordTranscription(model, audio.seconds)
+            }
+        }
+    }
+
+    private fun buildPipeline(client: OpenAiClient, transcriber: DictationPipeline.Transcriber): DictationPipeline {
         val cleaner = if (settings.cleanupEnabled) {
             val model = settings.cleanupModel
-            val instructions = Prompts.forRequest(settings.cleanupPrompt, vocabulary)
+            val instructions = Prompts.forRequest(settings.cleanupPrompt, settings.vocabulary)
             DictationPipeline.Cleaner { text ->
                 client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
             }
         } else null
         return DictationPipeline(
-            transcriber = { audio ->
-                client.transcribe(audio, transcriptionModel, vocabulary, languages).also {
-                    // A clean response is billed even when it heard no speech.
-                    if (it.error == null) usage.recordTranscription(transcriptionModel, audio.seconds)
-                }
-            },
+            transcriber = transcriber,
             cleaner = cleaner,
             log = { Log.i(TAG, "Dictation: $it") },
         )
@@ -327,7 +409,16 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private suspend fun deliver(text: String, note: String?) {
+    private suspend fun deliver(text: String, note: String?, draft: TextInjector.LiveDraft? = null) {
+        if (draft != null) {
+            // Live typing: swap the partial words for the final text in place.
+            if (draft.finish(text)) return offerUndo(note ?: "Inserted")
+            if (draft.typed > 0) {
+                // The field changed while dictating; inserting again would duplicate the words.
+                injector.copyToClipboard(text)
+                return showFeedback("The field changed while you were dictating, final text copied to clipboard", 3500)
+            }
+        }
         val message = when (injector.inject(text)) {
             TextInjector.Outcome.INSERTED -> return offerUndo(note ?: "Inserted")
             TextInjector.Outcome.PASTED -> note

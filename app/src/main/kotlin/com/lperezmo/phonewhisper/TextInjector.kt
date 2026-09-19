@@ -132,6 +132,65 @@ class TextInjector(private val service: AccessibilityService) {
         return if (pasted) Outcome.PASTED else Outcome.COPIED_FAILED
     }
 
+    // --- Live typing ---
+
+    /**
+     * Words typed into a field while the user is still talking (live mode). Each
+     * [update] rewrites the dictated span, and [finish] swaps in the final text.
+     * If the field changes under it (the user typed, the app reset it), the draft
+     * stops touching the field and whatever was typed so far stays there.
+     */
+    inner class LiveDraft internal constructor(
+        private val node: AccessibilityNodeInfo,
+        private val original: String,
+        private val selStart: Int,
+        private val selEnd: Int,
+    ) {
+        private var written = original
+        var active = true
+            private set
+        /** Characters of dictation currently in the field. */
+        var typed = 0
+            private set
+
+        fun update(text: String): Boolean {
+            if (!active) return false
+            node.refresh()
+            if (fieldText(node) != written) {
+                active = false
+                Log.i(TAG, "Live typing stopped: the field changed")
+                return false
+            }
+            val ins = insertAtSelection(original, selStart, selEnd, text)
+            if (!setTextAndCursor(node, ins.text, ins.cursor)) {
+                active = false
+                Log.i(TAG, "Live typing stopped: set-text refused")
+                return false
+            }
+            written = ins.text
+            typed = text.length
+            return true
+        }
+
+        /** Replaces the partial words with [text]; undo then restores the field as it was before dictating. */
+        fun finish(text: String): Boolean {
+            if (!update(text)) return false
+            active = false
+            lastEdit = Edit(node, original, written, selStart, selEnd)
+            return true
+        }
+    }
+
+    /** Starts live typing into the field that was focused when recording started, if it takes text. */
+    fun beginDraft(): LiveDraft? {
+        val node = startSnapshot?.node ?: return null
+        node.refresh()
+        if (!node.isEditable || node.isPassword) return null
+        val text = fieldText(node)
+        fun valid(i: Int) = if (i in 0..text.length) i else text.length
+        return LiveDraft(node, text, valid(node.textSelectionStart), valid(node.textSelectionEnd))
+    }
+
     // --- Undo ---
 
     /** The last change made to a field, kept so it can be reverted. */

@@ -13,6 +13,7 @@ object Pricing {
     /** USD per minute of audio. */
     private val transcriptionPerMinute = mapOf(
         "gpt-transcribe" to 0.0045,
+        "gpt-live-transcribe" to 0.017,
         "gpt-4o-transcribe" to 0.006,
         "gpt-4o-mini-transcribe" to 0.003,
         "whisper-1" to 0.006,
