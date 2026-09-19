@@ -162,6 +162,30 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `MainActivity.kt` | Settings screen |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |
 
+## Future plans
+
+Ideas, not commitments, roughly in order of usefulness:
+
+- **Undo:** restore the field to what it was before the last dictation or grammar fix.
+- **Per-dictation style:** pick a prompt on the fly (casual, formal email, shell command)
+  instead of only the default one in settings.
+- **Hide the button in chosen apps** (games, video, banking), or while no keyboard is open.
+- **Translate mode:** dictate in one language and insert another (for example Spanish in,
+  English out).
+- **Usage counter:** minutes transcribed and an estimated monthly cost.
+- **Live partial transcripts** for long dictation, using a streaming transcription model.
+- **Google Play (internal testing):** the accessibility disclosure is already in place; this
+  still needs Play's accessibility permission declaration and review.
+
+Known limitations:
+
+- Needs an internet connection and an OpenAI API key; there is no offline mode.
+- Apps with custom text surfaces may not accept inserted text; the clipboard is the fallback.
+- Installing a build signed with a different key requires uninstalling first, which resets
+  settings and the stored key.
+
+See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
