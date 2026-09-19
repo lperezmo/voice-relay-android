@@ -33,6 +33,8 @@ class LiveTranscription(
     private val url: String = URL,
     private val log: (String) -> Unit = {},
 ) {
+    /** Receives transcript pieces as they are recognized, on the socket thread. */
+    @Volatile var onDelta: ((String) -> Unit)? = null
     private var socket: WebSocket? = null
     private val resampler = Resampler(Recorder.SAMPLE_RATE, API_RATE)
     private val pending = ByteArrayOutputStream()
@@ -105,6 +107,8 @@ class LiveTranscription(
                 when (event.optString("type")) {
                     "error" -> fail(event.optJSONObject("error")?.optString("message") ?: "Live transcription error")
                     "input_audio_buffer.committed" -> committedItems += event.optString("item_id")
+                    "conversation.item.input_audio_transcription.delta" ->
+                        event.optString("delta").takeIf { it.isNotEmpty() }?.let { onDelta?.invoke(it) }
                     "conversation.item.input_audio_transcription.completed" ->
                         transcripts[event.optString("item_id")] = event.optString("transcript")
                     "conversation.item.input_audio_transcription.failed" ->

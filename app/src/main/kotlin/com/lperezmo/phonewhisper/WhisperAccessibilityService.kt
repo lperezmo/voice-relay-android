@@ -61,6 +61,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MIN_CLIP_SECONDS = 0.3
         private const val MAX_SECONDS = 600
         private const val UNDO_WINDOW_MS = 5000L
+        private const val DRAFT_INTERVAL_MS = 250L
 
         private const val COLOR_IDLE = 0xDD1C1C1E.toInt()
         private const val COLOR_RECORDING = 0xDDEF4444.toInt()
@@ -78,6 +79,12 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var recorder: Recorder? = null
     /** The live transcription stream for the current recording, in live mode. */
     private var live: LiveTranscription? = null
+    /** Words typed into the field while talking (live mode), and what has been heard so far. */
+    private var draft: TextInjector.LiveDraft? = null
+    private var pendingDraft: TextInjector.LiveDraft? = null
+    private val partial = StringBuilder()
+    /** Field updates are batched: at most one every [DRAFT_INTERVAL_MS]. */
+    private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
 
@@ -156,7 +163,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             State.IDLE -> startRecording()
             State.RECORDING -> stopAndProcess()
             State.WORKING -> {}
-            State.RETRY -> pendingAudio?.let { process(it) } ?: setState(State.IDLE)
+            State.RETRY -> pendingAudio?.let { process(it, draft = pendingDraft) } ?: setState(State.IDLE)
         }
     }
 
@@ -165,6 +172,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             State.IDLE -> fixFocusedText()
             State.RETRY -> {
                 pendingAudio = null
+                pendingDraft = null
                 setState(State.IDLE)
                 showFeedback("Recording discarded")
             }
@@ -209,9 +217,24 @@ class WhisperAccessibilityService : AccessibilityService() {
         live = session
         setState(State.RECORDING)
         injector.rememberFocus()
+        if (session != null) startLiveTyping(session)
         OpenAiClient(secrets.getApiKey()).prewarm()
         decision.remaining?.let { left ->
             showFeedback("Phone locked: stops after ${decision.maxSeconds / 60} min, $left more before you must unlock", 3000)
+        }
+    }
+
+    /** Types recognized words into the focused field as they arrive. */
+    private fun startLiveTyping(session: LiveTranscription) {
+        partial.clear()
+        pendingDraft = null
+        draft = injector.beginDraft()
+        Log.i(TAG, "Live typing: ${if (draft != null) "into the focused field" else "no editable field"}")
+        session.onDelta = { piece ->
+            handler.post {
+                partial.append(piece)
+                if (draft != null && !handler.hasCallbacks(draftTick)) handler.postDelayed(draftTick, DRAFT_INTERVAL_MS)
+            }
         }
     }
 
@@ -221,7 +244,13 @@ class WhisperAccessibilityService : AccessibilityService() {
         recorder = null
         val session = live
         live = null
+        val typed = draft
+        draft = null
+        handler.removeCallbacks(draftTick)
+        // Everything heard so far goes into the field now, before the final text.
+        typed?.update(partial.toString().trim())
         if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
+            typed?.update("")
             session?.cancel()
             injector.forgetSnapshot()
             setState(State.IDLE)
@@ -235,7 +264,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         val seconds = Recorder.durationSeconds(pcm)
         Log.i(TAG, "Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
         if (session != null) {
-            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm)
+            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
         } else {
             scope.launch { process(withContext(Dispatchers.Default) { encode(pcm, seconds) }) }
         }
@@ -251,7 +280,12 @@ class WhisperAccessibilityService : AccessibilityService() {
      * fails, the same recording goes through the standard upload instead, and it is
      * what a retry resends.
      */
-    private fun process(audio: OpenAiClient.Audio, session: LiveTranscription? = null, pcm: ByteArray? = null) {
+    private fun process(
+        audio: OpenAiClient.Audio,
+        session: LiveTranscription? = null,
+        pcm: ByteArray? = null,
+        draft: TextInjector.LiveDraft? = null,
+    ) {
         val apiKey = secrets.getApiKey()
         if (apiKey.isBlank()) {
             setState(State.IDLE)
@@ -278,11 +312,14 @@ class WhisperAccessibilityService : AccessibilityService() {
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
                     pendingAudio = null
+                    pendingDraft = null
                     setState(State.IDLE)
-                    deliver(outcome.text, outcome.note)
+                    deliver(outcome.text, outcome.note, draft)
                 }
                 DictationPipeline.Outcome.NoSpeech -> {
                     pendingAudio = null
+                    pendingDraft = null
+                    draft?.update("")
                     setState(State.IDLE)
                     showFeedback("No speech detected")
                 }
@@ -290,8 +327,10 @@ class WhisperAccessibilityService : AccessibilityService() {
                     Log.w(TAG, "Transcription failed: ${outcome.error}")
                     pendingAudio = if (pcm == null) audio
                         else uploaded ?: withContext(Dispatchers.Default) { encode(pcm, audio.seconds) }
+                    pendingDraft = draft
                     setState(State.RETRY)
-                    showFeedback("Failed: ${outcome.error.take(80)}\nTap to retry, hold to discard", 5000)
+                    val kept = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
+                    showFeedback("Failed: ${outcome.error.take(80)}$kept\nTap to retry, hold to discard", 6000)
                 }
             }
         }
@@ -370,7 +409,16 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private suspend fun deliver(text: String, note: String?) {
+    private suspend fun deliver(text: String, note: String?, draft: TextInjector.LiveDraft? = null) {
+        if (draft != null) {
+            // Live typing: swap the partial words for the final text in place.
+            if (draft.finish(text)) return offerUndo(note ?: "Inserted")
+            if (draft.typed > 0) {
+                // The field changed while dictating; inserting again would duplicate the words.
+                injector.copyToClipboard(text)
+                return showFeedback("The field changed while you were dictating, final text copied to clipboard", 3500)
+            }
+        }
         val message = when (injector.inject(text)) {
             TextInjector.Outcome.INSERTED -> return offerUndo(note ?: "Inserted")
             TextInjector.Outcome.PASTED -> note
