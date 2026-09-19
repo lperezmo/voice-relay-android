@@ -1,0 +1,74 @@
+package com.lperezmo.phonewhisper
+
+import android.annotation.SuppressLint
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 16 kHz mono PCM16 microphone capture on a background thread.
+ *
+ * Capped at [maxSeconds]; when the cap is reached, [onLimit] fires on the
+ * capture thread and the caller is expected to stop.
+ */
+class Recorder(private val maxSeconds: Int = 600, private val onLimit: () -> Unit = {}) {
+    private val running = AtomicBoolean(false)
+    private var record: AudioRecord? = null
+    private var thread: Thread? = null
+    private var buffer = ByteArrayOutputStream()
+
+    /** Starts capture. Throws SecurityException without RECORD_AUDIO, IllegalStateException if the mic is unavailable. */
+    @SuppressLint("MissingPermission")
+    fun start() {
+        check(!running.get()) { "already recording" }
+        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val rec = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuf * 2
+        )
+        if (rec.state != AudioRecord.STATE_INITIALIZED) {
+            rec.release()
+            throw IllegalStateException("Microphone unavailable")
+        }
+        buffer = ByteArrayOutputStream()
+        record = rec
+        running.set(true)
+        rec.startRecording()
+        val maxBytes = maxSeconds * SAMPLE_RATE * 2
+        val out = buffer
+        thread = Thread({
+            val chunk = ByteArray(minBuf)
+            while (running.get()) {
+                val n = rec.read(chunk, 0, chunk.size)
+                if (n > 0) out.write(chunk, 0, n)
+                if (out.size() >= maxBytes) {
+                    onLimit()
+                    break
+                }
+            }
+        }, "PhoneWhisper-mic").apply { start() }
+    }
+
+    /** Stops capture and returns the PCM captured so far. */
+    fun stop(): ByteArray {
+        running.set(false)
+        thread?.join(1000)
+        thread = null
+        record?.run {
+            try { stop() } catch (_: IllegalStateException) {}
+            release()
+        }
+        record = null
+        return buffer.toByteArray()
+    }
+
+    val isRecording get() = running.get()
+
+    companion object {
+        const val SAMPLE_RATE = 16000
+
+        fun durationSeconds(pcm: ByteArray) = pcm.size / (SAMPLE_RATE * 2.0)
+    }
+}
