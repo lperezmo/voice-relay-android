@@ -125,9 +125,11 @@ jobs:
         with:
           name: phone-whisper-android-v${{ steps.version.outputs.name }}
           path: dist/*
-          # Releases keep their APK on the GitHub release, so the Actions copy
-          # only needs to outlive a PR review.
-          retention-days: 14
+          # Artifacts count against the account's Actions storage quota.
+          # Releases keep their APK on the GitHub release (release assets do
+          # not count), and the release job below deletes this copy once the
+          # APK is attached, so the short retention only matters for PR builds.
+          retention-days: 3
 
   release:
     if: ${{ inputs.publish == true }}
@@ -135,6 +137,7 @@ jobs:
     needs: build
     permissions:
       contents: write
+      actions: write # delete the artifact once it is attached to the release
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -149,3 +152,8 @@ jobs:
         with:
           tag_name: v${{ needs.build.outputs.version_name }}
           files: dist/phone-whisper-android-v${{ needs.build.outputs.version_name }}.apk
+
+      - name: Delete the Actions copy of the APK
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: phone-whisper-android-v${{ needs.build.outputs.version_name }}
