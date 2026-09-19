@@ -4,9 +4,9 @@ build/
 local.properties
 .env
 *.apk
-app/src/main/jniLibs/
 signing.properties
 .signing/
 *.jks
 *.keystore
 *.aab
+node_modules/

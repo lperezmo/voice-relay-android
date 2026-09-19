@@ -16,11 +16,8 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -30,18 +27,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keyRowSub: TextView
     private lateinit var promptRowSub: TextView
     private lateinit var promptRow: LinearLayout
-    private lateinit var modelContainer: LinearLayout
     private lateinit var promptContainer: LinearLayout
 
-    private val modelRows = mutableMapOf<String, ModelRowViews>()
     private val promptRows = mutableMapOf<String, PromptRowViews>()
-
-    private data class ModelRowViews(
-        val radio: MaterialRadioButton,
-        val progress: LinearProgressIndicator,
-        val subtitle: TextView,
-        val dlBtn: MaterialButton
-    )
 
     private data class PromptRowViews(
         val radio: MaterialRadioButton,
@@ -82,28 +70,6 @@ class MainActivity : AppCompatActivity() {
         }
         accRowSub = accRow.findViewWithTag("subtitle")
         root.addView(accRow)
-
-        // --- Engine Section ---
-        
-        val isCloud = !prefs().getBoolean("use_local", true)
-        
-        val cloudSwitch = MaterialSwitch(this).apply {
-            isChecked = isCloud
-            isClickable = false
-        }
-        val cloudRow = settingsRow("Use cloud transcription", "Requires OpenAI API key", cloudSwitch) {
-            val newCloud = !cloudSwitch.isChecked
-            prefs().edit().putBoolean("use_local", !newCloud).apply()
-            cloudSwitch.isChecked = newCloud
-            refresh()
-        }
-        root.addView(cloudRow)
-
-        // Local Models section
-        modelContainer = vertical(0)
-        modelContainer.addView(sectionHeader("Local models"))
-        for (m in MODEL_CATALOG) modelContainer.addView(buildModelRow(m))
-        root.addView(modelContainer)
 
         // --- Post-Processing Section ---
         root.addView(sectionHeader("Post-Processing"))
@@ -155,113 +121,6 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(c, p, r); refresh()
     }
 
-    // --- Model Rows ---
-
-    private fun buildModelRow(model: Model): View {
-        val radio = MaterialRadioButton(this).apply {
-            isClickable = false
-            buttonTintList = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorPrimary))
-        }
-        val dlBtn = MaterialButton(this, null, com.google.android.material.R.attr.materialIconButtonStyle).apply {
-            text = "↓"
-            textSize = 18f
-            setTextColor(attrColor(com.google.android.material.R.attr.colorPrimary))
-        }
-        
-        val progress = LinearProgressIndicator(this).apply {
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(LP_MATCH, dp(4)).apply {
-                topMargin = dp(8)
-            }
-        }
-
-        val rightContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(dlBtn)
-            addView(radio)
-        }
-
-        val row = settingsRow(
-            if (model.recommended) model.name else model.name,
-            "${model.quality} · ${model.sizeMb} MB",
-            rightContainer
-        ) {
-            onModelAction(model)
-        }
-        
-        val textContainer = row.getChildAt(0) as LinearLayout
-        textContainer.addView(progress)
-        
-        modelRows[model.archive] = ModelRowViews(
-            radio, progress, textContainer.findViewWithTag("subtitle"), dlBtn
-        )
-        refreshCard(model)
-        
-        return row
-    }
-
-    private fun onModelAction(model: Model) {
-        val views = modelRows[model.archive] ?: return
-
-        if (ModelDownloader.isInstalled(this, model)) {
-            selectModel(model.archive)
-            return
-        }
-
-        views.dlBtn.isEnabled = false
-        views.progress.visibility = View.VISIBLE
-        views.progress.isIndeterminate = false
-        views.subtitle.text = "Starting download..."
-
-        ModelDownloader.download(this, model) { state ->
-            runOnUiThread {
-                when (state) {
-                    is DownloadState.Downloading -> {
-                        views.progress.progress = (state.progress * 100).toInt()
-                        views.subtitle.text = "Downloading: ${(state.progress * 100).toInt()}%"
-                    }
-                    is DownloadState.Extracting -> {
-                        views.progress.isIndeterminate = true
-                        views.subtitle.text = "Extracting..."
-                    }
-                    is DownloadState.Done -> {
-                        views.progress.visibility = View.GONE
-                        selectModel(model.archive)
-                        toast("${model.name} ready!")
-                    }
-                    is DownloadState.Error -> {
-                        views.progress.visibility = View.GONE
-                        views.subtitle.text = "Error: ${state.message}"
-                        views.dlBtn.isEnabled = true
-                    }
-                }
-            }
-        }
-    }
-
-    private fun selectModel(archive: String) {
-        prefs().edit().putString("model_name", archive).apply()
-        WhisperAccessibilityService.instance?.reloadModel()
-        refreshAllCards(); refresh()
-    }
-
-    private fun refreshCard(model: Model) {
-        val views = modelRows[model.archive] ?: return
-        val active = prefs().getString("model_name", "") == model.archive
-        val installed = ModelDownloader.isInstalled(this, model)
-        
-        views.radio.isChecked = active
-        views.radio.visibility = if (installed) View.VISIBLE else View.GONE
-        views.dlBtn.visibility = if (installed) View.GONE else View.VISIBLE
-        
-        if (views.progress.visibility == View.GONE) {
-            views.subtitle.text = "${model.quality} · ${model.sizeMb} MB"
-        }
-    }
-
-    private fun refreshAllCards() = MODEL_CATALOG.forEach { refreshCard(it) }
-
     // --- Prompt Rows ---
 
     private fun buildPromptRow(preset: PromptPreset): View {
@@ -306,15 +165,12 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         val audio = hasPerm(Manifest.permission.RECORD_AUDIO)
         val acc = WhisperAccessibilityService.instance != null
-        val useLocal = prefs().getBoolean("use_local", true)
         val usePostProcessing = prefs().getBoolean("use_post_processing", false)
         val hasKey = !prefs().getString("api_key", "").isNullOrBlank()
-        val hasModel = LocalTranscriber.availableModels(this).isNotEmpty()
 
         audioRowSub.text = if (audio) "Granted" else "Tap to grant permission"
         accRowSub.text = if (acc) "Enabled" else "Tap to enable in settings"
 
-        modelContainer.visibility = if (useLocal) View.VISIBLE else View.GONE
         promptContainer.visibility = if (usePostProcessing) View.VISIBLE else View.GONE
         promptRow.visibility = if (usePostProcessing) View.VISIBLE else View.GONE
 
@@ -326,22 +182,15 @@ class MainActivity : AppCompatActivity() {
         val prompt = currentPrompt()
         promptRowSub.text = prompt
 
-        val cur = prefs().getString("model_name", "") ?: ""
-        if (cur.isBlank() || !File(filesDir, "models/$cur").exists()) {
-            MODEL_CATALOG.firstOrNull { ModelDownloader.isInstalled(this, it) }
-                ?.let { selectModel(it.archive) }
+        val ready = audio && acc && hasKey
+
+        statusSubtitle.text = when {
+            ready -> "Ready. Tap the overlay button to dictate."
+            !hasKey -> "Set your OpenAI API key to start"
+            else -> "Setup required"
         }
-
-        // Ready logic
-        val localReady = useLocal && hasModel
-        val cloudReady = !useLocal && hasKey
-        val postReady = !usePostProcessing || hasKey
-        val ready = audio && acc && (localReady || cloudReady) && postReady
-
-        statusSubtitle.text = if (ready) "Ready — tap the overlay dot to dictate" else "Setup required"
         statusSubtitle.setTextColor(if (ready) attrColor(com.google.android.material.R.attr.colorPrimary) else attrColor(android.R.attr.textColorSecondary))
-        
-        refreshAllCards()
+
         refreshPromptRows()
     }
 

@@ -11,11 +11,12 @@ Push-to-talk dictation for Android, based on
 Tap the floating button, speak, tap again, and the text is inserted into the currently
 focused text field, without switching away from your keyboard.
 
-It supports:
+It uses your own OpenAI API key for:
 
-- **Local on-device transcription** with sherpa-onnx
-- **Cloud transcription** with OpenAI
-- **Optional cleanup** with OpenAI to fix punctuation and grammar
+- **Transcription** of your recording
+- **Optional cleanup** of the transcript to fix punctuation and grammar
+
+There is no on-device speech model; the app needs an internet connection to transcribe.
 
 ## Install
 
@@ -30,27 +31,20 @@ adb install -r phone-whisper-android-vX.Y.Z.apk
 ## Building locally (Windows)
 
 Requirements: JDK 21, the Android SDK command-line tools with `platforms;android-36` and
-`build-tools;36.0.0`, and Python for the helper scripts.
+`build-tools;36.0.0`, and Python for `scripts/make_keystore.py`.
 
 ```bash
 echo 'sdk.dir=D:/Android/Sdk' > local.properties   # your SDK path
-bash scripts/fetch_sherpa.sh                        # pinned sherpa-onnx native libs
 python scripts/make_keystore.py                     # once; skip if signing.properties exists
 ./gradlew.bat assembleRelease testReleaseUnitTest
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-`scripts/fetch_sherpa.sh` downloads the sherpa-onnx Android libraries for the pinned version,
-verifies the archive's SHA-256, copies only `libsherpa-onnx-jni.so` and `libonnxruntime.so`
-into `app/src/main/jniLibs/arm64-v8a/` (gitignored), and reports their 16 KB page alignment.
-The vendored Kotlin bindings in `app/src/main/kotlin/com/k2fsa/sherpa/onnx/` must match that
-version.
-
 ### Signing
 
 Release builds are signed with one keystore everywhere. Android only upgrades an installed
 app when the new APK has the same signing key, so a build signed with a different key must be
-uninstalled first, which deletes its settings and downloaded models.
+uninstalled first, which deletes its settings.
 
 - Locally, `app/build.gradle.kts` reads the gitignored `signing.properties` written by
   `scripts/make_keystore.py` (keystore at `.signing/release.jks`).
@@ -59,12 +53,21 @@ uninstalled first, which deletes its settings and downloaded models.
 
 Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
 
+## Releases
+
+CI builds an unsigned APK for every pull request (`.github/workflows/android-build.yml`).
+Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
+`fix:` commit cuts a version, tags it, and attaches the signed APK to the GitHub release;
+`chore:`, `docs:`, `ci:` and `refactor:` commits do not. `versionName` is `0.4.0`, and it is
+owned by semantic-release, so never edit it by hand. `versionCode` is derived from it by
+`scripts/version_code.sh`, so every release upgrades in place over the previous one.
+
 ## How it works
 
 1. A small overlay button floats on screen
 2. Tap once to start recording
 3. Tap again to stop
-4. Audio is transcribed locally or in the cloud
+4. Audio is sent to OpenAI for transcription
 5. The text is inserted into the focused text field
 6. If insertion fails, the text is copied to the clipboard
 
@@ -75,9 +78,7 @@ Back up `.signing/release.jks` and `signing.properties`; losing them means reins
 1. Open **Phone Whisper**
 2. Grant the **audio recording** permission
 3. Enable the **Accessibility Service**
-4. Choose your transcription mode:
-   - **Local**: download a model in the app
-   - **Cloud**: paste your OpenAI API key
+4. Paste your **OpenAI API key** (a dedicated key with a spend cap is a good idea)
 
 Once setup is done, the floating button is ready.
 
@@ -89,34 +90,12 @@ It does **not** replace your keyboard. It does **not** run background automation
 
 ## Privacy
 
-Phone Whisper supports two modes:
+- **Transcription**: recorded audio is sent directly from your device to OpenAI's transcription API
+- **Optional cleanup**: transcript text is sent directly from your device to OpenAI
 
-- **Local mode**: audio stays on-device
-- **Cloud mode**: audio is sent directly from your device to OpenAI's transcription API
-- **Optional cleanup**: transcript text is sent directly from your device to OpenAI's chat API
-
-I don't run a backend for this app. In cloud mode, requests go straight from your phone to OpenAI using your own API key.
+There is no backend for this app. Requests go straight from your phone to OpenAI using your own API key.
 
 Full policy: [PRIVACY.md](PRIVACY.md)
-
-## Local models
-
-Models are stored in app storage under:
-
-```bash
-/data/data/com.lperezmo.phonewhisper/files/models/
-```
-
-Current catalog:
-
-| Model | Size | Notes |
-|---|---:|---|
-| Parakeet 110M | 100 MB | Best default |
-| Whisper Base | 199 MB | Solid baseline |
-| Parakeet 0.6B | 465 MB | Best quality |
-| Moonshine Tiny | 103 MB | Fastest |
-
-The app downloads and extracts models directly from the sherpa-onnx release archives.
 
 ## App compatibility
 
@@ -142,8 +121,7 @@ Once text is inserted into the native input box, Termux sends it to the terminal
 - Accessibility permission is required for cross-app insertion
 - Some apps may block paste or text injection
 - Some apps use custom input surfaces instead of standard Android text fields
-- Local models are large
-- Cloud mode requires your own OpenAI API key
+- Requires an internet connection and your own OpenAI API key
 
 ## License
 

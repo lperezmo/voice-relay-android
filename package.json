@@ -1,0 +1,11 @@
+{
+  "name": "phone-whisper-android-release",
+  "private": true,
+  "description": "semantic-release tooling only. The Android app itself has no Node dependencies; this file exists so CI can install the release plugins reproducibly.",
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "semantic-release": "^24.2.0"
+  }
+}

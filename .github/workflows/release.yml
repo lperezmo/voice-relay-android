@@ -1,0 +1,81 @@
+# The whole release path, in one run: semantic-release decides the version from
+# the conventional commits on main, tags it and writes the GitHub release; the
+# build job then builds that tag and attaches the signed APK.
+#
+# It is one workflow calling the other rather than two workflows chained on a
+# tag event: a tag created with GITHUB_TOKEN does not start another workflow
+# run, so an event-chained pipeline would silently stop after semantic-release.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The called workflow declares its own, narrower permissions. A caller can only
+# hand down the same or less, so the write scopes semantic-release and the
+# release upload need are granted here.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  semantic-release:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.release.outputs.published }}
+      version: ${{ steps.release.outputs.version }}
+      version_code: ${{ steps.release.outputs.version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install semantic-release
+        run: npm install --no-audit --no-fund
+
+      # Writes the version into app/build.gradle.kts and README.md
+      # (scripts/set_version.sh), commits it with CHANGELOG.md, tags
+      # v<version>, publishes the GitHub release, and reports back through
+      # scripts/release_outputs.sh. Outputs stay empty when the commits since
+      # the last release do not warrant one, which skips the build below.
+      - name: Run semantic-release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: Summarize
+        env:
+          PUBLISHED: ${{ steps.release.outputs.published }}
+          VERSION: ${{ steps.release.outputs.version }}
+          VERSION_CODE: ${{ steps.release.outputs.version_code }}
+        run: |
+          if [ "$PUBLISHED" = "true" ]; then
+            echo "Released v${VERSION} (versionCode ${VERSION_CODE})." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: nothing since the last tag warrants a version bump." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build:
+    needs: semantic-release
+    if: needs.semantic-release.outputs.published == 'true'
+    uses: ./.github/workflows/android-build.yml
+    with:
+      ref: v${{ needs.semantic-release.outputs.version }}
+      version_name: ${{ needs.semantic-release.outputs.version }}
+      version_code: ${{ needs.semantic-release.outputs.version_code }}
+      publish: true
+    secrets: inherit
