@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -57,7 +58,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MARGIN_DP = 8
         private const val TAP_THRESHOLD_DP = 10
         private const val RING_DP = 56
-        private const val FEEDBACK_OFFSET_DP = 64
+        private const val FB_RADIUS_DP = 16f
+        private const val FB_CHIP_RADIUS_DP = 18f
         private const val MIN_CLIP_SECONDS = 0.3
         private const val MAX_SECONDS = 600
         private const val UNDO_WINDOW_MS = 5000L
@@ -72,6 +74,9 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     private enum class State { IDLE, RECORDING, WORKING, RETRY }
+
+    /** How the feedback bubble is drawn: a notice that can wrap, or a tappable chip. */
+    private enum class Fb { NOTICE, ACTION }
 
     private var state = State.IDLE
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -108,6 +113,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var button: ImageView? = null
     private var spinner: ProgressBar? = null
     private var feedbackView: TextView? = null
+    private var undoArrowDrawable: Drawable? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -428,10 +434,10 @@ class WhisperAccessibilityService : AccessibilityService() {
         message?.let { showFeedback(it, 2500) }
     }
 
-    /** Shows [message] with a tap-to-undo for a few seconds after text lands in a field. */
+    /** Shows [message] as a chip you can tap to undo, for a few seconds after text lands. */
     private fun offerUndo(message: String) {
         if (!injector.canUndo) return showFeedback(message)
-        showFeedback("$message. Tap here to undo", UNDO_WINDOW_MS) {
+        showFeedback(message, UNDO_WINDOW_MS, Fb.ACTION) {
             when (injector.undo()) {
                 TextInjector.UndoResult.UNDONE -> showFeedback("Undone")
                 TextInjector.UndoResult.CHANGED_SINCE -> showFeedback("The text changed since, nothing undone", 2500)
@@ -548,12 +554,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         val feedback = TextView(this).apply {
             textSize = 13f
             setTextColor(0xFFFFFFFF.toInt())
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            background = pill(COLOR_FEEDBACK_BG)
             maxWidth = (260 * dp).toInt()
             alpha = 0f
             visibility = View.GONE
         }
+        applyFeedbackStyle(feedback, Fb.NOTICE)
 
         val feedbackParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -564,6 +569,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
         }
+        feedbackView = feedback
         positionFeedback(feedbackParams, params)
 
         wm.addView(overlay, params)
@@ -571,7 +577,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         overlayView = overlay
         button = img
         spinner = ring
-        feedbackView = feedback
         layoutParams = params
         feedbackLayoutParams = feedbackParams
     }
@@ -590,33 +595,76 @@ class WhisperAccessibilityService : AccessibilityService() {
         shape = GradientDrawable.OVAL; setColor(color)
     }
 
-    private fun pill(color: Int) = GradientDrawable().apply {
+    private fun pill(color: Int, radiusDp: Float = FB_RADIUS_DP) = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = 16 * dp
+        cornerRadius = radiusDp * dp
         setColor(color)
     }
 
+    /**
+     * Puts the bubble beside the button, on whichever side has room, centered on
+     * it. The bubble is measured first, so a short chip sits right next to the
+     * button instead of starting at a fixed offset and running under it.
+     */
     private fun positionFeedback(
         feedbackParams: WindowManager.LayoutParams,
         bubbleParams: WindowManager.LayoutParams
     ) {
+        val view = feedbackView ?: return
         val margin = (MARGIN_DP * dp).toInt()
-        val offset = (FEEDBACK_OFFSET_DP * dp).toInt()
-        feedbackParams.x = maxOf(margin, bubbleParams.x - offset)
-        feedbackParams.y = maxOf(margin, bubbleParams.y - margin)
+        val ring = (RING_DP * dp).toInt()
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(screenW - 2 * margin, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val w = view.measuredWidth
+        val h = view.measuredHeight
+        val onRight = bubbleParams.x + ring / 2 > screenW / 2
+        val x = if (onRight) bubbleParams.x - w - margin else bubbleParams.x + ring + margin
+        feedbackParams.x = x.coerceIn(margin, maxOf(margin, screenW - w - margin))
+        feedbackParams.y = (bubbleParams.y + (ring - h) / 2)
+            .coerceIn(margin, maxOf(margin, screenH - h - margin))
     }
+
+    /** Chip for a tappable offer, rounded box for a notice that can wrap. */
+    private fun applyFeedbackStyle(view: TextView, style: Fb) {
+        val action = style == Fb.ACTION
+        val v = (8 * dp).toInt()
+        val start = ((if (action) 14 else 12) * dp).toInt()
+        val end = ((if (action) 12 else 12) * dp).toInt()
+        view.setPadding(start, v, end, v)
+        view.background = pill(COLOR_FEEDBACK_BG, if (action) FB_CHIP_RADIUS_DP else FB_RADIUS_DP)
+        view.maxLines = if (action) 1 else Int.MAX_VALUE
+        view.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            null, null, if (action) undoArrow() else null, null
+        )
+        view.compoundDrawablePadding = (10 * dp).toInt()
+    }
+
+    private fun undoArrow(): Drawable? =
+        undoArrowDrawable ?: ContextCompat.getDrawable(this, R.drawable.ic_undo_chip)
+            ?.also { undoArrowDrawable = it }
 
     /**
      * Shows a message next to the button. With [onClick] the bubble takes touches
      * until it hides; otherwise touches pass through it to the app underneath.
+     * [Fb.ACTION] draws it as a one-line chip ending in an undo arrow, so the
+     * offer reads as a button; notices keep the rounded box, which can wrap.
      */
-    private fun showFeedback(text: String, durationMs: Long = 2000, onClick: (() -> Unit)? = null) {
+    private fun showFeedback(
+        text: String,
+        durationMs: Long = 2000,
+        style: Fb = Fb.NOTICE,
+        onClick: (() -> Unit)? = null,
+    ) {
         val view = feedbackView ?: return
         val bubbleParams = layoutParams ?: return
         val feedbackParams = feedbackLayoutParams ?: return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
         view.text = text
+        applyFeedbackStyle(view, style)
+        view.contentDescription = if (style == Fb.ACTION) "$text, tap to undo" else null
         setFeedbackTouchable(feedbackParams, onClick != null)
         view.setOnClickListener(onClick?.let { action ->
             View.OnClickListener {

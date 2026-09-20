@@ -25,7 +25,7 @@ There is no on-device speech model: the app needs an internet connection.
 | **Tap** (amber, after a failure) | Retry the same recording. Nothing is lost on a network error. |
 | **Long-press** (amber) | Discard the failed recording. |
 | **Drag** | Move the button; it snaps to the nearest edge. |
-| **Tap "Tap here to undo"** | Shown for 5 seconds after text is inserted or fixed. Puts the field back as it was, unless you have edited it since. |
+| **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |
 
 Where the text goes:
 
