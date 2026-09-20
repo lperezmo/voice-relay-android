@@ -113,6 +113,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var button: ImageView? = null
     private var spinner: ProgressBar? = null
     private var feedbackView: TextView? = null
+    private var joystickView: JoystickView? = null
+    private var joystickParams: WindowManager.LayoutParams? = null
     private var undoArrowDrawable: Drawable? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
@@ -145,6 +147,71 @@ class WhisperAccessibilityService : AccessibilityService() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         showOverlay()
+        refreshJoystick()
+    }
+
+    // --- Arrow joystick ---
+
+    /** Shows or hides the arrow pad to match the setting. Safe to call at any time. */
+    fun refreshJoystick() {
+        if (settings.joystickEnabled) showJoystick() else hideJoystick()
+    }
+
+    private fun showJoystick() {
+        if (joystickView != null) return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val size = (JoystickView.SIZE_DP * dp).toInt()
+        val margin = (MARGIN_DP * dp).toInt()
+        val params = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = settings.joystickX.takeIf { it >= 0 } ?: margin
+            y = settings.joystickY.takeIf { it >= 0 } ?: (screenH * 2 / 3)
+        }
+        val view = JoystickView(this).apply {
+            onStep = { key -> sendArrow(key) }
+            onDrag = { dx, dy ->
+                params.x = (params.x + dx).coerceIn(0, maxOf(0, screenW - size))
+                params.y = (params.y + dy).coerceIn(0, maxOf(0, screenH - size))
+                wm.updateViewLayout(this, params)
+            }
+            onDragEnd = {
+                settings.joystickX = params.x
+                settings.joystickY = params.y
+            }
+            onPicker = { showKeyboardPicker() }
+        }
+        wm.addView(view, params)
+        joystickView = view
+        joystickParams = params
+    }
+
+    private fun hideJoystick() {
+        val view = joystickView ?: return
+        (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
+        joystickView = null
+        joystickParams = null
+    }
+
+    /**
+     * Arrow keys only reach other apps through a keyboard, so they go to
+     * [KeysInputMethodService] when it is the selected one. Otherwise the caret
+     * is moved through accessibility, which works in ordinary text fields but
+     * not in a remote desktop session.
+     */
+    private fun sendArrow(keyCode: Int) {
+        if (KeysInputMethodService.send(keyCode)) return
+        if (injector.moveCaret(keyCode)) return
+        showFeedback("Switch to the Whisper LP arrows keyboard (long-press the pad)", 2500)
+    }
+
+    private fun showKeyboardPicker() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        imm.showInputMethodPicker()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -158,6 +225,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         recorder?.stop()
         live?.cancel()
         scope.cancel()
+        hideJoystick()
         removeOverlay()
         super.onDestroy()
     }

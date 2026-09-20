@@ -3,4 +3,5 @@
     <string name="app_name">Whisper LP</string>
     <string name="accessibility_description">Dictation: records audio, transcribes, and inserts text into focused fields.</string>
     <string name="fix_grammar">Fix grammar</string>
+    <string name="keys_ime_label">Whisper LP arrows</string>
 </resources>

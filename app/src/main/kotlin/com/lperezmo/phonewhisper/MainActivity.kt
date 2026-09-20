@@ -37,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cleanupModelSub: TextView
     private lateinit var promptRowSub: TextView
     private lateinit var fixPromptSub: TextView
+    private lateinit var joystickSwitch: MaterialSwitch
+    private lateinit var joystickSub: TextView
     private lateinit var cleanupContainer: LinearLayout
     private lateinit var liveSwitch: MaterialSwitch
     private lateinit var liveSub: TextView
@@ -139,6 +141,21 @@ class MainActivity : AppCompatActivity() {
         cleanupContainer.addView(promptRow)
         root.addView(cleanupContainer)
 
+        // --- Arrow joystick ---
+        root.addView(sectionHeader("Arrow joystick"))
+        joystickSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val joystickRow = settingsRow("Show the arrow pad", "", joystickSwitch) {
+            settings.joystickEnabled = !settings.joystickEnabled
+            WhisperAccessibilityService.instance?.refreshJoystick()
+            refresh()
+        }
+        joystickSub = joystickRow.findViewWithTag("subtitle")
+        root.addView(joystickRow)
+        root.addView(settingsRow(
+            "Arrows keyboard",
+            "Arrow keys can only reach another app through a keyboard. Enable Whisper LP arrows, then switch to it while you need the pad. Long-press the pad to switch.",
+        ) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) })
+
         // --- Grammar fix (its own prompt: this text was typed, not dictated) ---
         root.addView(sectionHeader("Grammar fix"))
         val fixRow = settingsRow("Fix prompt", "") { promptFixPrompt() }
@@ -210,6 +227,10 @@ class MainActivity : AppCompatActivity() {
         cleanupModelSub.text = settings.cleanupModel
         promptRowSub.text = settings.customPrompt
         fixPromptSub.text = settings.fixPrompt
+        joystickSwitch.isChecked = settings.joystickEnabled
+        joystickSub.text = if (settings.joystickEnabled)
+            "A draggable pad that sends arrow keys. Push the middle knob; drag the ring to move it."
+        else "Off. A floating pad for arrow keys, for remote desktop and terminals."
         usageMonthSub.text = usage.thisMonth().summary()
         val since = usage.since.takeIf { it > 0 }?.let {
             " (since " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it)) + ")"
