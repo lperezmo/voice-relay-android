@@ -60,6 +60,9 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MARGIN_DP = 8
         private const val TAP_THRESHOLD_DP = 10
         private const val RING_DP = 56
+        /** How far above the middle the button starts. Dead centre on the right
+         *  edge is where chat apps put their send button. */
+        private const val BUTTON_LIFT_DP = 80
         private const val FB_RADIUS_DP = 16f
         private const val FB_CHIP_RADIUS_DP = 18f
         private const val MIN_CLIP_SECONDS = 0.3
@@ -694,7 +697,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = screenW - ringSize - margin
-            y = screenH / 2 - ringSize / 2
+            y = screenH / 2 - ringSize / 2 - (BUTTON_LIFT_DP * dp).toInt()
         }
 
         var startX = 0; var startY = 0
