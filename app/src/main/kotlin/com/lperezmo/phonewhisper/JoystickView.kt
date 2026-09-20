@@ -41,6 +41,9 @@ class JoystickView(context: Context) : View(context) {
     /** The knob was touched: a chance to get the arrows keyboard ready. */
     var onReady: (() -> Unit)? = null
 
+    /** The finger left the pad, whatever it was doing. */
+    var onDone: (() -> Unit)? = null
+
     private val dp = context.resources.displayMetrics.density
     private val size = (SIZE_DP * dp).toInt()
     private val knobRadius = KNOB_DP * dp
@@ -149,6 +152,7 @@ class JoystickView(context: Context) : View(context) {
                 fired = false
                 if (mode == Mode.DRAG) onDragEnd?.invoke()
                 mode = Mode.NONE
+                onDone?.invoke()
                 knobX = 0f
                 knobY = 0f
                 invalidate()

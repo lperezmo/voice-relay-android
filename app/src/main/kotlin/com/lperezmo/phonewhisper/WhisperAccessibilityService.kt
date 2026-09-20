@@ -123,7 +123,11 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var joystickParams: WindowManager.LayoutParams? = null
     /** Set when the arrows keyboard was chosen by a long-press, so it stays until switched back. */
     private var pinnedArrows = false
-    private val restoreKeyboard = Runnable { restorePreviousKeyboard() }
+    /** True while a finger is on the pad, so the keyboard is not swapped mid-push. */
+    private var padTouched = false
+    private val restoreKeyboard = Runnable {
+        if (padTouched) scheduleKeyboardRestore() else restorePreviousKeyboard()
+    }
     private var undoArrowDrawable: Drawable? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
@@ -157,6 +161,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         )
         showOverlay()
         refreshJoystick()
+        // If a crash or an update left the arrows keyboard selected, undo that now.
+        restorePreviousKeyboard()
     }
 
     // --- Arrow joystick ---
@@ -194,6 +200,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             }
             onPicker = { toggleArrowsKeyboard() }
             onReady = { onPadReady() }
+            onDone = { onPadDone() }
         }
         wm.addView(view, params)
         joystickView = view
@@ -222,10 +229,19 @@ class WhisperAccessibilityService : AccessibilityService() {
      * selected, or if automatic switching is off.
      */
     private fun onPadReady() {
+        padTouched = true
         handler.removeCallbacks(restoreKeyboard)
         if (!settings.joystickAutoSwitch || pinnedArrows) return
-        if (KeysInputMethodService.instance != null) return
-        switchKeyboard(arrowsKeyboardId(), remember = true)
+        if (KeysInputMethodService.instance == null) switchKeyboard(arrowsKeyboardId(), remember = true)
+        // Armed here, not after a key lands: in an app that takes no keys, the
+        // keys never land, and the keyboard must still come back.
+        scheduleKeyboardRestore()
+    }
+
+    /** Finger off the pad: start the clock even if nothing was ever sent. */
+    private fun onPadDone() {
+        padTouched = false
+        scheduleKeyboardRestore()
     }
 
     private fun sendArrow(keyCode: Int) = deliverArrow(keyCode, 0)
@@ -235,10 +251,8 @@ class WhisperAccessibilityService : AccessibilityService() {
      * in that window is retried briefly instead of being dropped.
      */
     private fun deliverArrow(keyCode: Int, attempt: Int) {
-        if (KeysInputMethodService.send(keyCode)) {
-            scheduleKeyboardRestore()
-            return
-        }
+        scheduleKeyboardRestore()
+        if (KeysInputMethodService.send(keyCode)) return
         val switching = settings.joystickAutoSwitch && KeysInputMethodService.instance == null
         if (switching && attempt < KEY_RETRIES) {
             handler.postDelayed({ deliverArrow(keyCode, attempt + 1) }, KEY_RETRY_MS)
@@ -248,9 +262,13 @@ class WhisperAccessibilityService : AccessibilityService() {
         showFeedback("No keyboard is carrying the arrows. Long-press the pad to switch.", 2500)
     }
 
-    /** Back to your own keyboard once the pad has been quiet for a moment. */
+    /**
+     * Back to your own keyboard once the pad has been quiet for a moment. Armed
+     * from every path that can leave the arrows keyboard selected, so the only
+     * way to keep it is to pin it with a long-press.
+     */
     private fun scheduleKeyboardRestore() {
-        if (!settings.joystickAutoSwitch || pinnedArrows) return
+        if (pinnedArrows) return
         handler.removeCallbacks(restoreKeyboard)
         handler.postDelayed(restoreKeyboard, AUTO_RETURN_MS)
     }
@@ -318,7 +336,13 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event != null && ::injector.isInitialized) injector.onEvent(event)
+        if (event == null || !::injector.isInitialized) return
+        injector.onEvent(event)
+        // Tapping into a text field means typing, so hand the keyboard back at
+        // once instead of waiting for the idle timer.
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED &&
+            event.source?.isEditable == true && !pinnedArrows
+        ) restorePreviousKeyboard()
     }
     override fun onInterrupt() {}
 
