@@ -57,6 +57,23 @@ Paste; it may be under the three-dot overflow). Editable text is replaced in pla
 text (a web page, a received message) is fixed onto the clipboard. This path does not use the
 accessibility service at all.
 
+## The arrow pad
+
+Off by default. Turn on **Show the arrow pad** and a second, transparent control appears: a thin
+ring with a thin knob in the middle, 92dp across, drawn as hairlines so it does not hide what is
+underneath. It sends arrow keys, for remote desktop sessions and terminals where a phone keyboard
+has no arrow row.
+
+| Gesture on the pad | What happens |
+|---|---|
+| **Push the knob** | One arrow, in the direction you pushed. The knob has to come back toward the middle before it sends another, so a push is one key and there is no auto-repeat. Haptic tick per key. |
+| **Double-tap the knob** | Enter. A single tap does nothing, so a stray finger is harmless. |
+| **Drag the ring** | Move the pad. Its position is remembered. |
+| **Long-press the ring** | Switch to the arrows keyboard by hand, and pin it there until you switch back. |
+
+Arrow keys can only reach another app through a keyboard, so the pad comes with one: see
+[Why does it register a keyboard?](#why-does-it-register-a-keyboard) below.
+
 ## Settings
 
 | Setting | Default | Notes |
@@ -70,6 +87,8 @@ accessibility service at all.
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. Your custom text is kept while a preset is selected, and "Edit custom prompt" selects Custom when you save. |
 | Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
+| Show the arrow pad | off | The floating arrow pad described above. |
+| Switch keyboard automatically | on | Touching the knob switches to the arrows keyboard, and your own comes back 4 seconds after the last arrow. Off means you switch by hand with a long-press on the ring. |
 
 The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
 cleanup and grammar-fix calls, and an estimated cost for this month and since the last reset
@@ -99,8 +118,42 @@ Then open **Whisper LP** and:
 ## Why does it need Accessibility?
 
 Only to show the floating button and to put text into the field you are using. It reads the
-screen only at the moment it inserts or fixes text, to find the focused field. It does not
-replace your keyboard, run background automation, or send screen content anywhere.
+screen only at the moment it inserts or fixes text, to find the focused field. It does not run
+background automation and does not send screen content anywhere. It never becomes your typing
+keyboard, though the arrow pad does switch keyboards temporarily, which the next section explains.
+
+## Why does it register a keyboard?
+
+Only so the arrow pad can send arrow keys. Injecting key events into another app is a system-only
+privilege that an accessibility service does not have; a keyboard, on the other hand, may send
+keys through its `InputConnection`. So the pad ships with one: `KeysInputMethodService`, which
+
+- **draws nothing and takes no screen space** (`onCreateInputView` returns null and
+  `onEvaluateInputViewShown` is false), so it is not something you can type on, and
+- **types nothing and reads nothing.** The only thing it ever asks its `InputConnection` to do is
+  `sendKeyEvent` for the arrows and Enter. It does not call `getTextBeforeCursor`,
+  `getSelectedText`, or `getExtractedText`, does not track the selection, and logs nothing. It is
+  55 lines; read it for yourself in
+  [`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
+
+Android still requires you to enable it by hand once, in the system keyboard settings, with the
+usual warning that a keyboard can collect what you type. That warning is generic and applies to
+every keyboard; this one has no code that could.
+
+**Switching is automatic by default.** Touching the knob switches to the arrows keyboard
+(`SoftKeyboardController.switchToInputMethod`, API 30+), remembering the keyboard you were on, and
+yours comes back 4 seconds after the last arrow. The restore is armed from every path that can
+leave the arrows keyboard selected: touching the knob, every attempt to deliver a key whatever its
+outcome, and lifting your finger. On top of that, focusing an editable field hands your keyboard
+back at once, since tapping into a text field means you want to type, and the service restores it
+on connect, so an update or a crash cannot leave you stranded on a keyboard that types nothing.
+A restore that comes due mid-push waits for your finger to lift. Only a deliberate long-press pins
+the arrows keyboard; turn **Switch keyboard automatically** off if you would rather always switch
+by hand.
+
+Where the arrows keyboard is not selected, the pad falls back to walking the caret through
+accessibility instead. That works in ordinary text fields, but not in a remote desktop canvas,
+which has no accessibility nodes to walk.
 
 ## Privacy
 
@@ -110,6 +163,8 @@ replace your keyboard, run background automation, or send screen content anywher
 - There is no backend. Requests go straight to OpenAI with your key, with `store: false` on
   cleanup requests.
 - Logs contain sizes and timings only, never your text.
+- **The arrows keyboard sends nothing anywhere.** It has no network code and reads no text; it only
+  relays arrow keys and Enter into the app in front of you.
 
 Full policy: [PRIVACY.md](PRIVACY.md)
 
@@ -129,6 +184,10 @@ Full policy: [PRIVACY.md](PRIVACY.md)
 
 Works best in apps that use standard Android text fields. Some apps use custom text surfaces
 that do not accept inserted text; the text is then copied to the clipboard.
+
+Remote desktop clients and terminals are the opposite case: they take key events but expose no
+text field to insert into, which is what the arrow pad is for. Dictation still reaches them
+through the clipboard.
 
 ### Termux
 
@@ -187,6 +246,8 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `OpenAiClient.kt` | Transcription, Responses API cleanup, model list, connection prewarm |
 | `TextInjector.kt` | Find the field, insert at the cursor, replace a range, undo, clipboard fallback |
 | `FixGrammarActivity.kt` | **Fix grammar** in the text-selection menu (`ACTION_PROCESS_TEXT`) |
+| `JoystickView.kt` | The arrow pad: drag to move, one arrow per push of the knob, double-tap for Enter |
+| `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `MainActivity.kt` | Settings screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |

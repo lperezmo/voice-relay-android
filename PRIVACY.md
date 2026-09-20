@@ -30,6 +30,27 @@ The app uses Android Accessibility Service only to identify the currently focuse
 insert or fix text after you explicitly interact with the floating overlay button. It does not
 monitor browsing, collect screen content for analytics, or perform background automation.
 
+## Input Method (the arrows keyboard)
+
+The optional arrow pad ships with an input method, `KeysInputMethodService`, because sending arrow
+keys to another app is something only a keyboard can do. Android asks you to enable it by hand, and
+shows the standard warning that a keyboard may be able to collect what you type. For this one that
+warning does not apply in practice:
+
+- It has no input view: it draws nothing and there is nothing on it to type on.
+- It never reads your text. The only operation it performs is sending arrow keys and Enter
+  (`InputConnection.sendKeyEvent`). It does not read the text around the cursor, the selection, or
+  the field's contents, does not track the selection, and writes nothing to the logs.
+- It has no network code of any kind, so nothing it handles can leave the device.
+
+While the pad is in use the app switches your keyboard to this one and switches back to yours
+about 4 seconds after the last arrow, or immediately when you tap into a text field. Your previous
+keyboard's id is stored on the device so it can be restored. A long-press on the pad's ring keeps
+the arrows keyboard selected until you switch back yourself.
+
+The whole file is about 55 lines and the repository is the authoritative copy:
+[`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
+
 ## Data collection
 
 The app has no backend and collects no accounts, analytics, or recordings. OpenAI processes the
