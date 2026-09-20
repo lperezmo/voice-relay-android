@@ -3,6 +3,7 @@ package com.lperezmo.phonewhisper
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -12,6 +13,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -183,7 +185,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                 settings.joystickX = params.x
                 settings.joystickY = params.y
             }
-            onPicker = { showKeyboardPicker() }
+            onPicker = { toggleArrowsKeyboard() }
         }
         wm.addView(view, params)
         joystickView = view
@@ -206,12 +208,42 @@ class WhisperAccessibilityService : AccessibilityService() {
     private fun sendArrow(keyCode: Int) {
         if (KeysInputMethodService.send(keyCode)) return
         if (injector.moveCaret(keyCode)) return
-        showFeedback("Switch to the Whisper LP arrows keyboard (long-press the pad)", 2500)
+        showFeedback("No keyboard is carrying the arrows. Long-press the pad to switch.", 2500)
+    }
+
+    /**
+     * Long-press on the pad: swap between the arrows keyboard and whatever was
+     * selected before. An accessibility service may switch input methods
+     * directly (API 30+); the system's own picker is blocked for background
+     * apps, so it is only the fallback when the switch is refused.
+     */
+    private fun toggleArrowsKeyboard() {
+        val arrows = ComponentName(this, KeysInputMethodService::class.java).flattenToShortString()
+        val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val goingToArrows = current != arrows
+        val target = if (goingToArrows) arrows else settings.previousIme.ifBlank { null }
+        if (target == null) {
+            showKeyboardPicker()
+            return
+        }
+        if (goingToArrows) settings.previousIme = current.orEmpty()
+        val switched = try {
+            softKeyboardController.switchToInputMethod(target)
+        } catch (e: Exception) {
+            Log.w(TAG, "Keyboard switch refused: ${e.javaClass.simpleName}")
+            false
+        }
+        when {
+            !switched -> showKeyboardPicker()
+            goingToArrows -> showFeedback("Arrows keyboard on. Long-press again to switch back.", 2500)
+            else -> showFeedback("Keyboard switched back")
+        }
     }
 
     private fun showKeyboardPicker() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         imm.showInputMethodPicker()
+        showFeedback("Pick Whisper LP arrows in the keyboard list", 3000)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
