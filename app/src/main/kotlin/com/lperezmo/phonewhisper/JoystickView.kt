@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
 import android.view.HapticFeedbackConstants
@@ -18,7 +17,9 @@ import kotlin.math.roundToInt
 
 /**
  * A floating arrow pad: a ring you drag to move the whole thing, and a knob in
- * the middle you push in a direction to send arrow keys.
+ * the middle you push in a direction to send arrow keys. It is drawn as two
+ * hairline circles and nothing else, so it sits over a remote desktop session
+ * without covering it.
  *
  * Pushing the knob is a ratchet, not a switch: every [STEP_DP] of travel sends
  * one more key, so a short nudge is one arrow and a long push is several. Hold
@@ -44,13 +45,12 @@ class JoystickView(context: Context) : View(context) {
     private val travel = TRAVEL_DP * dp
     private val step = STEP_DP * dp
 
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_RING }
     private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = COLOR_EDGE; style = Paint.Style.STROKE; strokeWidth = 1.5f * dp
+        color = COLOR_EDGE; style = Paint.Style.STROKE; strokeWidth = 1.25f * dp
     }
-    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_ARROW }
-    private val knobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_KNOB }
-    private val arrow = Path()
+    private val knobEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = COLOR_KNOB_EDGE; style = Paint.Style.STROKE; strokeWidth = 1.25f * dp
+    }
 
     private enum class Mode { NONE, DRAG, STICK }
 
@@ -84,40 +84,15 @@ class JoystickView(context: Context) : View(context) {
 
     override fun onMeasure(widthSpec: Int, heightSpec: Int) = setMeasuredDimension(size, size)
 
+    /**
+     * Nothing solid: two hairlines, so the pad can be found without covering
+     * what is under it. No arrow glyphs; the four directions are obvious once
+     * you know it is there.
+     */
     override fun onDraw(canvas: Canvas) {
         val c = size / 2f
-        val ring = size / 2f - 1.5f * dp
-        canvas.drawCircle(c, c, ring, ringPaint)
-        canvas.drawCircle(c, c, ring, edgePaint)
-
-        val tip = ring - 7 * dp
-        val half = 6.5f * dp
-        val depth = 9 * dp
-        drawArrow(canvas, c, c - tip, c, c - tip + depth, half, vertical = true)
-        drawArrow(canvas, c, c + tip, c, c + tip - depth, half, vertical = true)
-        drawArrow(canvas, c - tip, c, c - tip + depth, c, half, vertical = false)
-        drawArrow(canvas, c + tip, c, c + tip - depth, c, half, vertical = false)
-
-        canvas.drawCircle(c + knobX, c + knobY, knobRadius, knobPaint)
-        canvas.drawCircle(c + knobX, c + knobY, knobRadius, edgePaint)
-    }
-
-    /** One triangle pointing from (baseX, baseY) out to (tipX, tipY). */
-    private fun drawArrow(
-        canvas: Canvas, tipX: Float, tipY: Float, baseX: Float, baseY: Float,
-        half: Float, vertical: Boolean,
-    ) {
-        arrow.reset()
-        arrow.moveTo(tipX, tipY)
-        if (vertical) {
-            arrow.lineTo(baseX - half, baseY)
-            arrow.lineTo(baseX + half, baseY)
-        } else {
-            arrow.lineTo(baseX, baseY - half)
-            arrow.lineTo(baseX, baseY + half)
-        }
-        arrow.close()
-        canvas.drawPath(arrow, arrowPaint)
+        canvas.drawCircle(c, c, size / 2f - 1.5f * dp, edgePaint)
+        canvas.drawCircle(c + knobX, c + knobY, knobRadius, knobEdgePaint)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -212,18 +187,17 @@ class JoystickView(context: Context) : View(context) {
     }
 
     companion object {
-        const val SIZE_DP = 116
-        private const val KNOB_DP = 26f
-        private const val TRAVEL_DP = 26f
+        const val SIZE_DP = 92
+        private const val KNOB_DP = 21f
+        private const val TRAVEL_DP = 22f
         /** Travel per key. Short enough for one nudge, long enough not to fire by accident. */
-        private const val STEP_DP = 16f
+        private const val STEP_DP = 14f
         private const val TAP_SLOP_DP = 6f
         private const val REPEAT_DELAY_MS = 380L
         private const val REPEAT_MS = 110L
 
-        private const val COLOR_RING = 0xCC1C1C1E.toInt()
-        private const val COLOR_EDGE = 0x33FFFFFF
-        private const val COLOR_ARROW = 0xB3FFFFFF.toInt()
-        private const val COLOR_KNOB = 0xE62C2C2E.toInt()
+        /** Hairlines only: enough to find the pad, not enough to hide anything. */
+        private const val COLOR_EDGE = 0x26FFFFFF
+        private const val COLOR_KNOB_EDGE = 0x40FFFFFF
     }
 }
