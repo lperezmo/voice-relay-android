@@ -68,7 +68,8 @@ accessibility service at all.
 | Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
-| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
+| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. Your custom text is kept while a preset is selected, and "Edit custom prompt" selects Custom when you save. |
+| Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
 
 The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
 cleanup and grammar-fix calls, and an estimated cost for this month and since the last reset

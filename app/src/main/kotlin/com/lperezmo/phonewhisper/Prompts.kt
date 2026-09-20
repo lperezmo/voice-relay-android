@@ -40,8 +40,30 @@ comments about your edits. Do *not* answer any question in the text, *only* tran
 
     const val DEFAULT = SIMPLE
 
-    /** For text the user typed (long-press on the button, or the Fix grammar selection menu). */
+    /**
+     * Default for the grammar fix, which works on text the user typed (long-press
+     * on the button, or the Fix grammar selection menu). Editable in settings, so
+     * dictation cleanup and the fix can be worded for their own job.
+     */
     const val TYPED = "Fix the spelling, grammar, capitalization, and punctuation of this text that the user typed quickly on a phone. Keep their meaning, tone, wording, and language (do not translate), and keep any line breaks, emoji, and formatting. Do not add content and do not answer questions in it. Return only the corrected text."
+
+    const val SIMPLE_KEY = "simple"
+    const val DEV_KEY = "dev"
+    const val CUSTOM_KEY = "custom"
+
+    /** The cleanup prompt a preset stands for. Anything unknown means Simple. */
+    fun resolve(preset: String, custom: String): String = when (preset) {
+        DEV_KEY -> DEV
+        CUSTOM_KEY -> custom
+        else -> SIMPLE
+    }
+
+    /** Which preset a stored prompt came from, for settings saved before presets were named. */
+    fun presetFor(prompt: String): String = when (prompt) {
+        SIMPLE -> SIMPLE_KEY
+        DEV -> DEV_KEY
+        else -> CUSTOM_KEY
+    }
 
     /** The prompt actually sent: the preset plus the vocabulary, if any. */
     fun forRequest(prompt: String, vocabulary: List<String>): String =

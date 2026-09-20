@@ -389,7 +389,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         setState(State.WORKING)
         val client = OpenAiClient(apiKey)
         val model = settings.cleanupModel
-        val instructions = Prompts.forRequest(Prompts.TYPED, settings.vocabulary)
+        val instructions = Prompts.forRequest(settings.fixPrompt, settings.vocabulary)
         val original = range.target
         work = scope.launch {
             val started = System.currentTimeMillis()

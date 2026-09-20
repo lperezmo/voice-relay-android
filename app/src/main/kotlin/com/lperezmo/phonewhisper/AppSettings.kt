@@ -27,14 +27,31 @@ class AppSettings(context: Context) {
         get() = prefs.getString("cleanup_model", null) ?: DEFAULT_CLEANUP_MODEL
         set(v) = prefs.edit().putString("cleanup_model", v).apply()
 
-    /** The active cleanup prompt (one of the presets or the custom text). */
-    var cleanupPrompt: String
-        get() = prefs.getString("post_processing_prompt", null) ?: Prompts.DEFAULT
-        set(v) = prefs.edit().putString("post_processing_prompt", v).apply()
+    /**
+     * Which cleanup prompt is in use: [Prompts.SIMPLE_KEY], [Prompts.DEV_KEY] or
+     * [Prompts.CUSTOM_KEY]. Stored by name, so editing the custom text cannot
+     * change which one is selected. Installs from before this setting existed
+     * keep their choice: it is read back from the prompt text they had stored.
+     */
+    var promptPreset: String
+        get() = prefs.getString("prompt_preset", null)
+            ?: Prompts.presetFor(prefs.getString("post_processing_prompt", null) ?: Prompts.DEFAULT)
+        set(v) = prefs.edit().putString("prompt_preset", v).apply()
 
+    /** The cleanup prompt actually sent: the selected preset, or your own text. */
+    val cleanupPrompt: String
+        get() = Prompts.resolve(promptPreset, customPrompt)
+
+    /** Your own cleanup prompt, kept even while a preset is selected. */
     var customPrompt: String
-        get() = prefs.getString("custom_post_processing_prompt", null) ?: Prompts.DEFAULT
+        get() = prefs.getString("custom_post_processing_prompt", null)
+            ?: prefs.getString("post_processing_prompt", null) ?: Prompts.DEFAULT
         set(v) = prefs.edit().putString("custom_post_processing_prompt", v).apply()
+
+    /** The grammar-fix prompt, for text you typed rather than dictated. */
+    var fixPrompt: String
+        get() = prefs.getString("fix_prompt", null) ?: Prompts.TYPED
+        set(v) = prefs.edit().putString("fix_prompt", v).apply()
 
     /** Terms to spell exactly: names, products, jargon. Stored one per line. */
     var vocabulary: List<String>
