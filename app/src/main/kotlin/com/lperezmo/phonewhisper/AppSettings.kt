@@ -67,6 +67,11 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("joystick_y", -1)
         set(v) = prefs.edit().putInt("joystick_y", v).apply()
 
+    /** Switch to the arrows keyboard when the pad is used, and back when it goes quiet. */
+    var joystickAutoSwitch: Boolean
+        get() = prefs.getBoolean("joystick_auto_switch", true)
+        set(v) = prefs.edit().putBoolean("joystick_auto_switch", v).apply()
+
     /** Keyboard to go back to after the joystick switched to the arrows keyboard. */
     var previousIme: String
         get() = prefs.getString("previous_ime", "") ?: ""

@@ -39,6 +39,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fixPromptSub: TextView
     private lateinit var joystickSwitch: MaterialSwitch
     private lateinit var joystickSub: TextView
+    private lateinit var autoSwitchSwitch: MaterialSwitch
+    private lateinit var autoSwitchSub: TextView
     private lateinit var cleanupContainer: LinearLayout
     private lateinit var liveSwitch: MaterialSwitch
     private lateinit var liveSub: TextView
@@ -151,6 +153,13 @@ class MainActivity : AppCompatActivity() {
         }
         joystickSub = joystickRow.findViewWithTag("subtitle")
         root.addView(joystickRow)
+        autoSwitchSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val autoSwitchRow = settingsRow("Switch keyboard automatically", "", autoSwitchSwitch) {
+            settings.joystickAutoSwitch = !settings.joystickAutoSwitch
+            refresh()
+        }
+        autoSwitchSub = autoSwitchRow.findViewWithTag("subtitle")
+        root.addView(autoSwitchRow)
         root.addView(settingsRow(
             "Arrows keyboard",
             "Arrow keys can only reach another app through a keyboard. Enable Whisper LP arrows, then switch to it while you need the pad. Long-press the pad to switch.",
@@ -228,6 +237,10 @@ class MainActivity : AppCompatActivity() {
         promptRowSub.text = settings.customPrompt
         fixPromptSub.text = settings.fixPrompt
         joystickSwitch.isChecked = settings.joystickEnabled
+        autoSwitchSwitch.isChecked = settings.joystickAutoSwitch
+        autoSwitchSub.text = if (settings.joystickAutoSwitch)
+            "Touching the knob switches to the arrows keyboard, and your own comes back 4 seconds after the last arrow."
+        else "Off. Long-press the pad to switch keyboards by hand."
         joystickSub.text = if (settings.joystickEnabled)
             "A draggable pad that sends arrow keys. Push the middle knob; drag the ring to move it."
         else "Off. A floating pad for arrow keys, for remote desktop and terminals."

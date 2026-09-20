@@ -21,11 +21,10 @@ import kotlin.math.roundToInt
  * hairline circles and nothing else, so it sits over a remote desktop session
  * without covering it.
  *
- * Pushing the knob is a ratchet, not a switch: every [STEP_DP] of travel sends
- * one more key, so a short nudge is one arrow and a long push is several. Hold
- * the knob out and it repeats. A long-press on the ring opens the keyboard
- * picker, since the keys only reach other apps while [KeysInputMethodService]
- * is the selected keyboard.
+ * One push is one key: pushing the knob past [STEP_DP] sends a single arrow,
+ * and the knob has to come back toward the middle before it sends another, so
+ * four steps down is four deliberate pushes. A long-press on the ring switches
+ * between the arrows keyboard and the one you were using.
  */
 class JoystickView(context: Context) : View(context) {
 
@@ -38,6 +37,9 @@ class JoystickView(context: Context) : View(context) {
 
     /** Long-press on the ring. */
     var onPicker: (() -> Unit)? = null
+
+    /** The knob was touched: a chance to get the arrows keyboard ready. */
+    var onReady: (() -> Unit)? = null
 
     private val dp = context.resources.displayMetrics.density
     private val size = (SIZE_DP * dp).toInt()
@@ -61,7 +63,8 @@ class JoystickView(context: Context) : View(context) {
     private var originY = 0f
     private var lastRawX = 0f
     private var lastRawY = 0f
-    private var heldKey = 0
+    /** True once this push has sent its key; cleared when the knob comes back. */
+    private var fired = false
 
     private val handler = Handler(Looper.getMainLooper())
     private val longPress = Runnable {
@@ -69,14 +72,6 @@ class JoystickView(context: Context) : View(context) {
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         onPicker?.invoke()
     }
-    private val repeat = object : Runnable {
-        override fun run() {
-            if (heldKey == 0) return
-            fire(heldKey)
-            handler.postDelayed(this, REPEAT_MS)
-        }
-    }
-
     init {
         contentDescription = "Arrow joystick"
         isHapticFeedbackEnabled = true
@@ -104,7 +99,9 @@ class JoystickView(context: Context) : View(context) {
                 originY = event.y
                 lastRawX = event.rawX
                 lastRawY = event.rawY
+                fired = false
                 mode = if (hypot(event.x - c, event.y - c) <= knobRadius * 1.3f) Mode.STICK else Mode.DRAG
+                if (mode == Mode.STICK) onReady?.invoke()
                 if (mode == Mode.DRAG) {
                     handler.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 }
@@ -122,25 +119,25 @@ class JoystickView(context: Context) : View(context) {
                 }
 
                 Mode.STICK -> {
-                    var dx = event.x - originX
-                    var dy = event.y - originY
-                    // One key per STEP_DP of travel, on whichever axis is winning.
-                    while (abs(dx) >= step || abs(dy) >= step) {
-                        if (abs(dx) >= abs(dy)) {
-                            val key = if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
-                            fire(key)
-                            originX += if (dx > 0) step else -step
-                            dx = event.x - originX
-                        } else {
-                            val key = if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP
-                            fire(key)
-                            originY += if (dy > 0) step else -step
-                            dy = event.y - originY
-                        }
+                    val dx = event.x - originX
+                    val dy = event.y - originY
+                    val distance = hypot(dx, dy)
+                    // One key per push: pushing out sends once, and the knob has to
+                    // come back to the middle before it can send again.
+                    if (!fired && distance >= step) {
+                        fire(
+                            if (abs(dx) >= abs(dy)) {
+                                if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
+                            } else {
+                                if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP
+                            }
+                        )
+                        fired = true
+                    } else if (fired && distance <= step * RESET_FRACTION) {
+                        fired = false
                     }
                     knobX = (event.x - c).coerceIn(-travel, travel)
                     knobY = (event.y - c).coerceIn(-travel, travel)
-                    startRepeat(event.x - c, event.y - c)
                     invalidate()
                 }
 
@@ -149,7 +146,7 @@ class JoystickView(context: Context) : View(context) {
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(longPress)
-                stopRepeat()
+                fired = false
                 if (mode == Mode.DRAG) onDragEnd?.invoke()
                 mode = Mode.NONE
                 knobX = 0f
@@ -158,24 +155,6 @@ class JoystickView(context: Context) : View(context) {
             }
         }
         return true
-    }
-
-    /** Held out past the travel limit: keep sending the same key. */
-    private fun startRepeat(dx: Float, dy: Float) {
-        val key = when {
-            abs(dx) < travel && abs(dy) < travel -> 0
-            abs(dx) >= abs(dy) -> if (dx > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
-            else -> if (dy > 0) KeyEvent.KEYCODE_DPAD_DOWN else KeyEvent.KEYCODE_DPAD_UP
-        }
-        if (key == heldKey) return
-        stopRepeat()
-        heldKey = key
-        if (key != 0) handler.postDelayed(repeat, REPEAT_DELAY_MS)
-    }
-
-    private fun stopRepeat() {
-        heldKey = 0
-        handler.removeCallbacks(repeat)
     }
 
     private fun fire(key: Int) {
@@ -190,11 +169,11 @@ class JoystickView(context: Context) : View(context) {
         const val SIZE_DP = 92
         private const val KNOB_DP = 21f
         private const val TRAVEL_DP = 22f
-        /** Travel per key. Short enough for one nudge, long enough not to fire by accident. */
+        /** Push needed for one key. Short enough for a nudge, long enough not to fire by accident. */
         private const val STEP_DP = 14f
+        /** How far back toward the middle the knob must come before it fires again. */
+        private const val RESET_FRACTION = 0.45f
         private const val TAP_SLOP_DP = 6f
-        private const val REPEAT_DELAY_MS = 380L
-        private const val REPEAT_MS = 110L
 
         /** Hairlines only: enough to find the pad, not enough to hide anything. */
         private const val COLOR_EDGE = 0x26FFFFFF
