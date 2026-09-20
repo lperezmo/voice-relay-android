@@ -23,8 +23,9 @@ import kotlin.math.roundToInt
  *
  * One push is one key: pushing the knob past [STEP_DP] sends a single arrow,
  * and the knob has to come back toward the middle before it sends another, so
- * four steps down is four deliberate pushes. A long-press on the ring switches
- * between the arrows keyboard and the one you were using.
+ * four steps down is four deliberate pushes. Double-tapping the knob sends
+ * Enter, which is what makes the pad usable in a terminal. A long-press on the
+ * ring switches between the arrows keyboard and the one you were using.
  */
 class JoystickView(context: Context) : View(context) {
 
@@ -68,6 +69,9 @@ class JoystickView(context: Context) : View(context) {
     private var lastRawY = 0f
     /** True once this push has sent its key; cleared when the knob comes back. */
     private var fired = false
+    private var downAt = 0L
+    /** When the last knob tap lifted, for pairing two taps into an Enter. */
+    private var lastTapAt = 0L
 
     private val handler = Handler(Looper.getMainLooper())
     private val longPress = Runnable {
@@ -103,6 +107,7 @@ class JoystickView(context: Context) : View(context) {
                 lastRawX = event.rawX
                 lastRawY = event.rawY
                 fired = false
+                downAt = event.eventTime
                 mode = if (hypot(event.x - c, event.y - c) <= knobRadius * 1.3f) Mode.STICK else Mode.DRAG
                 if (mode == Mode.STICK) onReady?.invoke()
                 if (mode == Mode.DRAG) {
@@ -149,6 +154,9 @@ class JoystickView(context: Context) : View(context) {
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(longPress)
+                if (event.actionMasked == MotionEvent.ACTION_UP && mode == Mode.STICK && !fired) {
+                    countTap(event)
+                }
                 fired = false
                 if (mode == Mode.DRAG) onDragEnd?.invoke()
                 mode = Mode.NONE
@@ -159,6 +167,23 @@ class JoystickView(context: Context) : View(context) {
             }
         }
         return true
+    }
+
+    /**
+     * A touch on the knob that never became a push. Two of them in quick
+     * succession send Enter; one on its own does nothing, so the pad still
+     * ignores a stray finger.
+     */
+    private fun countTap(event: MotionEvent) {
+        val moved = hypot(event.x - originX, event.y - originY)
+        if (moved > TAP_SLOP_DP * dp) return
+        if (event.eventTime - downAt > ViewConfiguration.getLongPressTimeout()) return
+        if (downAt - lastTapAt <= ViewConfiguration.getDoubleTapTimeout()) {
+            lastTapAt = 0L
+            fire(KeyEvent.KEYCODE_ENTER)
+        } else {
+            lastTapAt = event.eventTime
+        }
     }
 
     private fun fire(key: Int) {
