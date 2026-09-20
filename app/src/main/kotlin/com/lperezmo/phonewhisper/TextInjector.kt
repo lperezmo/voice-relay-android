@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.PersistableBundle
 import android.os.SystemClock
 import android.util.Log
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -84,6 +85,32 @@ class TextInjector(private val service: AccessibilityService) {
         if (text.isBlank()) return null
         val (start, end) = fixRange(text.length, node.textSelectionStart, node.textSelectionEnd)
         return FieldRange(node, text, start, end)
+    }
+
+    /**
+     * Moves the caret in the focused field by one character (left, right) or one
+     * line (up, down), for the arrow joystick when no keyboard is carrying keys.
+     * Only works in ordinary text fields: a remote desktop session has none.
+     */
+    fun moveCaret(keyCode: Int): Boolean {
+        val node = findLiveFocus()?.node ?: return false
+        node.refresh()
+        if (!node.isEditable) return false
+        val granularity = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT ->
+                AccessibilityNodeInfo.MOVEMENT_GRANULARITY_CHARACTER
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN ->
+                AccessibilityNodeInfo.MOVEMENT_GRANULARITY_LINE
+            else -> return false
+        }
+        val forward = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+        val action = if (forward) AccessibilityNodeInfo.ACTION_NEXT_AT_MOVEMENT_GRANULARITY
+        else AccessibilityNodeInfo.ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY
+        val args = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_MOVEMENT_GRANULARITY_INT, granularity)
+            putBoolean(AccessibilityNodeInfo.ACTION_ARGUMENT_EXTEND_SELECTION_BOOLEAN, false)
+        }
+        return node.performAction(action, args)
     }
 
     /** Swaps [range] for [replacement]; only if the field still holds the text that was read. */

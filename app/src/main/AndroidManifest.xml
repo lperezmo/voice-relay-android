@@ -36,6 +36,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Sends the joystick's arrow keys; a keyboard is the only way an app
+             may deliver key events to another app. It shows no keys of its own. -->
+        <service
+            android:name=".KeysInputMethodService"
+            android:label="@string/keys_ime_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
         <service
             android:name=".WhisperAccessibilityService"
             android:exported="false"

@@ -53,6 +53,30 @@ class AppSettings(context: Context) {
         get() = prefs.getString("fix_prompt", null) ?: Prompts.TYPED
         set(v) = prefs.edit().putString("fix_prompt", v).apply()
 
+    /** The floating arrow pad, for apps that want arrow keys (remote desktop, terminals). */
+    var joystickEnabled: Boolean
+        get() = prefs.getBoolean("joystick", false)
+        set(v) = prefs.edit().putBoolean("joystick", v).apply()
+
+    /** Where the pad was left. -1 means "not placed yet": the service picks a spot. */
+    var joystickX: Int
+        get() = prefs.getInt("joystick_x", -1)
+        set(v) = prefs.edit().putInt("joystick_x", v).apply()
+
+    var joystickY: Int
+        get() = prefs.getInt("joystick_y", -1)
+        set(v) = prefs.edit().putInt("joystick_y", v).apply()
+
+    /** Switch to the arrows keyboard when the pad is used, and back when it goes quiet. */
+    var joystickAutoSwitch: Boolean
+        get() = prefs.getBoolean("joystick_auto_switch", true)
+        set(v) = prefs.edit().putBoolean("joystick_auto_switch", v).apply()
+
+    /** Keyboard to go back to after the joystick switched to the arrows keyboard. */
+    var previousIme: String
+        get() = prefs.getString("previous_ime", "") ?: ""
+        set(v) = prefs.edit().putString("previous_ime", v).apply()
+
     /** Terms to spell exactly: names, products, jargon. Stored one per line. */
     var vocabulary: List<String>
         get() = splitList(prefs.getString("vocabulary", "") ?: "")
