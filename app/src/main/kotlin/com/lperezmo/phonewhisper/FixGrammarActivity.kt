@@ -54,7 +54,7 @@ class FixGrammarActivity : AppCompatActivity() {
         val settings = AppSettings(this)
         val client = OpenAiClient(apiKey)
         val model = settings.cleanupModel
-        val instructions = Prompts.forRequest(Prompts.TYPED, settings.vocabulary)
+        val instructions = Prompts.forRequest(settings.fixPrompt, settings.vocabulary)
         val usage = UsageStore(this)
         lifecycleScope.launch {
             val started = System.currentTimeMillis()

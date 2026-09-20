@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cleanupSwitch: MaterialSwitch
     private lateinit var cleanupModelSub: TextView
     private lateinit var promptRowSub: TextView
+    private lateinit var fixPromptSub: TextView
     private lateinit var cleanupContainer: LinearLayout
     private lateinit var liveSwitch: MaterialSwitch
     private lateinit var liveSub: TextView
@@ -131,12 +132,20 @@ class MainActivity : AppCompatActivity() {
         cleanupModelSub = cleanupModelRow.findViewWithTag("subtitle")
         cleanupContainer.addView(cleanupModelRow)
         for (preset in promptPresets()) cleanupContainer.addView(buildPromptRow(preset))
-        val promptRow = settingsRow("Edit current prompt", "") { promptCleanupPrompt() }
+        val promptRow = settingsRow("Edit custom prompt", "") { promptCustomPrompt() }
         promptRowSub = promptRow.findViewWithTag("subtitle")
         promptRowSub.maxLines = 2
         promptRowSub.ellipsize = TextUtils.TruncateAt.END
         cleanupContainer.addView(promptRow)
         root.addView(cleanupContainer)
+
+        // --- Grammar fix (its own prompt: this text was typed, not dictated) ---
+        root.addView(sectionHeader("Grammar fix"))
+        val fixRow = settingsRow("Fix prompt", "") { promptFixPrompt() }
+        fixPromptSub = fixRow.findViewWithTag("subtitle")
+        fixPromptSub.maxLines = 2
+        fixPromptSub.ellipsize = TextUtils.TruncateAt.END
+        root.addView(fixRow)
 
         // --- Usage ---
         root.addView(sectionHeader("Usage (estimate)"))
@@ -199,7 +208,8 @@ class MainActivity : AppCompatActivity() {
         cleanupSwitch.isChecked = settings.cleanupEnabled
         cleanupContainer.visibility = if (settings.cleanupEnabled) View.VISIBLE else View.GONE
         cleanupModelSub.text = settings.cleanupModel
-        promptRowSub.text = settings.cleanupPrompt
+        promptRowSub.text = settings.customPrompt
+        fixPromptSub.text = settings.fixPrompt
         usageMonthSub.text = usage.thisMonth().summary()
         val since = usage.since.takeIf { it > 0 }?.let {
             " (since " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it)) + ")"
@@ -293,19 +303,47 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun promptCleanupPrompt() {
-        val input = editText("Prompt", settings.cleanupPrompt,
+    /** Edits your own cleanup prompt. Saving selects Custom; the presets are left alone. */
+    private fun promptCustomPrompt() {
+        val input = editText("Prompt", settings.customPrompt,
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
             minLines = 3
             gravity = Gravity.TOP or Gravity.START
         }
         AlertDialog.Builder(this)
-            .setTitle("Edit current prompt")
+            .setTitle("Edit custom prompt")
             .setView(padded(input))
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton("Save and use") { _, _ ->
                 val text = input.text.toString().trim().ifBlank { Prompts.DEFAULT }
                 settings.customPrompt = text
-                settings.cleanupPrompt = text
+                settings.promptPreset = Prompts.CUSTOM_KEY
+                refresh()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Edits the grammar-fix prompt, used by the long-press fix and the Fix grammar
+     * selection menu. Separate from the cleanup prompt: that text was dictated,
+     * this text was typed.
+     */
+    private fun promptFixPrompt() {
+        val input = editText("Prompt", settings.fixPrompt,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
+            minLines = 3
+            gravity = Gravity.TOP or Gravity.START
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Grammar fix prompt")
+            .setMessage("Sent when you long-press the button or use Fix grammar in the selection menu.")
+            .setView(padded(input))
+            .setPositiveButton("Save") { _, _ ->
+                settings.fixPrompt = input.text.toString().trim().ifBlank { Prompts.TYPED }
+                refresh()
+            }
+            .setNeutralButton("Use default") { _, _ ->
+                settings.fixPrompt = Prompts.TYPED
                 refresh()
             }
             .setNegativeButton("Cancel", null)
@@ -369,9 +407,9 @@ class MainActivity : AppCompatActivity() {
     private data class PromptPreset(val key: String, val title: String, val subtitle: String, val prompt: String)
 
     private fun promptPresets() = listOf(
-        PromptPreset("simple", "Simple cleanup", "Grammar, punctuation, filler words", Prompts.SIMPLE),
-        PromptPreset("dev", "Dev cleanup", "Also turns spoken commands into shell commands", Prompts.DEV),
-        PromptPreset("custom", "Custom", customPromptSummary(), settings.customPrompt),
+        PromptPreset(Prompts.SIMPLE_KEY, "Simple cleanup", "Grammar, punctuation, filler words", Prompts.SIMPLE),
+        PromptPreset(Prompts.DEV_KEY, "Dev cleanup", "Also turns spoken commands into shell commands", Prompts.DEV),
+        PromptPreset(Prompts.CUSTOM_KEY, "Custom", customPromptSummary(), settings.customPrompt),
     )
 
     private fun buildPromptRow(preset: PromptPreset): View {
@@ -380,7 +418,7 @@ class MainActivity : AppCompatActivity() {
             buttonTintList = ColorStateList.valueOf(attrColor(com.google.android.material.R.attr.colorPrimary))
         }
         val row = settingsRow(preset.title, preset.subtitle, radio) {
-            settings.cleanupPrompt = if (preset.key == "custom") settings.customPrompt else preset.prompt
+            settings.promptPreset = preset.key
             refresh()
         }
         promptRows[preset.key] = PromptRowViews(radio, row.findViewWithTag("subtitle"))
@@ -388,20 +426,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshPromptRows() {
-        val current = settings.cleanupPrompt
+        val current = settings.promptPreset
         for (preset in promptPresets()) {
             val views = promptRows[preset.key] ?: continue
-            views.radio.isChecked = when (preset.key) {
-                "custom" -> current != Prompts.SIMPLE && current != Prompts.DEV
-                else -> current == preset.prompt
-            }
-            views.subtitle.text = if (preset.key == "custom") customPromptSummary() else preset.subtitle
+            views.radio.isChecked = preset.key == current
+            views.subtitle.text = if (preset.key == Prompts.CUSTOM_KEY) customPromptSummary() else preset.subtitle
         }
     }
 
     private fun customPromptSummary(): String {
         val prompt = settings.customPrompt
-        return if (prompt == Prompts.DEFAULT) "Your own prompt. Tap Edit current prompt." else prompt.replace("\n", " ")
+        return if (prompt == Prompts.DEFAULT) "Your own prompt. Tap Edit custom prompt." else prompt.replace("\n", " ")
     }
 
     // --- UI helpers ---

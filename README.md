@@ -25,7 +25,7 @@ There is no on-device speech model: the app needs an internet connection.
 | **Tap** (amber, after a failure) | Retry the same recording. Nothing is lost on a network error. |
 | **Long-press** (amber) | Discard the failed recording. |
 | **Drag** | Move the button; it snaps to the nearest edge. |
-| **Tap "Tap here to undo"** | Shown for 5 seconds after text is inserted or fixed. Puts the field back as it was, unless you have edited it since. |
+| **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |
 
 Where the text goes:
 
@@ -68,7 +68,8 @@ accessibility service at all.
 | Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
-| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
+| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. Your custom text is kept while a preset is selected, and "Edit custom prompt" selects Custom when you save. |
+| Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
 
 The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
 cleanup and grammar-fix calls, and an estimated cost for this month and since the last reset
