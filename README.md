@@ -74,6 +74,33 @@ has no arrow row.
 Arrow keys can only reach another app through a keyboard, so the pad comes with one: see
 [Why does it register a keyboard?](#why-does-it-register-a-keyboard) below.
 
+## Volume presets
+
+Off by default. Turn on **Show the volume pill** and a small oval rides on top of the dictate
+button, showing which preset is on. Tap it to open a four-stop track:
+
+| Stop | System, notifications, ringtone | Media | Ringer | Do Not Disturb |
+|---|---|---|---|---|
+| **DND** | 0 | 0 | Silent, no vibration | On for 1 hour (alarms still ring) |
+| **MUTE** | 0 | 0 | Vibrate | Off |
+| **MED** | 40% | 5% | Normal | Off |
+| **LOUD** | 100% | 20% | Normal | Off |
+
+Taps on the track do nothing. A preset is picked with a V drawn in one stroke: press, dip down
+about 20dp to unlock (the edge lights up in the target's color), slide sideways to a stop, then
+come back up about 16dp to apply it. Releasing while still low cancels. The track closes itself
+6 seconds after it was last touched, on a tap outside, and when the screen turns off.
+
+When the DND hour ends, only DND turns off; the volumes stay at 0 and the pill reads **SIL**. It
+reads **CUST** when a volume was changed by hand and no preset matches. Percentages are rounded
+to the stream's steps (15 on a Galaxy S25), and anything above 0% gets at least one step, so 5%
+is 1/15.
+
+The presets need **Do Not Disturb access** (a row in the settings screen links to it). The
+**End the DND hour on time** row allows exact alarms; without it Android may end the hour up to
+10 minutes late. Alarm and call volume are never touched, and neither is the AI assistant
+volume: Android lets only system apps set that stream (it needs `MODIFY_AUDIO_ROUTING`).
+
 ## Settings
 
 | Setting | Default | Notes |
@@ -88,6 +115,7 @@ Arrow keys can only reach another app through a keyboard, so the pad comes with 
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. Your custom text is kept while a preset is selected, and "Edit custom prompt" selects Custom when you save. |
 | Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
 | Show the arrow pad | off | The floating arrow pad described above. |
+| Show the volume pill | off | The volume presets described above. |
 | Switch keyboard automatically | on | Touching the knob switches to the arrows keyboard, and your own comes back 4 seconds after the last arrow. Off means you switch by hand with a long-press on the ring. |
 
 The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
@@ -247,6 +275,9 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `TextInjector.kt` | Find the field, insert at the cursor, replace a range, undo, clipboard fallback |
 | `FixGrammarActivity.kt` | **Fix grammar** in the text-selection menu (`ACTION_PROCESS_TEXT`) |
 | `JoystickView.kt` | The arrow pad: drag to move, one arrow per push of the knob, double-tap for Enter |
+| `VolumePresets.kt` | The four presets, step math, reading the phone back as a pill state, and the V gesture |
+| `VolumeController.kt` | Applies a preset (streams, ringer, DND) and runs the DND hour as an alarm |
+| `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `MainActivity.kt` | Settings screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
