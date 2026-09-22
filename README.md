@@ -257,7 +257,7 @@ Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a
 `fix:` commit cuts a version, tags it, and attaches the signed APK to the GitHub release;
 `chore:`, `docs:`, `ci:` and `refactor:` commits do not. To stay inside the Actions storage
 quota, build artifacts are kept 3 days, and a release deletes its own artifact once the APK is
-attached (release assets do not count against the quota). `versionName` is `0.9.0`, and it is
+attached (release assets do not count against the quota). `versionName` is `0.10.0`, and it is
 owned by semantic-release, so never edit it by hand. `versionCode` is derived from it by
 `scripts/version_code.sh`.
 
