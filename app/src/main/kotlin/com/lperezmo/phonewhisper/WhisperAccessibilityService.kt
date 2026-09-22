@@ -73,6 +73,15 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val AUTO_RETURN_MS = 4000L
         private const val KEY_RETRIES = 8
         private const val KEY_RETRY_MS = 60L
+        /** Space between the pill and the dictate button, and between the track and the pill. */
+        private const val PILL_GAP_DP = 6
+        private const val TRACK_GAP_DP = 12
+        /** An open track closes itself after this long untouched, so it cannot linger under a pocket. */
+        private const val TRACK_IDLE_MS = 6000L
+        private const val TRACK_CLOSE_AFTER_APPLY_MS = 700L
+        private const val PILL_REFRESH_MS = 150L
+        private const val REOPEN_GUARD_MS = 800L
+        private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
 
         private const val COLOR_IDLE = 0xDD1C1C1E.toInt()
         private const val COLOR_RECORDING = 0xDDEF4444.toInt()
@@ -113,7 +122,10 @@ class WhisperAccessibilityService : AccessibilityService() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_USER_PRESENT -> lockLimits.onUnlock()
-                Intent.ACTION_SCREEN_OFF -> recorder?.let { it.capAt(lockLimits.capWhenLocked(it.elapsedSeconds)) }
+                Intent.ACTION_SCREEN_OFF -> {
+                    recorder?.let { it.capAt(lockLimits.capWhenLocked(it.elapsedSeconds)) }
+                    hideTrack()
+                }
             }
         }
     }
@@ -130,6 +142,22 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var padTouched = false
     private val restoreKeyboard = Runnable {
         if (padTouched) scheduleKeyboardRestore() else restorePreviousKeyboard()
+    }
+    private lateinit var volume: VolumeController
+    private var pillView: VolumePillView? = null
+    private var pillParams: WindowManager.LayoutParams? = null
+    private var trackView: VolumeTrackView? = null
+    private var trackParams: WindowManager.LayoutParams? = null
+    private val closeTrack = Runnable { hideTrack() }
+    /** A tap on the pill closes an open track through its outside touch first; this keeps it from reopening. */
+    private var trackClosedOutsideAt = 0L
+    private val refreshPill = Runnable { pillView?.update(volume.current()) }
+    /** Any volume, ringer or DND change, from the presets or not, redraws the pill. */
+    private val volumeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            handler.removeCallbacks(refreshPill)
+            handler.postDelayed(refreshPill, PILL_REFRESH_MS)
+        }
     }
     private var undoArrowDrawable: Drawable? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -162,8 +190,11 @@ class WhisperAccessibilityService : AccessibilityService() {
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        volume = VolumeController(this)
+        volume.resumeDndTimer()
         showOverlay()
         refreshJoystick()
+        refreshVolumePill()
         // If a crash or an update left the arrows keyboard selected, undo that now.
         restorePreviousKeyboard()
     }
@@ -338,6 +369,143 @@ class WhisperAccessibilityService : AccessibilityService() {
         showFeedback("Pick Whisper LP arrows in the keyboard list", 3000)
     }
 
+    // --- Volume presets ---
+
+    /** Shows or hides the volume pill to match the setting. Safe to call at any time. */
+    fun refreshVolumePill() {
+        if (settings.volumePillEnabled) showVolumePill() else hideVolumePill()
+    }
+
+    private fun showVolumePill() {
+        if (pillView != null) return
+        val bubble = layoutParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            (VolumePillView.W_DP * dp).toInt(), (VolumePillView.H_DP * dp).toInt(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        positionPill(params, bubble)
+        val view = VolumePillView(this).apply {
+            update(volume.current())
+            setOnClickListener {
+                when {
+                    trackView != null -> hideTrack()
+                    android.os.SystemClock.uptimeMillis() - trackClosedOutsideAt > REOPEN_GUARD_MS -> showTrack()
+                }
+            }
+        }
+        wm.addView(view, params)
+        pillView = view
+        pillParams = params
+        ContextCompat.registerReceiver(
+            this, volumeReceiver,
+            IntentFilter().apply {
+                addAction(ACTION_VOLUME_CHANGED)
+                addAction(android.media.AudioManager.RINGER_MODE_CHANGED_ACTION)
+                addAction(android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    private fun hideVolumePill() {
+        hideTrack()
+        val view = pillView ?: return
+        try { unregisterReceiver(volumeReceiver) } catch (_: IllegalArgumentException) {}
+        handler.removeCallbacks(refreshPill)
+        (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
+        pillView = null
+        pillParams = null
+    }
+
+    private fun showTrack() {
+        if (trackView != null) return
+        if (!volume.hasDndAccess) {
+            showFeedback("Grant Do Not Disturb access in Whisper LP to use volume presets", 3000)
+            return
+        }
+        val bubble = layoutParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            (VolumeTrackView.W_DP * dp).toInt(), (VolumeTrackView.H_DP * dp).toInt(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            // Outside touches are reported (to close the track) and still reach the app.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        positionTrack(params, bubble)
+        val view = VolumeTrackView(this).apply {
+            current = volume.current().preset?.ordinal ?: -1
+            onTouch = { handler.removeCallbacks(closeTrack) }
+            onCommit = { preset -> applyPreset(preset) }
+            onTap = {
+                showFeedback("Taps do nothing. Draw a V: dip, slide, rise.")
+                scheduleTrackClose(TRACK_IDLE_MS)
+            }
+            onCancel = {
+                showFeedback("Cancelled, nothing changed")
+                scheduleTrackClose(TRACK_IDLE_MS)
+            }
+            onOutside = {
+                trackClosedOutsideAt = android.os.SystemClock.uptimeMillis()
+                hideTrack()
+            }
+        }
+        wm.addView(view, params)
+        trackView = view
+        trackParams = params
+        scheduleTrackClose(TRACK_IDLE_MS)
+    }
+
+    private fun hideTrack() {
+        handler.removeCallbacks(closeTrack)
+        val view = trackView ?: return
+        (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
+        trackView = null
+        trackParams = null
+    }
+
+    private fun scheduleTrackClose(delayMs: Long) {
+        handler.removeCallbacks(closeTrack)
+        handler.postDelayed(closeTrack, delayMs)
+    }
+
+    private fun applyPreset(preset: VolumePreset) {
+        val error = volume.apply(preset)
+        pillView?.update(volume.current())
+        if (error != null) {
+            showFeedback(error, 3000)
+        } else {
+            val note = if (preset.dnd && !volume.exactTimer) " (ends within 10 min of the hour)" else ""
+            showFeedback("${preset.label} applied$note")
+        }
+        scheduleTrackClose(TRACK_CLOSE_AFTER_APPLY_MS)
+    }
+
+    /** Centered over the button, [PILL_GAP_DP] above it; the touch area reaches down to just short of it. */
+    private fun positionPill(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
+        val ring = (RING_DP * dp).toInt()
+        val buttonTop = bubble.y + (ring - (BTN_DP * dp).toInt()) / 2
+        val pillBottom = buttonTop - (PILL_GAP_DP * dp).toInt()
+        params.x = bubble.x + (ring - params.width) / 2
+        params.y = (pillBottom + (VolumePillView.BOTTOM_PAD_DP * dp).toInt() - params.height).coerceAtLeast(0)
+    }
+
+    /** Above the pill, flush with the button's outer edge so it opens toward the middle of the screen. */
+    private fun positionTrack(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
+        val ring = (RING_DP * dp).toInt()
+        val button = (BTN_DP * dp).toInt()
+        val margin = (MARGIN_DP * dp).toInt()
+        val onRight = bubble.x + ring / 2 > screenW / 2
+        val x = if (onRight) bubble.x + (ring + button) / 2 - params.width else bubble.x + (ring - button) / 2
+        val buttonTop = bubble.y + (ring - button) / 2
+        val pillTop = buttonTop - ((PILL_GAP_DP + VolumePillView.PILL_H_DP) * dp).toInt()
+        params.x = x.coerceIn(margin, maxOf(margin, screenW - params.width - margin))
+        params.y = (pillTop - (TRACK_GAP_DP * dp).toInt() - params.height).coerceAtLeast(margin)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || !::injector.isInitialized) return
         injector.onEvent(event)
@@ -358,6 +526,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(restoreKeyboard)
         restorePreviousKeyboard()
         hideJoystick()
+        hideVolumePill()
         removeOverlay()
         super.onDestroy()
     }
@@ -721,10 +890,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                     params.x = startX + (ev.rawX - touchX).toInt()
                     params.y = startY + (ev.rawY - touchY).toInt()
                     wm.updateViewLayout(v, params)
-                    feedbackLayoutParams?.let {
-                        positionFeedback(it, params)
-                        wm.updateViewLayout(feedbackView, it)
-                    }
+                    followBubble(wm, params)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -736,10 +902,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                         params.x = if (params.x + ringSize / 2 > screenW / 2)
                             screenW - ringSize - margin else margin
                         wm.updateViewLayout(v, params)
-                        feedbackLayoutParams?.let {
-                            positionFeedback(it, params)
-                            wm.updateViewLayout(feedbackView, it)
-                        }
+                        followBubble(wm, params)
                     }
                     true
                 }
@@ -779,6 +942,22 @@ class WhisperAccessibilityService : AccessibilityService() {
         spinner = ring
         layoutParams = params
         feedbackLayoutParams = feedbackParams
+    }
+
+    /** Keeps the feedback bubble and the volume pill and track next to the button as it moves. */
+    private fun followBubble(wm: WindowManager, bubble: WindowManager.LayoutParams) {
+        feedbackLayoutParams?.let {
+            positionFeedback(it, bubble)
+            wm.updateViewLayout(feedbackView, it)
+        }
+        pillParams?.let {
+            positionPill(it, bubble)
+            wm.updateViewLayout(pillView, it)
+        }
+        trackParams?.let {
+            positionTrack(it, bubble)
+            wm.updateViewLayout(trackView, it)
+        }
     }
 
     private fun removeOverlay() {

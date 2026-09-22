@@ -72,6 +72,16 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("joystick_auto_switch", true)
         set(v) = prefs.edit().putBoolean("joystick_auto_switch", v).apply()
 
+    /** The volume preset pill above the dictate button. */
+    var volumePillEnabled: Boolean
+        get() = prefs.getBoolean("volume_pill", false)
+        set(v) = prefs.edit().putBoolean("volume_pill", v).apply()
+
+    /** When the Silent + DND hour ends, in epoch ms. 0 means no hour is running. */
+    var dndUntil: Long
+        get() = prefs.getLong("dnd_until", 0L)
+        set(v) = prefs.edit().putLong("dnd_until", v).apply()
+
     /** Keyboard to go back to after the joystick switched to the arrows keyboard. */
     var previousIme: String
         get() = prefs.getString("previous_ime", "") ?: ""
