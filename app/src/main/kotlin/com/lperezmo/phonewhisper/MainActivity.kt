@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.net.Uri
 import android.graphics.Typeface
 import android.os.Bundle
 import android.provider.Settings
@@ -41,6 +42,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var joystickSub: TextView
     private lateinit var autoSwitchSwitch: MaterialSwitch
     private lateinit var autoSwitchSub: TextView
+    private lateinit var volumeSwitch: MaterialSwitch
+    private lateinit var volumeSub: TextView
+    private lateinit var dndAccessSub: TextView
+    private lateinit var exactTimerSub: TextView
     private lateinit var cleanupContainer: LinearLayout
     private lateinit var liveSwitch: MaterialSwitch
     private lateinit var liveSub: TextView
@@ -165,6 +170,27 @@ class MainActivity : AppCompatActivity() {
             "Arrow keys can only reach another app through a keyboard. Enable Whisper LP arrows, then switch to it while you need the pad. Long-press the pad to switch.",
         ) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) })
 
+        // --- Volume presets ---
+        root.addView(sectionHeader("Volume presets"))
+        volumeSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val volumeRow = settingsRow("Show the volume pill", "", volumeSwitch) {
+            settings.volumePillEnabled = !settings.volumePillEnabled
+            WhisperAccessibilityService.instance?.refreshVolumePill()
+            refresh()
+        }
+        volumeSub = volumeRow.findViewWithTag("subtitle")
+        root.addView(volumeRow)
+        val dndRow = settingsRow("Do Not Disturb access", "") {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        }
+        dndAccessSub = dndRow.findViewWithTag("subtitle")
+        root.addView(dndRow)
+        val exactRow = settingsRow("End the DND hour on time", "") {
+            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+        }
+        exactTimerSub = exactRow.findViewWithTag("subtitle")
+        root.addView(exactRow)
+
         // --- Grammar fix (its own prompt: this text was typed, not dictated) ---
         root.addView(sectionHeader("Grammar fix"))
         val fixRow = settingsRow("Fix prompt", "") { promptFixPrompt() }
@@ -244,6 +270,15 @@ class MainActivity : AppCompatActivity() {
         joystickSub.text = if (settings.joystickEnabled)
             "A draggable pad that sends arrow keys. Push the middle knob; drag the ring to move it."
         else "Off. A floating pad for arrow keys, for remote desktop and terminals."
+        volumeSwitch.isChecked = settings.volumePillEnabled
+        volumeSub.text = if (settings.volumePillEnabled)
+            "Tap the pill above the mic, then draw a V on the track: dip down, slide to a preset, rise to apply."
+        else "Off. Four one-gesture volume presets: Silent + DND for an hour, Mute, Medium, Loud."
+        val volume = VolumeController(this)
+        dndAccessSub.text = if (volume.hasDndAccess) "Granted"
+        else "Needed for the presets. Tap, then allow Whisper LP."
+        exactTimerSub.text = if (volume.exactTimer) "On: DND ends right at the hour"
+        else "Off: DND may end up to 10 minutes late. Tap to allow alarms."
         usageMonthSub.text = usage.thisMonth().summary()
         val since = usage.since.takeIf { it > 0 }?.let {
             " (since " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it)) + ")"
