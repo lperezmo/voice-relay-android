@@ -36,8 +36,19 @@ class VolumePresetsTest {
         assertEquals(PillState.SILENT, VolumeMath.classify(IntArray(4), s25, false, VolumePreset.Ringer.SILENT))
     }
 
+    @Test fun `changing media keeps the preset`() {
+        assertEquals(PillState.MEDIUM, VolumeMath.classify(intArrayOf(6, 6, 6, 9), s25, false, normal))
+        assertEquals(PillState.MEDIUM, VolumeMath.classify(intArrayOf(6, 6, 6, 0), s25, false, normal))
+        assertEquals(PillState.LOUD, VolumeMath.classify(intArrayOf(15, 15, 15, 1), s25, false, normal))
+    }
+
+    @Test fun `mute and DND need media at 0 too`() {
+        assertEquals(PillState.CUSTOM, VolumeMath.classify(intArrayOf(0, 0, 0, 7), s25, false, VolumePreset.Ringer.VIBRATE))
+        assertEquals(PillState.CUSTOM, VolumeMath.classify(intArrayOf(0, 0, 0, 7), s25, true, VolumePreset.Ringer.SILENT))
+    }
+
     @Test fun `a hand-changed volume, or someone else's DND, is custom`() {
-        assertEquals(PillState.CUSTOM, VolumeMath.classify(intArrayOf(6, 6, 6, 2), s25, false, normal))
+        assertEquals(PillState.CUSTOM, VolumeMath.classify(intArrayOf(6, 6, 8, 1), s25, false, normal))
         assertEquals(PillState.CUSTOM, VolumeMath.classify(intArrayOf(15, 15, 15, 3), s25, true, normal))
     }
 

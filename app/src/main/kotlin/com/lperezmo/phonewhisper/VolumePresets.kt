@@ -42,6 +42,7 @@ enum class PillState(val short: String, val label: String, val color: Int, val p
 /** Preset arithmetic, kept free of Android so it can be unit tested. */
 object VolumeMath {
     val STREAM_NAMES = listOf("System", "Notifications", "Ringtone", "Media")
+    private val MEDIA = STREAM_NAMES.indexOf("Media")
 
     /**
      * [percent] of [max] in whole steps. Anything above 0% gets at least one
@@ -58,8 +59,10 @@ object VolumeMath {
 
     /**
      * Reads the phone's state back as a pill state. Streams the phone does not
-     * have (-1) are ignored. DND on with anything but silence is someone else's
-     * DND, so it reads as custom rather than claiming a preset.
+     * have (-1) are ignored. Medium and Loud also ignore media, since the
+     * volume keys change it all the time; DND and Mute count it, so they only
+     * show when the phone is fully silent. DND on with anything but silence is
+     * someone else's DND, so it reads as custom rather than claiming a preset.
      */
     fun classify(levels: IntArray, maxes: IntArray, dndOn: Boolean, ringer: VolumePreset.Ringer): PillState {
         val known = levels.indices.filter { maxes[it] >= 0 }
@@ -71,7 +74,7 @@ object VolumeMath {
         if (dndOn) return PillState.CUSTOM
         for (state in listOf(PillState.MEDIUM, PillState.LOUD)) {
             val want = levelsFor(state.preset!!, maxes)
-            if (known.all { levels[it] == want[it] }) return state
+            if (known.all { it == MEDIA || levels[it] == want[it] }) return state
         }
         return PillState.CUSTOM
     }
