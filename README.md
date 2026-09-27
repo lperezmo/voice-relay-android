@@ -169,7 +169,7 @@ on by itself. `WAKE_OFF` always works.
 | API key | none | Stored encrypted with an Android Keystore key. A dedicated key with a spend cap is a good idea. |
 | Live transcription | off | Streams the audio to the Realtime API (`gpt-live-transcribe`) while you talk, so the transcript is ready about 0.5 s after you stop, however long you spoke. About $0.017/min versus $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
 | Transcription model | `gpt-transcribe` | Picker lists the speech models your key can use, plus **Other** for any model id. |
-| Languages | `en, es` | Sent as hints so mixed-language dictation is recognized. Empty = auto-detect. |
+| Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
 | Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
