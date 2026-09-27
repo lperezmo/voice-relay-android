@@ -15,11 +15,11 @@ on:
 # The called workflow declares its own, narrower permissions. A caller can only
 # hand down the same or less, so the write scopes semantic-release and the
 # release upload need are granted here, plus actions: write so the build can
-# delete its Actions artifact once the APK is on the release.
+# delete its Actions artifact once the APK is on the release. No issues or
+# pull-requests scope: .releaserc.json turns off semantic-release's success
+# and failure comments, which are the only things that would write there.
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
   actions: write
 
 concurrency:

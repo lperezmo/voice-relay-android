@@ -1,24 +1,97 @@
 <p align="center">
-  <img src="docs/logo.svg" width="128" height="128" alt="Phone Whisper Logo">
+  <img src="docs/logo.svg" width="128" height="128" alt="Whisper LP logo">
 </p>
 
-# Phone Whisper Android
+# Whisper LP
 
-Push-to-talk dictation and one-tap grammar fixes for Android, using your own OpenAI API key.
-Based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper) (Apache-2.0, see
-[NOTICE](NOTICE)). On the phone this build is called **Whisper LP** and has a teal icon, so it is
-easy to tell apart from the original if both are installed.
+[![Build](https://img.shields.io/github/actions/workflow/status/lperezmo/phone-whisper-android/release.yml?branch=main&label=build)](https://github.com/lperezmo/phone-whisper-android/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/lperezmo/phone-whisper-android)](https://github.com/lperezmo/phone-whisper-android/releases)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Android 11+](https://img.shields.io/badge/Android-11%2B-3ddc84)
+
+**Dictate into any app on your Android phone, using your own OpenAI API key.** A small button
+floats over every app. Tap it, speak, tap again, and the text appears where you are typing,
+without switching away from your keyboard. Long-press it to fix the grammar of text you typed.
+
+It also has a few extras, all off until you turn them on:
+
+- **"Hey claude" wake word.** Say it from anywhere, even with the screen off, and the Claude
+  app's voice assistant opens, so you can talk to Claude hands-free and let it use the phone.
+  The listening runs entirely on the phone.
+- **Fix grammar** in every app's text-selection menu.
+- **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
+  arrow keys.
+- **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
+
+There is no server in between and no account to create: the app talks straight to OpenAI with
+your key. Dictation needs an internet connection; the wake word does not.
+
+Whisper LP is based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper)
+(Apache-2.0, see [NOTICE](NOTICE)). The project is called Phone Whisper Android; on the phone
+the app is **Whisper LP**, with a teal icon.
 
 Whisper LP is an independent project. It is not affiliated with, endorsed by, or sponsored by
 Anthropic or OpenAI. "Claude" and "OpenAI" are trademarks of their owners and are named only to
 describe what the app works with.
 
-A small button floats over every app. Tap it, speak, tap again, and the text appears where you
-are typing, without switching away from your keyboard. Long-press it to fix the grammar of
-text you typed.
+## What you need
 
-Dictation has no on-device speech model and needs an internet connection. The optional
-[wake word](#wake-word-hey-claude) is the exception: it runs entirely on the phone.
+- An Android phone on **Android 11 or newer** with a 64-bit ARM processor (arm64-v8a), which is
+  nearly every phone from the last several years. The app is tested on a Samsung Galaxy S25.
+- An **OpenAI account with API access and billing set up**, and an
+  [API key](https://platform.openai.com/api-keys). This is separate from a ChatGPT
+  subscription. A dedicated key with a monthly spend limit is a good idea (see
+  [SECURITY.md](SECURITY.md)).
+- For the wake word: the [Claude app](https://play.google.com/store/apps/details?id=com.anthropic.claude).
+  Without it, the wake word opens your default assistant instead.
+
+**What it costs.** You pay OpenAI directly for what you use. With the default model,
+transcription is about $0.0045 per minute of audio, and cleanup or a grammar fix adds a small
+fraction of a cent each. Ten minutes of dictation a day comes to roughly $1.50 a month. Live
+transcription (off by default) costs about $0.017 per minute. The app keeps its own estimate in
+**Settings > Usage**; your OpenAI usage page is the actual bill.
+
+## Install
+
+1. On the phone, download `phone-whisper-android-vX.Y.Z.apk` from the
+   [latest release](https://github.com/lperezmo/phone-whisper-android/releases/latest) and open
+   it. Allow installs from your browser or file manager when Android asks.
+2. Open **Whisper LP**, allow the **microphone**, and tap **API key** to paste your OpenAI key.
+3. Tap **Accessibility service**, read the explanation, and turn on Whisper LP.
+
+   **On Android 13 and newer the switch may be greyed out** ("Restricted setting"). Android does
+   this for apps installed from a browser or file manager. Go to **Settings > Apps > Whisper LP**,
+   open the three-dot menu at the top right, tap **Allow restricted settings**, confirm, and go
+   back to the accessibility switch.
+
+The status line at the top of the app says **Ready** when the setup is done, and the floating
+button appears.
+
+Or install from a computer with [adb](https://developer.android.com/tools/adb), which also
+avoids the restricted-setting step:
+
+```sh
+adb install -r phone-whisper-android-vX.Y.Z.apk
+```
+
+Updates install over the previous version and keep your settings, as long as both came from this
+repository's releases (see [Signing](#signing-and-forks)).
+
+## Permissions
+
+| Permission | Needed for | Asked when |
+|---|---|---|
+| Microphone | Dictation and the wake word | First launch |
+| Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there | Setup step 3 |
+| Notifications | The wake word's "listening" notification (Android 13+) | Turning on the wake word |
+| Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
+| Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
+| Alarms and reminders | Ending the one-hour Do Not Disturb preset on time (optional) | Tapping the row in the Volume presets section |
+| Input method (Whisper LP arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
+| Internet | Requests to OpenAI | Granted at install |
+
+Why a keyboard, and why accessibility: see [Why does it register a keyboard?](#why-does-it-register-a-keyboard)
+and [SECURITY.md](SECURITY.md).
 
 ## Using it
 
@@ -44,6 +117,9 @@ Where the text goes:
 Clipboard copies are marked sensitive, so they stay out of clipboard previews and keyboard
 clipboard history.
 
+If cleanup fails or changes the text implausibly (for example, it answered a dictated question
+instead of cleaning it up), the raw transcript is inserted instead.
+
 ### On the lock screen
 
 The button also works on the lock screen, which is handy for quick voice notes: with no text
@@ -60,51 +136,8 @@ from recording for hours:
 Select text in any app and choose **Fix grammar** in the selection menu (next to Cut, Copy,
 Paste; it may be under the three-dot overflow). Editable text is replaced in place; read-only
 text (a web page, a received message) is fixed onto the clipboard. This path does not use the
-accessibility service at all.
-
-## The arrow pad
-
-Off by default. Turn on **Show the arrow pad** and a second, transparent control appears: a thin
-ring with a thin knob in the middle, 92dp across, drawn as hairlines so it does not hide what is
-underneath. It sends arrow keys, for remote desktop sessions and terminals where a phone keyboard
-has no arrow row.
-
-| Gesture on the pad | What happens |
-|---|---|
-| **Push the knob** | One arrow, in the direction you pushed. The knob has to come back toward the middle before it sends another, so a push is one key and there is no auto-repeat. Haptic tick per key. |
-| **Double-tap the knob** | Enter. A single tap does nothing, so a stray finger is harmless. |
-| **Drag the ring** | Move the pad. Its position is remembered. |
-| **Long-press the ring** | Switch to the arrows keyboard by hand, and pin it there until you switch back. |
-
-Arrow keys can only reach another app through a keyboard, so the pad comes with one: see
-[Why does it register a keyboard?](#why-does-it-register-a-keyboard) below.
-
-## Volume presets
-
-Off by default. Turn on **Show the volume pill** and a small oval rides on top of the dictate
-button, showing which preset is on. Tap it to open a four-stop track:
-
-| Stop | System, notifications, ringtone | Media | Ringer | Do Not Disturb |
-|---|---|---|---|---|
-| **DND** | 0 | 0 | Silent, no vibration | On for 1 hour (alarms still ring) |
-| **MUTE** | 0 | 0 | Vibrate | Off |
-| **MED** | 40% | 5% | Normal | Off |
-| **LOUD** | 100% | 20% | Normal | Off |
-
-Taps on the track do nothing. A preset is picked with a V drawn in one stroke: press, dip down
-about 20dp to unlock (the edge lights up in the target's color), slide sideways to a stop, then
-come back up about 16dp to apply it. Releasing while still low cancels. The track closes itself
-6 seconds after it was last touched, on a tap outside, and when the screen turns off.
-
-When the DND hour ends, only DND turns off; the volumes stay at 0 and the pill reads **SIL**. It
-reads **CUST** when a volume was changed by hand and no preset matches. Percentages are rounded
-to the stream's steps (15 on a Galaxy S25), and anything above 0% gets at least one step, so 5%
-is 1/15.
-
-The presets need **Do Not Disturb access** (a row in the settings screen links to it). The
-**End the DND hour on time** row allows exact alarms; without it Android may end the hour up to
-10 minutes late. Alarm and call volume are never touched, and neither is the AI assistant
-volume: Android lets only system apps set that stream (it needs `MODIFY_AUDIO_ROUTING`).
+accessibility service at all. It accepts at most 10 requests a minute, because any app can call
+it.
 
 ## Wake word: hey claude
 
@@ -122,13 +155,12 @@ How it works:
 - When it hears the phrase it lets go of the microphone and opens Claude with
   `android.intent.action.VOICE_ASSIST` (falling back to your default assistant if Claude is not
   installed).
-- It stays quiet while anything else uses the microphone: Claude's whole conversation (Claude's
-  voice mode holds the audio mode in "communication" from the first turn to the last), phone
+- It stays quiet while anything else uses the microphone: Claude's whole conversation, phone
   calls, and the dictate button. It starts listening again 1 second after the microphone is
   free, and never sooner than 4 seconds after a detection.
 - **Resume music after Claude** (on by default): Claude pauses your music when it opens and does
   not always restart it. If music was playing when you said the phrase, the app presses play
-  (`KEYCODE_MEDIA_PLAY`, not play/pause) once Claude is done, unless something is already playing.
+  once Claude is done, unless something is already playing.
 - **Sensitivity** runs from 1 (strict) to 7 (loose); the default 5 is a detection threshold of
   0.20. Raise it if it misses you, lower it if it fires by mistake. Words that sound like the
   phrase ("hey clown", "okay cloudy") can trigger it at any setting.
@@ -138,10 +170,6 @@ How it works:
 After a reboot or an app update it comes back on its own when Android reconnects the
 accessibility service. If Android refuses to start it at that moment, a notification says so, and
 one tap turns it back on.
-
-Every detection is logged with the phrase and the settings, for tuning:
-`Wake word: detected HEY_CLOUD (threshold 0.20, sensitivity 5, keyword 0.76 s, music playing)`.
-Read them with `adb logcat -s PhoneWhisper`.
 
 ### Turning it on and off from Tasker
 
@@ -158,7 +186,7 @@ finishes at once, including over the lock screen):
 
 The same from a computer:
 
-```bash
+```sh
 adb shell am start -a com.lperezmo.phonewhisper.WAKE_ON -n com.lperezmo.phonewhisper/.WakeControlActivity
 ```
 
@@ -166,180 +194,183 @@ adb shell am start -a com.lperezmo.phonewhisper.WAKE_ON -n com.lperezmo.phonewhi
 permissions are granted; before that it is ignored, so another app cannot switch the microphone
 on by itself. `WAKE_OFF` always works.
 
+## The arrow pad
+
+Off by default. Turn on **Show the arrow pad** and a second, transparent control appears: a thin
+ring with a thin knob in the middle, 92dp across, drawn as hairlines so it does not hide what is
+underneath. It sends arrow keys, for remote desktop sessions and terminals where a phone keyboard
+has no arrow row.
+
+| Gesture on the pad | What happens |
+|---|---|
+| **Push the knob** | One arrow, in the direction you pushed. The knob has to come back toward the middle before it sends another, so a push is one key and there is no auto-repeat. Haptic tick per key. |
+| **Double-tap the knob** | Enter. A single tap does nothing, so a stray finger is harmless. |
+| **Drag the ring** | Move the pad. Its position is remembered. |
+| **Long-press the ring** | Switch to the arrows keyboard by hand, and pin it there until you switch back. |
+
+Arrow keys can only reach another app through a keyboard, so the pad comes with one. Enable
+**Whisper LP arrows** once in the system keyboard settings (the **Arrows keyboard** row in the app
+links there). By default, touching the knob switches to it and your own keyboard comes back 4
+seconds after the last arrow, or at once when you tap into a text field. Turn **Switch keyboard
+automatically** off to switch by hand with a long-press on the ring.
+
+Where the arrows keyboard is not selected, the pad falls back to moving the caret through
+accessibility. That works in ordinary text fields, but not in a remote desktop canvas.
+
+### Why does it register a keyboard?
+
+Injecting key events into another app is a system-only privilege that an accessibility service
+does not have; a keyboard may send keys through its `InputConnection`. So the pad ships with one,
+`KeysInputMethodService`, which
+
+- **draws nothing and takes no screen space**, so it is not something you can type on, and
+- **types nothing and reads nothing.** The only thing it asks its `InputConnection` to do is
+  `sendKeyEvent` for the arrows and Enter. It does not read the text around the cursor, the
+  selection, or the field, and logs nothing. It is 55 lines:
+  [`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
+
+Android shows its usual warning that a keyboard can collect what you type when you enable it.
+That warning is generic and applies to every keyboard; this one has no code that could.
+
+## Volume presets
+
+Off by default. Turn on **Show the volume pill** and a small oval rides on top of the dictate
+button, showing which preset is on. Tap it to open a four-stop track:
+
+| Stop | System, notifications, ringtone | Media | Ringer | Do Not Disturb |
+|---|---|---|---|---|
+| **DND** | 0 | 0 | Silent, no vibration | On for 1 hour (alarms still ring) |
+| **MUTE** | 0 | 0 | Vibrate | Off |
+| **MED** | 40% | 5% | Normal | Off |
+| **LOUD** | 100% | 20% | Normal | Off |
+
+A preset is picked with a V drawn in one stroke: press, dip down about 20dp to unlock (the edge
+lights up in the target's color), slide sideways to a stop, then come back up about 16dp to apply
+it. Releasing while still low cancels, and taps on the track do nothing. The track closes itself
+6 seconds after it was last touched, on a tap outside, and when the screen turns off.
+
+When the DND hour ends, only DND turns off; the volumes stay at 0 and the pill reads **SIL**. It
+reads **CUST** when a volume was changed by hand and no preset matches. Percentages are rounded
+to the stream's steps (15 on a Galaxy S25), and anything above 0% gets at least one step.
+
+The presets need **Do Not Disturb access**. The **End the DND hour on time** row allows exact
+alarms; without it Android may end the hour up to 10 minutes late. Alarm and call volume are never
+touched.
+
 ## Settings
 
 | Setting | Default | Notes |
 |---|---|---|
-| API key | none | Stored encrypted with an Android Keystore key. A dedicated key with a spend cap is a good idea. |
-| Live transcription | off | Streams the audio to the Realtime API (`gpt-live-transcribe`) while you talk, so the transcript is ready about 0.5 s after you stop, however long you spoke. About $0.017/min versus $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
-| Transcription model | `gpt-transcribe` | Picker lists the speech models your key can use, plus **Other** for any model id. |
+| API key | none | Stored encrypted with an Android Keystore key. |
+| Live transcription | off | Streams the audio to OpenAI's Realtime API (`gpt-live-transcribe`) while you talk, so the text is ready about 0.5 s after you stop, however long you spoke. About $0.017/min instead of $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
+| Transcription model | `gpt-transcribe` | The picker lists the speech models your key can use, plus **Other** for any model id. |
 | Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
-| Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
+| Vocabulary | empty | Names and terms to spell exactly. Sent to the transcription model and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
-| Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
-| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. Your custom text is kept while a preset is selected, and "Edit custom prompt" selects Custom when you save. |
-| Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
-| Show the arrow pad | off | The floating arrow pad described above. |
-| Show the volume pill | off | The volume presets described above. |
-| Wake word: hey claude | off | Listens on the phone for "hey claude" and opens Claude's voice assistant. See [Wake word](#wake-word-hey-claude). |
+| Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
+| Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
+| Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
+| Wake word: hey claude | off | See [Wake word](#wake-word-hey-claude). |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
-| Switch keyboard automatically | on | Touching the knob switches to the arrows keyboard, and your own comes back 4 seconds after the last arrow. Off means you switch by hand with a long-press on the ring. |
+| Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
+| Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
+| Show the volume pill | off | See [Volume presets](#volume-presets). |
 
-The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
-cleanup and grammar-fix calls, and an estimated cost for this month and since the last reset
-(tap it to reset). The estimate uses OpenAI list prices for known models; calls to a model
-without a known price are counted and flagged rather than guessed. Your OpenAI usage page is
-the actual bill.
+The **Usage** section counts dictations, minutes of audio, cleanup and grammar-fix calls, and an
+estimated cost for this month and since the last reset (tap it to reset). **About > Open-source
+licenses** shows the app's license and the notices for the software it includes.
 
-If cleanup fails or changes the text implausibly (for example, it answered a dictated question
-instead of cleaning it), the raw transcript is inserted instead.
+## Privacy and security
 
-## Install
+- **Dictation:** your recording goes directly from the phone to OpenAI for transcription, and
+  the transcript to OpenAI for cleanup (if on).
+- **Grammar fix:** the selected text, or the focused field's text, goes to OpenAI.
+- **No backend.** Requests go straight to OpenAI with your key, with `store: false` on cleanup
+  and grammar-fix requests. No analytics, no accounts.
+- **The wake word and the arrows keyboard send nothing anywhere.**
+- **Logs** contain sizes, timings and error messages only, never your audio or text.
 
-Sideload the signed APK from the latest GitHub release over ADB. Prefer `adb install` over
-opening the APK from a browser or file manager: on Android 13+ an APK opened that way needs
-"Allow restricted settings" before its accessibility service can be enabled.
+Full details: [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md). Please report
+vulnerabilities privately, as SECURITY.md describes.
 
-```bash
-adb install -r phone-whisper-android-vX.Y.Z.apk
-```
+## Troubleshooting
 
-Then open **Whisper LP** and:
+- **The accessibility switch is greyed out.** Allow restricted settings: **Settings > Apps >
+  Whisper LP**, three-dot menu, **Allow restricted settings**. See [Install](#install).
+- **The floating button is gone after an update.** Turn Whisper LP off and on again in
+  **Settings > Accessibility**. Some phones also stop it to save battery: set the app's battery
+  use to unrestricted.
+- **The text lands on the clipboard instead of the field.** That app's text field does not
+  accept inserted text, or no field was focused. Paste it by hand. In Termux, swipe the
+  extra-keys row to switch to its text input box and dictate there.
+- **The button turns amber with "Failed: ...".** The message is OpenAI's. An invalid or revoked
+  key needs replacing under **API key**; a quota or billing message means the OpenAI account is
+  out of credit or over its limit. The recording is kept: tap the button to retry, or hold to
+  discard it.
+- **The wake word does not open Claude.** Allow **Display over other apps** (the row under the
+  wake word switch), and install the Claude app. Check that the "listening" notification shows.
+- **The wake word fires by mistake, or misses you.** Lower or raise **Sensitivity**.
+- **The wake word stopped after a reboot.** It restarts when Android reconnects the
+  accessibility service; if Android blocks that, tap the notification that says so.
+- **Logs.** `adb logcat -s PhoneWhisper`. Each dictation logs a line such as
+  `Dictation: upload audio.m4a 58 KB, transcribe 1340 ms, cleanup 910 ms`.
 
-1. Allow the **microphone**.
-2. Tap **Accessibility service**, read the explanation, and enable Whisper LP.
-3. Tap **API key** and paste your OpenAI key.
+## Building from source
 
-## Why does it need Accessibility?
+Requirements: JDK 21, the Android SDK with `platforms;android-36` and `build-tools;36.0.0`,
+`bash` and `curl` (Git Bash works on Windows), and Python 3 for the helper scripts.
 
-To show the floating button and to put text into the field you are using. To know where that
-is, it watches which text field is focused, in every app, and remembers the last one. It reads a
-field's text only when you dictate into it, fix its grammar, or undo a change there, and only the
-text you ask it to fix is sent anywhere (to OpenAI). It does not store or log what it sees and
-does not run background automation. It never becomes your typing
-keyboard, though the arrow pad does switch keyboards temporarily, which the next section explains.
-
-## Why does it register a keyboard?
-
-Only so the arrow pad can send arrow keys. Injecting key events into another app is a system-only
-privilege that an accessibility service does not have; a keyboard, on the other hand, may send
-keys through its `InputConnection`. So the pad ships with one: `KeysInputMethodService`, which
-
-- **draws nothing and takes no screen space** (`onCreateInputView` returns null and
-  `onEvaluateInputViewShown` is false), so it is not something you can type on, and
-- **types nothing and reads nothing.** The only thing it ever asks its `InputConnection` to do is
-  `sendKeyEvent` for the arrows and Enter. It does not call `getTextBeforeCursor`,
-  `getSelectedText`, or `getExtractedText`, does not track the selection, and logs nothing. It is
-  55 lines; read it for yourself in
-  [`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
-
-Android still requires you to enable it by hand once, in the system keyboard settings, with the
-usual warning that a keyboard can collect what you type. That warning is generic and applies to
-every keyboard; this one has no code that could.
-
-**Switching is automatic by default.** Touching the knob switches to the arrows keyboard
-(`SoftKeyboardController.switchToInputMethod`, API 30+), remembering the keyboard you were on, and
-yours comes back 4 seconds after the last arrow. The restore is armed from every path that can
-leave the arrows keyboard selected: touching the knob, every attempt to deliver a key whatever its
-outcome, and lifting your finger. On top of that, focusing an editable field hands your keyboard
-back at once, since tapping into a text field means you want to type, and the service restores it
-on connect, so an update or a crash cannot leave you stranded on a keyboard that types nothing.
-A restore that comes due mid-push waits for your finger to lift. Only a deliberate long-press pins
-the arrows keyboard; turn **Switch keyboard automatically** off if you would rather always switch
-by hand.
-
-Where the arrows keyboard is not selected, the pad falls back to walking the caret through
-accessibility instead. That works in ordinary text fields, but not in a remote desktop canvas,
-which has no accessibility nodes to walk.
-
-## Privacy
-
-- **Dictation:** your recording is sent directly from the phone to OpenAI for transcription,
-  and the transcript to OpenAI for cleanup (if enabled).
-- **Grammar fix:** the selected text (or the focused field's text) is sent to OpenAI.
-- There is no backend. Requests go straight to OpenAI with your key, with `store: false` on
-  cleanup requests.
-- Logs contain sizes and timings only, never your text.
-- **The wake word sends nothing anywhere.** Its audio is processed in memory on the phone and
-  discarded; logs name the phrase that fired, never audio or text.
-- **The arrows keyboard sends nothing anywhere.** It has no network code and reads no text; it only
-  relays arrow keys and Enter into the app in front of you.
-
-Full policy: [PRIVACY.md](PRIVACY.md)
-
-## Performance
-
-- Recordings are uploaded as 64 kbps AAC (`.m4a`), about 4x smaller than WAV, with WAV as a
-  fallback if the phone's encoder fails.
-- The TLS connection to the API is opened while you are still speaking, so the upload starts
-  without a handshake.
-- The release APK is shrunk with R8. It is about 31 MB, of which 24 MB is the wake word's
-  native library (sherpa-onnx with ONNX Runtime, arm64 only) and 5 MB its model; the app itself
-  is about 2.5 MB.
-- The wake word listener uses about a tenth of one CPU core while it listens.
-- Each dictation logs one line such as
-  `Dictation: upload audio.m4a 58 KB, transcribe 1340 ms, cleanup 910 ms`, plus an `Insert:`
-  line saying how the target field was found (package, class, focus flags, window ids; never
-  text). Read them with `adb logcat -s PhoneWhisper`.
-
-## App compatibility
-
-Works best in apps that use standard Android text fields. Some apps use custom text surfaces
-that do not accept inserted text; the text is then copied to the clipboard.
-
-Remote desktop clients and terminals are the opposite case: they take key events but expose no
-text field to insert into, which is what the arrow pad is for. Dictation still reaches them
-through the clipboard.
-
-### Termux
-
-Termux's terminal area is not a standard text field. Swipe the extra-keys row (`ESC`, `CTRL`,
-...) to switch to Termux's native text input box and dictate there.
-
-## Building locally (Windows)
-
-Requirements: JDK 21, the Android SDK command-line tools with `platforms;android-36` and
-`build-tools;36.0.0`, and Python for the helper scripts.
-
-```bash
-echo 'sdk.dir=D:/Android/Sdk' > local.properties   # your SDK path
-python scripts/make_keystore.py                     # once; skip if signing.properties exists
-bash scripts/fetch_sherpa.sh                        # wake word library and model (gitignored)
-./gradlew.bat testReleaseUnitTest assembleRelease
-adb install -r app/build/outputs/apk/release/app-release.apk
+```sh
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties   # or set ANDROID_HOME
+bash scripts/fetch_sherpa.sh                             # wake word library and model
+./gradlew testReleaseUnitTest assembleRelease            # gradlew.bat on Windows
 ```
 
 `scripts/fetch_sherpa.sh` downloads the pinned sherpa-onnx Android library and keyword-spotting
-model, checks their SHA-256, and fails if the library is not 16 KB page aligned. The build stops
-with a pointer to it when the files are missing. CI runs it too, cached on the script's hash.
+model into gitignored folders, checks their SHA-256, and fails if the library is not 16 KB page
+aligned. The build stops with a pointer to it when the files are missing.
 
-A local build gets a `versionCode` one above the release it is based on, so it installs over
-that release, and the next release installs over it.
+Without a signing key the release build is unsigned and cannot be installed. For a quick build
+you can install, use `./gradlew assembleDebug` (signed with your debug key), or create a release
+key as below. Then:
 
-### Signing
+```sh
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
 
-Every build is signed with one keystore. Android only upgrades an installed app when the new
-APK has the same signing key; a differently signed build must be uninstalled first, which
-deletes its settings.
+The release APK is about 31 MB, of which 24 MB is the wake word's native library (sherpa-onnx
+with ONNX Runtime, arm64 only) and 5 MB its model.
 
-- Locally, `app/build.gradle.kts` reads the gitignored `signing.properties` written by
-  `scripts/make_keystore.py` (keystore at `.signing/release.jks`).
-- In CI, the same values come from repository secrets, pushed with
-  `python scripts/push_signing_secrets.py owner/repo` (values are never printed).
+### Signing and forks
 
-Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
+Android only installs an update signed with the same key as the installed app. The official
+releases are signed with this repository's key, which is not shared.
+
+- **Your own builds and forks need their own key.** `python scripts/make_keystore.py --dname
+  "CN=Your Name"` creates `.signing/release.jks` and `signing.properties` (both gitignored), which
+  the build picks up. Back both up: losing them means every install must be uninstalled before
+  the next update.
+- **For CI on a fork**, copy the same values into your fork's secrets with
+  `python scripts/push_signing_secrets.py your-name/your-fork`.
+- **A build signed with a different key cannot update the official app**, and the other way
+  round. Uninstall first, which clears the settings and the stored API key. To install a fork
+  next to the official app, change `applicationId` in `app/build.gradle.kts`.
+
+A local build gets a `versionCode` one above the release it is based on, so it installs over that
+release (when signed with the same key), and the next release installs over it.
 
 ## Releases
 
 CI builds and tests an unsigned APK for every pull request (`.github/workflows/android-build.yml`).
 Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
-`fix:` commit cuts a version, tags it, and attaches the signed APK to the GitHub release;
-`chore:`, `docs:`, `ci:` and `refactor:` commits do not. To stay inside the Actions storage
-quota, build artifacts are kept 3 days, and a release deletes its own artifact once the APK is
-attached (release assets do not count against the quota). `versionName` is `0.11.1`, and it is
-owned by semantic-release, so never edit it by hand. `versionCode` is derived from it by
-`scripts/version_code.sh`.
+`fix:` commit cuts a version, tags it, and attaches the signed APK, `NOTICE` and
+`THIRD_PARTY_NOTICES.md` to the GitHub release; `chore:`, `docs:`, `ci:` and `refactor:` commits
+do not. Build artifacts are kept 3 days, and a release deletes its own artifact once the APK is
+attached. `versionName` is `0.11.1`, and it is owned by semantic-release, so never edit it by
+hand. `versionCode` is derived from it by `scripts/version_code.sh`.
+
+See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 
 ## Code map
 
@@ -353,45 +384,31 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `DictationPipeline.kt` | Transcribe, clean up, plausibility guard, grammar fix; timing log |
 | `OpenAiClient.kt` | Transcription, Responses API cleanup, model list, connection prewarm |
 | `TextInjector.kt` | Find the field, insert at the cursor, replace a range, undo, clipboard fallback |
-| `FixGrammarActivity.kt` | **Fix grammar** in the text-selection menu (`ACTION_PROCESS_TEXT`) |
+| `FixGrammarActivity.kt`, `RateLimiter.kt` | **Fix grammar** in the text-selection menu (`ACTION_PROCESS_TEXT`), at most 10 a minute |
 | `JoystickView.kt` | The arrow pad: drag to move, one arrow per push of the knob, double-tap for Enter |
-| `VolumePresets.kt` | The four presets, step math, reading the phone back as a pill state, and the V gesture |
-| `VolumeController.kt` | Applies a preset (streams, ringer, DND) and runs the DND hour as an alarm |
-| `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
+| `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
+| `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `WakeWord.kt` | Wake word keywords, sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` intents |
 | `assets/wake/keywords.txt` | The wake phrases, as the model's phones (`HH EY1 K L AO1 D @HEY_CLAUDE`) |
-| `MainActivity.kt` | Settings screen |
+| `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |
 
-## Future plans
-
-Ideas, not commitments, roughly in order of usefulness:
-
-- **Per-dictation style:** pick a prompt on the fly (casual, formal email, shell command)
-  instead of only the default one in settings.
-- **Hide the button in chosen apps** (games, video, banking), or while no keyboard is open.
-- **Translate mode:** dictate in one language and insert another (for example Spanish in,
-  English out).
-- **Live partial transcripts** shown on screen while you talk (live mode already streams; the
-  partial text is not displayed yet).
-- **Google Play (internal testing):** the accessibility disclosure is already in place; this
-  still needs Play's accessibility permission declaration and review.
-
-Known limitations:
+## Known limitations
 
 - Dictation needs an internet connection and an OpenAI API key; there is no offline mode.
-- The wake word keeps the microphone open, which costs battery, and can be set off by speech,
-  podcasts, or songs that sound like "hey claude".
+- The wake word keeps the microphone open, which costs battery (about a tenth of one CPU core),
+  and can be set off by speech, podcasts, or songs that sound like "hey claude".
 - Apps with custom text surfaces may not accept inserted text; the clipboard is the fallback.
-- Installing a build signed with a different key requires uninstalling first, which resets
-  settings and the stored key.
+- arm64 phones only, because the wake word's native library is built for arm64.
 
-See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
+Ideas for later: picking a prompt per dictation, hiding the button in chosen apps, a translate
+mode, and showing live partial transcripts on screen.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party software included
+in the app is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
