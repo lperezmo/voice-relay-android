@@ -20,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.slider.Slider
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -50,6 +51,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var liveSwitch: MaterialSwitch
     private lateinit var liveSub: TextView
     private lateinit var usageMonthSub: TextView
+    private lateinit var wakeSwitch: MaterialSwitch
+    private lateinit var wakeSub: TextView
+    private lateinit var wakeSensitivitySub: TextView
+    private lateinit var wakeSlider: Slider
+    private lateinit var wakeResumeSwitch: MaterialSwitch
+    private lateinit var wakeOverlaySub: TextView
+    private lateinit var wakeContainer: LinearLayout
     private lateinit var usageTotalSub: TextView
     private lateinit var usage: UsageStore
 
@@ -89,6 +97,49 @@ class MainActivity : AppCompatActivity() {
         val accRow = settingsRow("Accessibility service", "Checking...") { showAccessibilityDisclosure() }
         accRowSub = accRow.findViewWithTag("subtitle")
         root.addView(accRow)
+
+        // --- Wake word ---
+        root.addView(sectionHeader("Wake word"))
+        wakeSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val wakeRow = settingsRow("Wake word: hey claude", "", wakeSwitch) { toggleWakeWord() }
+        wakeSub = wakeRow.findViewWithTag("subtitle")
+        root.addView(wakeRow)
+        wakeContainer = vertical(0)
+        val sensitivityRow = settingsRow("Sensitivity", "")
+        sensitivityRow.setPadding(dp(24), dp(16), dp(24), 0)
+        wakeSensitivitySub = sensitivityRow.findViewWithTag("subtitle")
+        wakeContainer.addView(sensitivityRow)
+        wakeSlider = Slider(this).apply {
+            valueFrom = WakeWord.MIN_SENSITIVITY.toFloat()
+            valueTo = WakeWord.MAX_SENSITIVITY.toFloat()
+            stepSize = 1f
+            value = settings.wakeSensitivity.toFloat()
+            setPadding(dp(8), 0, dp(8), 0)
+            addOnChangeListener { _, v, fromUser ->
+                if (fromUser) {
+                    settings.wakeSensitivity = v.toInt()
+                    refreshWakeRows()
+                }
+            }
+            addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: Slider) {}
+                override fun onStopTrackingTouch(slider: Slider) = WakeWordService.reload(this@MainActivity)
+            })
+        }
+        wakeContainer.addView(wakeSlider)
+        wakeResumeSwitch = MaterialSwitch(this).apply { isClickable = false }
+        wakeContainer.addView(settingsRow(
+            "Resume music after Claude",
+            "If music was playing when you said the wake word, press play again once Claude is done.",
+            wakeResumeSwitch,
+        ) {
+            settings.wakeResumeMedia = !settings.wakeResumeMedia
+            refresh()
+        })
+        val overlayRow = settingsRow("Display over other apps", "") { showOverlayDisclosure() }
+        wakeOverlaySub = overlayRow.findViewWithTag("subtitle")
+        wakeContainer.addView(overlayRow)
+        root.addView(wakeContainer)
 
         // --- OpenAI ---
         root.addView(sectionHeader("OpenAI"))
@@ -228,7 +279,85 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() { super.onResume(); refresh() }
     override fun onRequestPermissionsResult(c: Int, p: Array<String>, r: IntArray) {
-        super.onRequestPermissionsResult(c, p, r); refresh()
+        super.onRequestPermissionsResult(c, p, r)
+        if (c == REQ_WAKE) {
+            if (hasPerm(Manifest.permission.RECORD_AUDIO)) enableWakeWord()
+            else toast("The wake word needs the microphone")
+        }
+        refresh()
+    }
+
+    // --- Wake word ---
+
+    private fun toggleWakeWord() {
+        if (settings.wakeWordEnabled) {
+            settings.wakeWordEnabled = false
+            WakeWordService.stop(this)
+            refresh()
+            return
+        }
+        val missing = buildList {
+            if (!hasPerm(Manifest.permission.RECORD_AUDIO)) add(Manifest.permission.RECORD_AUDIO)
+            if (android.os.Build.VERSION.SDK_INT >= 33 && !hasPerm(Manifest.permission.POST_NOTIFICATIONS)) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_WAKE)
+            return
+        }
+        enableWakeWord()
+    }
+
+    private fun enableWakeWord() {
+        settings.wakeWordEnabled = true
+        settings.wakeWordSetUp = true
+        WakeWordService.start(this, "settings switch")
+        if (!Settings.canDrawOverlays(this)) showOverlayDisclosure()
+        refresh()
+        // The service reports in a moment later; show that in the subtitle.
+        wakeSub.postDelayed({ refreshWakeRows() }, 1000)
+    }
+
+    /** Explains the overlay permission before sending the user to system settings. */
+    private fun showOverlayDisclosure() {
+        if (Settings.canDrawOverlays(this)) {
+            toast("Already allowed")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Display over other apps")
+            .setMessage(
+                "Android does not let an app open another app while you are using something else " +
+                    "or the screen is off. Allowing Whisper LP to display over other apps is the " +
+                    "exemption that lets the wake word open Claude from anywhere.\n\n" +
+                    "Whisper LP does not draw anything with this permission."
+            )
+            .setPositiveButton("Open settings") { _, _ ->
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun refreshWakeRows() {
+        val on = settings.wakeWordEnabled
+        wakeSwitch.isChecked = on
+        wakeContainer.visibility = if (on) View.VISIBLE else View.GONE
+        wakeSub.text = when {
+            !on -> "Off. Say hey claude anywhere to open Claude's voice assistant. " +
+                "Listens on the phone only; no audio leaves it."
+            WakeWordService.running -> "On: listening everywhere. Hey cloud works too. " +
+                "A notification shows while it listens."
+            else -> "On, but not listening right now. Turn it off and on again to restart."
+        }
+        val level = settings.wakeSensitivity
+        wakeSensitivitySub.text = "Level $level of ${WakeWord.MAX_SENSITIVITY} (threshold %.2f). ".format(WakeWord.threshold(level)) +
+            "Higher catches more, and triggers by mistake more."
+        if (wakeSlider.value.toInt() != level) wakeSlider.value = level.toFloat()
+        wakeResumeSwitch.isChecked = settings.wakeResumeMedia
+        wakeOverlaySub.text = if (Settings.canDrawOverlays(this)) "Allowed: the wake word can open Claude from anywhere"
+        else "Needed to open Claude from other apps and the lock screen. Tap to allow."
     }
 
     // --- State ---
@@ -279,6 +408,7 @@ class MainActivity : AppCompatActivity() {
         else "Needed for the presets. Tap, then allow Whisper LP."
         exactTimerSub.text = if (volume.exactTimer) "On: DND ends right at the hour"
         else "Off: DND may end up to 10 minutes late. Tap to allow alarms."
+        refreshWakeRows()
         usageMonthSub.text = usage.thisMonth().summary()
         val since = usage.since.takeIf { it > 0 }?.let {
             " (since " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it)) + ")"
@@ -579,5 +709,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val LP_WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
         private const val OTHER = "Other (type a model id)"
+        private const val REQ_WAKE = 2
     }
 }

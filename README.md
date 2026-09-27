@@ -13,7 +13,8 @@ A small button floats over every app. Tap it, speak, tap again, and the text app
 are typing, without switching away from your keyboard. Long-press it to fix the grammar of
 text you typed.
 
-There is no on-device speech model: the app needs an internet connection.
+Dictation has no on-device speech model and needs an internet connection. The optional
+[wake word](#wake-word-hey-claude) is the exception: it runs entirely on the phone.
 
 ## Using it
 
@@ -101,6 +102,66 @@ The presets need **Do Not Disturb access** (a row in the settings screen links t
 10 minutes late. Alarm and call volume are never touched, and neither is the AI assistant
 volume: Android lets only system apps set that stream (it needs `MODIFY_AUDIO_ROUTING`).
 
+## Wake word: hey claude
+
+Off by default. Turn on **Wake word: hey claude** and say "hey claude" anywhere, from any app or
+with the screen off, to open Claude's voice assistant (the same overlay as holding the assistant
+key). "Hey cloud" and "hey clod" work too, for accents where Claude comes out that way. It is
+meant for hands-free use, such as asking Claude to change the music while driving.
+
+How it works:
+
+- A foreground service keeps the microphone open and feeds it, 100 ms at a time, to a small
+  keyword-spotting model ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), about 5 MB) that
+  runs on the phone. Nothing is recorded, stored, or sent anywhere. A notification shows while it
+  listens, with a **Stop** button.
+- When it hears the phrase it lets go of the microphone and opens Claude with
+  `android.intent.action.VOICE_ASSIST` (falling back to your default assistant if Claude is not
+  installed).
+- It stays quiet while anything else uses the microphone: Claude's whole conversation (Claude's
+  voice mode holds the audio mode in "communication" from the first turn to the last), phone
+  calls, and the dictate button. It starts listening again 1 second after the microphone is
+  free, and never sooner than 4 seconds after a detection.
+- **Resume music after Claude** (on by default): Claude pauses your music when it opens and does
+  not always restart it. If music was playing when you said the phrase, the app presses play
+  (`KEYCODE_MEDIA_PLAY`, not play/pause) once Claude is done, unless something is already playing.
+- **Sensitivity** runs from 1 (strict) to 7 (loose); the default 5 is a detection threshold of
+  0.20. Raise it if it misses you, lower it if it fires by mistake. Words that sound like the
+  phrase ("hey clown", "okay cloudy") can trigger it at any setting.
+- **Display over other apps** is what Android requires before an app may open another app from
+  the background. Grant it when asked; Whisper LP draws nothing with it.
+
+After a reboot or an app update it comes back on its own when Android reconnects the
+accessibility service. If Android refuses to start it at that moment, a notification says so, and
+one tap turns it back on.
+
+Every detection is logged with the phrase and the settings, for tuning:
+`Wake word: detected HEY_CLOUD (threshold 0.20, sensitivity 5, keyword 0.76 s, music playing)`.
+Read them with `adb logcat -s PhoneWhisper`.
+
+### Turning it on and off from Tasker
+
+Use **Send Intent** with **Target: Activity** (an activity, not a broadcast, because Android only
+lets the microphone start while the app is in the foreground; the activity is invisible and
+finishes at once, including over the lock screen):
+
+| Field | Value |
+|---|---|
+| Action | `com.lperezmo.phonewhisper.WAKE_ON`, `com.lperezmo.phonewhisper.WAKE_OFF`, or `com.lperezmo.phonewhisper.WAKE_TOGGLE` |
+| Package | `com.lperezmo.phonewhisper` |
+| Class | `com.lperezmo.phonewhisper.WakeControlActivity` |
+| Target | Activity |
+
+The same from a computer:
+
+```bash
+adb shell am start -a com.lperezmo.phonewhisper.WAKE_ON -n com.lperezmo.phonewhisper/.WakeControlActivity
+```
+
+`WAKE_ON` only works after the wake word has been turned on once in the app, which is where its
+permissions are granted; before that it is ignored, so another app cannot switch the microphone
+on by itself. `WAKE_OFF` always works.
+
 ## Settings
 
 | Setting | Default | Notes |
@@ -116,6 +177,9 @@ volume: Android lets only system apps set that stream (it needs `MODIFY_AUDIO_RO
 | Grammar fix prompt | built-in | Sent by the long-press fix and the **Fix grammar** selection menu. Separate from the cleanup prompt on purpose: that text was dictated, this text was typed. "Use default" puts the built-in one back. |
 | Show the arrow pad | off | The floating arrow pad described above. |
 | Show the volume pill | off | The volume presets described above. |
+| Wake word: hey claude | off | Listens on the phone for "hey claude" and opens Claude's voice assistant. See [Wake word](#wake-word-hey-claude). |
+| Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
+| Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Switch keyboard automatically | on | Touching the knob switches to the arrows keyboard, and your own comes back 4 seconds after the last arrow. Off means you switch by hand with a long-press on the ring. |
 
 The **Usage** section at the bottom of the settings screen counts dictations, minutes of audio,
@@ -191,6 +255,8 @@ which has no accessibility nodes to walk.
 - There is no backend. Requests go straight to OpenAI with your key, with `store: false` on
   cleanup requests.
 - Logs contain sizes and timings only, never your text.
+- **The wake word sends nothing anywhere.** Its audio is processed in memory on the phone and
+  discarded; logs name the phrase that fired, never audio or text.
 - **The arrows keyboard sends nothing anywhere.** It has no network code and reads no text; it only
   relays arrow keys and Enter into the app in front of you.
 
@@ -202,7 +268,10 @@ Full policy: [PRIVACY.md](PRIVACY.md)
   fallback if the phone's encoder fails.
 - The TLS connection to the API is opened while you are still speaking, so the upload starts
   without a handshake.
-- The release APK is shrunk with R8 (about 2.5 MB).
+- The release APK is shrunk with R8. It is about 31 MB, of which 24 MB is the wake word's
+  native library (sherpa-onnx with ONNX Runtime, arm64 only) and 5 MB its model; the app itself
+  is about 2.5 MB.
+- The wake word listener uses about a tenth of one CPU core while it listens.
 - Each dictation logs one line such as
   `Dictation: upload audio.m4a 58 KB, transcribe 1340 ms, cleanup 910 ms`, plus an `Insert:`
   line saying how the target field was found (package, class, focus flags, window ids; never
@@ -230,9 +299,14 @@ Requirements: JDK 21, the Android SDK command-line tools with `platforms;android
 ```bash
 echo 'sdk.dir=D:/Android/Sdk' > local.properties   # your SDK path
 python scripts/make_keystore.py                     # once; skip if signing.properties exists
+bash scripts/fetch_sherpa.sh                        # wake word library and model (gitignored)
 ./gradlew.bat testReleaseUnitTest assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
+
+`scripts/fetch_sherpa.sh` downloads the pinned sherpa-onnx Android library and keyword-spotting
+model, checks their SHA-256, and fails if the library is not 16 KB page aligned. The build stops
+with a pointer to it when the files are missing. CI runs it too, cached on the script's hash.
 
 A local build gets a `versionCode` one above the release it is based on, so it installs over
 that release, and the next release installs over it.
@@ -279,6 +353,10 @@ owned by semantic-release, so never edit it by hand. `versionCode` is derived fr
 | `VolumeController.kt` | Applies a preset (streams, ringer, DND) and runs the DND hour as an alarm |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
+| `WakeWord.kt` | Wake word keywords, sensitivity, and the listen, pause, and resume state machine |
+| `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` intents |
+| `assets/wake/keywords.txt` | The wake phrases, as the model's phones (`HH EY1 K L AO1 D @HEY_CLAUDE`) |
 | `MainActivity.kt` | Settings screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |
@@ -299,7 +377,9 @@ Ideas, not commitments, roughly in order of usefulness:
 
 Known limitations:
 
-- Needs an internet connection and an OpenAI API key; there is no offline mode.
+- Dictation needs an internet connection and an OpenAI API key; there is no offline mode.
+- The wake word keeps the microphone open, which costs battery, and can be set off by speech,
+  podcasts, or songs that sound like "hey claude".
 - Apps with custom text surfaces may not accept inserted text; the clipboard is the fallback.
 - Installing a build signed with a different key requires uninstalling first, which resets
   settings and the stored key.

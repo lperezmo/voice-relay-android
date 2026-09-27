@@ -7,6 +7,19 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Ends the Silent + DND hour on time. Optional: without it, up to 10 minutes late. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Wake word: an always-on microphone foreground service with a notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Wake word: "Display over other apps" lets it open Claude from the background. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Wake word: open Claude's assistant with ACTION_VOICE_ASSIST (package visibility). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VOICE_ASSIST" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -54,6 +67,28 @@
                 android:name="android.view.im"
                 android:resource="@xml/method" />
         </service>
+
+        <!-- Wake word: listens for "hey claude" and opens Claude's voice assistant. -->
+        <service
+            android:name=".WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Wake word on/off for Tasker and adb. Invisible; see WakeControlActivity. -->
+        <activity
+            android:name=".WakeControlActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.PhoneWhisper.Invisible">
+            <intent-filter>
+                <action android:name="com.lperezmo.phonewhisper.WAKE_ON" />
+                <action android:name="com.lperezmo.phonewhisper.WAKE_OFF" />
+                <action android:name="com.lperezmo.phonewhisper.WAKE_TOGGLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <receiver
             android:name=".DndExpiryReceiver"

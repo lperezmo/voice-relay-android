@@ -7,7 +7,8 @@ and inserts the result into text fields across apps. It is based on
 ## Data handling
 
 Recorded audio is sent directly from the device to OpenAI's transcription API to generate text.
-There is no on-device speech recognition.
+Dictation has no on-device speech recognition; the optional wake word (below) is the only speech
+processing that happens on the phone.
 
 If optional cleanup is enabled, the transcribed text is also sent directly from the device to
 OpenAI to improve punctuation, capitalization, and clarity.
@@ -18,6 +19,19 @@ is sent directly from the device to OpenAI and the corrected text is returned.
 
 Cleanup and grammar-fix requests are sent with `store: false`. The app's logs contain sizes and
 timings only, never your text.
+
+## Wake word (optional, off by default)
+
+When you turn on the wake word, the app keeps the microphone open in a foreground service (with a
+notification you can stop it from) and runs a small keyword-spotting model on the phone to hear
+"hey claude". This audio is processed in memory on the device and discarded as it goes: it is
+never recorded to storage, never sent to OpenAI or anywhere else, and never logged. The logs
+record only which keyword fired and the detection settings. When the keyword is heard, the app
+opens Claude's voice assistant (the Claude app then handles your speech under Anthropic's terms).
+
+While it listens, the app reads Android's audio state (whether another app is recording, the
+audio mode, and whether music is playing) to pause while the microphone is in use and, if you
+allow it, to press play again after Claude is done. It does not read other apps' audio.
 
 ## API keys
 

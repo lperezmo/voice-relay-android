@@ -41,6 +41,8 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
 
+        // The wake word's native library (scripts/fetch_sherpa.sh) is arm64 only.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     signingConfigs {
@@ -84,6 +86,29 @@ android {
         checkReleaseBuilds = false
     }
 }
+
+// The wake word needs files that are too big to commit: the sherpa-onnx native
+// library and the keyword-spotting model. Fail early with the fix instead of
+// building an APK that crashes when the wake word is turned on.
+val checkWakeWordFiles by tasks.registering {
+    val required = listOf(
+        "src/main/jniLibs/arm64-v8a/libsherpa-onnx-jni.so",
+        "src/main/assets/wake/model/encoder.onnx",
+        "src/main/assets/wake/model/decoder.onnx",
+        "src/main/assets/wake/model/joiner.onnx",
+        "src/main/assets/wake/model/tokens.txt",
+    ).map { layout.projectDirectory.file(it).asFile }
+    doLast {
+        val missing = required.filterNot { it.exists() }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Missing wake word files (run scripts/fetch_sherpa.sh first):\n" +
+                    missing.joinToString("\n") { "  " + it.path }
+            )
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(checkWakeWordFiles) }
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
