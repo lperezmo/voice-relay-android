@@ -1,0 +1,93 @@
+name: sherpa-build
+
+# Builds the wake word's native library, libsherpa-onnx-jni.so for arm64-v8a,
+# with scripts/build_sherpa.sh: sherpa-onnx without text-to-speech or speaker
+# diarization, so no espeak-ng (GPL) in the APK. android-build.yml calls this
+# and packages the result; it can also be run by hand, for example so
+# scripts/fetch_sherpa.sh has a fresh artifact to download for a local build.
+#
+# The library is cached on build_sherpa.sh's git blob hash, which covers the
+# sherpa-onnx version, ONNX Runtime version, NDK and every CMake option, so it
+# is only rebuilt when that script changes. Every run hands the library on as
+# a short-lived artifact whose name carries the same hash.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to take scripts/build_sherpa.sh from (defaults to the triggering ref)"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      artifact:
+        description: "Name of the artifact holding libsherpa-onnx-jni.so"
+        value: ${{ jobs.build.outputs.artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.key.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Same name scripts/fetch_sherpa.sh computes, so a local build finds the
+      # artifact that matches its checkout.
+      - name: Compute cache key
+        id: key
+        run: |
+          VERSION=$(sed -n 's/^SHERPA_VERSION="\(.*\)"$/\1/p' scripts/build_sherpa.sh)
+          NDK=$(sed -n 's/^NDK_VERSION="\(.*\)"$/\1/p' scripts/build_sherpa.sh)
+          BLOB=$(git rev-parse HEAD:scripts/build_sherpa.sh)
+          echo "name=sherpa-onnx-v${VERSION}-kws-arm64-v8a-${BLOB:0:12}" >> "$GITHUB_OUTPUT"
+          echo "ndk=${NDK}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached library
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: out/sherpa
+          key: ${{ steps.key.outputs.name }}
+
+      - name: Install the Android NDK
+        run: |
+          NDK_DIR="$ANDROID_HOME/ndk/${{ steps.key.outputs.ndk }}"
+          if [ ! -f "$NDK_DIR/source.properties" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${{ steps.key.outputs.ndk }}" > /dev/null
+          fi
+          echo "ANDROID_NDK=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Build libsherpa-onnx-jni.so
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build_sherpa.sh out/sherpa
+
+      # Runs on cache hits too: the checks come from the checked-out bindings.
+      - name: Verify the library
+        run: |
+          scripts/verify_sherpa_lib.sh out/sherpa/libsherpa-onnx-jni.so
+          {
+            echo "### libsherpa-onnx-jni.so"
+            echo
+            echo "Size: $(wc -c < out/sherpa/libsherpa-onnx-jni.so) bytes"
+            echo
+            echo '```text'
+            cat out/sherpa/BUILD_INFO.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload library
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.key.outputs.name }}
+          path: out/sherpa/*
+          if-no-files-found: error
+          # Artifacts count against the account's Actions storage quota. The
+          # cache above is what keeps the library between runs.
+          retention-days: 3
