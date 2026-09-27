@@ -47,8 +47,9 @@ import kotlin.math.abs
  * While the phone is locked, recordings are capped by [LockScreenLimits]. After
  * text lands in a field, the feedback bubble offers undo for a few seconds.
  *
- * The overlay is a TYPE_ACCESSIBILITY_OVERLAY window, and the service only
- * reads the screen when inserting text (see [TextInjector]).
+ * The overlay is a TYPE_ACCESSIBILITY_OVERLAY window. The service follows which
+ * text field is focused, and reads a field's text only to insert, fix or undo
+ * (see [TextInjector]).
  */
 class WhisperAccessibilityService : AccessibilityService() {
 
