@@ -20,3 +20,7 @@ downloaded at build time by scripts/fetch_sherpa.sh and bundled in the APK.
 sherpa-onnx is licensed under the Apache License, Version 2.0; ONNX Runtime
 under the MIT License.
 
+THIRD_PARTY_NOTICES.md lists all third-party software included in the app, with
+its license, version and source, and the licenses/ folder holds the full license
+texts that are not reproduced there. The app shows the same files under
+Settings > About > Open-source licenses.

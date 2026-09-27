@@ -263,8 +263,16 @@ class MainActivity : AppCompatActivity() {
                 "Tap Since reset to start over."
             textSize = 12f
             setTextColor(attrColor(android.R.attr.textColorSecondary))
-            setPadding(dp(24), 0, dp(24), dp(32))
+            setPadding(dp(24), 0, dp(24), dp(8))
         })
+
+        // --- About ---
+        root.addView(sectionHeader("About"))
+        root.addView(settingsRow(
+            "Open-source licenses",
+            "Whisper LP ${BuildConfig.VERSION_NAME}. Apache License 2.0, and the notices for the software it includes.",
+        ) { startActivity(Intent(this, LicensesActivity::class.java)) })
+        root.addView(View(this).apply { minimumHeight = dp(32) })
 
         setContentView(ScrollView(this).apply {
             setBackgroundColor(attrColor(android.R.attr.colorBackground))

@@ -110,6 +110,38 @@ val checkWakeWordFiles by tasks.registering {
 }
 tasks.named("preBuild") { dependsOn(checkWakeWordFiles) }
 
+// Settings > About > Open-source licenses shows these files. They are copied from
+// the repository root at build time, so the app and the repository never disagree.
+abstract class LicenseAssetsTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val documents: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val root = outputDir.get().asFile
+        root.deleteRecursively()
+        val dir = File(root, "licenses").apply { mkdirs() }
+        documents.files.forEach { it.copyTo(File(dir, it.name), overwrite = true) }
+    }
+}
+val licenseAssets = tasks.register<LicenseAssetsTask>("licenseAssets") {
+    documents.from(
+        rootProject.file("LICENSE"),
+        rootProject.file("NOTICE"),
+        rootProject.file("THIRD_PARTY_NOTICES.md"),
+        rootProject.fileTree("licenses"),
+    )
+}
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(licenseAssets, LicenseAssetsTask::outputDir)
+    }
+}
+
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.core:core-ktx:1.13.1")
