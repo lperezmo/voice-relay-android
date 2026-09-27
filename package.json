@@ -1,5 +1,5 @@
 {
-  "name": "phone-whisper-android-release",
+  "name": "voice-relay-android-release",
   "private": true,
   "description": "semantic-release tooling only. The Android app itself has no Node dependencies; this file exists so CI can install the release plugins reproducibly.",
   "devDependencies": {

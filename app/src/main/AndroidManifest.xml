@@ -27,7 +27,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PhoneWhisper">
+        android:theme="@style/Theme.VoiceRelay">
 
         <activity
             android:name=".MainActivity"
@@ -50,7 +50,7 @@
             android:exported="true"
             android:label="@string/fix_grammar"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.PhoneWhisper.Dialog">
+            android:theme="@style/Theme.VoiceRelay.Dialog">
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -86,11 +86,11 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.PhoneWhisper.Invisible">
+            android:theme="@style/Theme.VoiceRelay.Invisible">
             <intent-filter>
-                <action android:name="com.lperezmo.phonewhisper.WAKE_ON" />
-                <action android:name="com.lperezmo.phonewhisper.WAKE_OFF" />
-                <action android:name="com.lperezmo.phonewhisper.WAKE_TOGGLE" />
+                <action android:name="com.lperezmo.voicerelay.WAKE_ON" />
+                <action android:name="com.lperezmo.voicerelay.WAKE_OFF" />
+                <action android:name="com.lperezmo.voicerelay.WAKE_TOGGLE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

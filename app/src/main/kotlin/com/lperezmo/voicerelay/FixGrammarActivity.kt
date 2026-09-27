@@ -1,0 +1,114 @@
+package com.lperezmo.voicerelay
+
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.os.PersistableBundle
+import android.util.Log
+import android.view.Gravity
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * "Fix grammar" in the text-selection menu of any app (ACTION_PROCESS_TEXT).
+ * Editable selections are replaced in place by the calling app; read-only
+ * selections get the fixed text on the clipboard. Needs no accessibility access.
+ */
+class FixGrammarActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setFinishOnTouchOutside(false)
+
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+        val readOnly = intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
+        val apiKey = SecretStore(this).getApiKey()
+        when {
+            text.isNullOrBlank() -> return finishWith("Nothing selected")
+            apiKey.isBlank() -> return finishWith("Set your OpenAI API key in Voice Relay")
+            !limiter.tryAcquire(android.os.SystemClock.elapsedRealtime()) -> {
+                Log.w("VoiceRelay", "Selection fix: refused, more than $MAX_PER_MINUTE requests in a minute")
+                return finishWith("Too many grammar fixes in a minute. Try again shortly.")
+            }
+        }
+
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(ProgressBar(this@FixGrammarActivity))
+            addView(TextView(this@FixGrammarActivity).apply {
+                this.text = "Fixing grammar..."
+                textSize = 16f
+                setPadding(pad / 2, 0, 0, 0)
+            })
+        })
+
+        val settings = AppSettings(this)
+        val client = OpenAiClient(apiKey)
+        val model = settings.cleanupModel
+        val instructions = Prompts.forRequest(settings.fixPrompt, settings.vocabulary)
+        val usage = UsageStore(this)
+        lifecycleScope.launch {
+            val started = System.currentTimeMillis()
+            val outcome = withContext(Dispatchers.IO) {
+                DictationPipeline.fixTyped(text!!) { input ->
+                    client.cleanup(input, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
+                }
+            }
+            // Metadata only, never the text.
+            Log.i("VoiceRelay", "Selection fix: ${text.length} chars, ${System.currentTimeMillis() - started} ms, " +
+                "readOnly=$readOnly, " + when (outcome) {
+                    is DictationPipeline.Outcome.Text -> if (outcome.text == text) "unchanged" else "fixed"
+                    is DictationPipeline.Outcome.Failed -> "failed"
+                    DictationPipeline.Outcome.NoSpeech -> "empty"
+                })
+            when (outcome) {
+                is DictationPipeline.Outcome.Text -> if (readOnly) {
+                    copy(outcome.text)
+                    finishWith("Fixed text copied to clipboard")
+                } else {
+                    setResult(RESULT_OK, Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, outcome.text))
+                    finish()
+                }
+                is DictationPipeline.Outcome.Failed -> finishWith("Fix failed: ${outcome.error.take(80)}")
+                DictationPipeline.Outcome.NoSpeech -> finishWith("Nothing selected")
+            }
+        }
+    }
+
+    private fun copy(text: String) {
+        val clip = ClipData.newPlainText("Voice Relay", text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        }
+        (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+    }
+
+    private fun finishWith(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        setResult(RESULT_CANCELED)
+        finish()
+    }
+
+    companion object {
+        /**
+         * This activity is exported (every app's selection menu has to reach it), so
+         * any installed app can send it text and spend the user's OpenAI key. Cap the
+         * rate well above what a person selecting text would ever do.
+         */
+        const val MAX_PER_MINUTE = 10
+        private val limiter = RateLimiter(MAX_PER_MINUTE, 60_000)
+    }
+}

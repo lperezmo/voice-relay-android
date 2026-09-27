@@ -1,6 +1,6 @@
-# Privacy Policy for Phone Whisper Android
+# Privacy Policy for Voice Relay
 
-Phone Whisper Android is a personal Android dictation app that records speech, transcribes it,
+Voice Relay is a personal Android dictation app that records speech, transcribes it,
 and inserts the result into text fields across apps. It is based on
 [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper).
 
@@ -66,7 +66,7 @@ keyboard's id is stored on the device so it can be restored. A long-press on the
 the arrows keyboard selected until you switch back yourself.
 
 The whole file is about 55 lines and the repository is the authoritative copy:
-[`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
+[`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/voicerelay/KeysInputMethodService.kt).
 
 ## Data collection
 
@@ -76,7 +76,7 @@ data you send according to its own terms and privacy policies.
 ## Contact
 
 Questions about this policy: open an issue at
-[github.com/lperezmo/phone-whisper-android/issues](https://github.com/lperezmo/phone-whisper-android/issues).
+[github.com/lperezmo/voice-relay-android/issues](https://github.com/lperezmo/voice-relay-android/issues).
 To report a security problem, use
-[private vulnerability reporting](https://github.com/lperezmo/phone-whisper-android/security/advisories/new)
+[private vulnerability reporting](https://github.com/lperezmo/voice-relay-android/security/advisories/new)
 instead of a public issue (see [SECURITY.md](SECURITY.md)).

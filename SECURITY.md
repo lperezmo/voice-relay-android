@@ -1,6 +1,6 @@
 # Security
 
-Whisper LP types into other apps and records your voice, so it asks for more access than most
+Voice Relay types into other apps and records your voice, so it asks for more access than most
 apps. This page lists what it can reach, what protects it, and what you are trusting.
 
 ## What it can access
@@ -48,12 +48,12 @@ apps" windows.
     dialog. **Use a dedicated OpenAI API key with a monthly spend limit** (set it in your OpenAI
     project's limits) so a misbehaving app cannot run up a large bill.
   - **Wake word on and off** (`WakeControlActivity`, for Tasker and adb) can be sent by any app.
-    Turning it on only works after you have turned the wake word on once in Whisper LP, which is
+    Turning it on only works after you have turned the wake word on once in Voice Relay, which is
     where the microphone permission is granted. The effect is bounded: the phone listens for
     "hey claude" locally, with its notification showing, and can open the Claude app. Another app
     could also turn the wake word off.
 - **The Claude app.** Once the wake word opens it, what it can do on your phone is up to the
-  Claude app and the permissions you gave it, not Whisper LP.
+  Claude app and the permissions you gave it, not Voice Relay.
 - **The build.** Official APKs come from this repository's GitHub releases. The wake word's native
   library and model are downloaded by `scripts/fetch_sherpa.sh` from the sherpa-onnx releases and
   checked against pinned SHA-256 hashes.
@@ -61,5 +61,5 @@ apps" windows.
 ## Reporting a problem
 
 Please report vulnerabilities privately through GitHub's
-[private vulnerability reporting](https://github.com/lperezmo/phone-whisper-android/security/advisories/new)
+[private vulnerability reporting](https://github.com/lperezmo/voice-relay-android/security/advisories/new)
 rather than in a public issue.

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.PhoneWhisper" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.VoiceRelay" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Accent Colors -->
         <item name="colorPrimary">@color/primary</item>
         <item name="colorPrimaryContainer">@color/primary_container</item>
@@ -12,13 +12,13 @@
         <item name="android:navigationBarColor">?android:attr/colorBackground</item>
     </style>
 
-    <style name="Theme.PhoneWhisper.Dialog" parent="Theme.Material3.DayNight.Dialog">
+    <style name="Theme.VoiceRelay.Dialog" parent="Theme.Material3.DayNight.Dialog">
         <item name="colorPrimary">@color/primary</item>
         <item name="windowNoTitle">true</item>
     </style>
 
     <!-- WakeControlActivity: runs and finishes without drawing anything. -->
-    <style name="Theme.PhoneWhisper.Invisible" parent="android:Theme.Translucent.NoTitleBar">
+    <style name="Theme.VoiceRelay.Invisible" parent="android:Theme.Translucent.NoTitleBar">
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>
