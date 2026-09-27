@@ -4,7 +4,10 @@ Reads .signing/release.jks and signing.properties (both gitignored) and sets
 UPLOAD_KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD on the
 repo with `gh secret set`, passing each value on stdin. Nothing is printed.
 
-Usage: python scripts/push_signing_secrets.py [owner/repo]
+Usage: python scripts/push_signing_secrets.py owner/repo
+
+The repository is required, so the secrets never land on a repo by accident
+(a fork's checkout can resolve to its upstream).
 """
 
 import base64
@@ -16,7 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:
-    repo = sys.argv[1] if len(sys.argv) > 1 else "lperezmo/phone-whisper-android"
+    if len(sys.argv) != 2 or "/" not in sys.argv[1]:
+        print("usage: python scripts/push_signing_secrets.py owner/repo", file=sys.stderr)
+        return 2
+    repo = sys.argv[1]
     props = {}
     for line in (ROOT / "signing.properties").read_text(encoding="utf-8").splitlines():
         if "=" in line:

@@ -9,8 +9,16 @@ password, never prints it, and writes:
 CI gets the same values as GitHub secrets (UPLOAD_KEYSTORE_BASE64,
 KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD). Losing this keystore means every
 installed copy must be uninstalled before the next update, so back it up.
+
+The certificate's distinguished name is public (anyone can read it from the
+APK), so pick it yourself: --dname, or the KEYSTORE_DNAME environment variable.
+It defaults to a neutral "CN=Android Release".
+
+Usage: python scripts/make_keystore.py [--dname "CN=Your Name, O=Your Org"]
 """
 
+import argparse
+import os
 import secrets
 import subprocess
 import sys
@@ -20,9 +28,17 @@ ROOT = Path(__file__).resolve().parent.parent
 KEYSTORE = ROOT / ".signing" / "release.jks"
 PROPS = ROOT / "signing.properties"
 ALIAS = "phonewhisper"
+DEFAULT_DNAME = "CN=Android Release"
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Create the release signing keystore.")
+    parser.add_argument(
+        "--dname",
+        default=os.environ.get("KEYSTORE_DNAME", DEFAULT_DNAME),
+        help='certificate distinguished name (default: $KEYSTORE_DNAME or "%(default)s")',
+    )
+    args = parser.parse_args()
     if KEYSTORE.exists() or PROPS.exists():
         print("make_keystore.py: keystore or signing.properties already exists; not overwriting")
         return 1
@@ -38,7 +54,7 @@ def main() -> int:
             "-validity", "10000",
             "-storepass", password,
             "-keypass", password,
-            "-dname", "CN=Phone Whisper Android, O=lperezmo",
+            "-dname", args.dname,
         ],
         check=True,
         capture_output=True,

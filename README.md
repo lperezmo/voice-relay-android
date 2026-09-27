@@ -322,7 +322,7 @@ deletes its settings.
 - Locally, `app/build.gradle.kts` reads the gitignored `signing.properties` written by
   `scripts/make_keystore.py` (keystore at `.signing/release.jks`).
 - In CI, the same values come from repository secrets, pushed with
-  `python scripts/push_signing_secrets.py` (values are never printed).
+  `python scripts/push_signing_secrets.py owner/repo` (values are never printed).
 
 Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
 
