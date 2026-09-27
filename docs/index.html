@@ -1,0 +1,2161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Whisper LP Architecture</title>
+    <meta name="description" content="How Whisper LP turns speech into text in any Android app: the dictation pipeline to OpenAI, text insertion, grammar fix, the on-device wake word, data flow and the security model." />
+    <style>
+      :root {
+        /* palette */
+        --ivory: #faf9f5;
+        --slate: #141413;
+        --clay: #d97757; /* primary accent */
+        --olive: #788c5d; /* success / done */
+        --rust: #bc4b39; /* danger / high */
+        --oat: #e3dacc;
+        --gray-100: #f5f4ee;
+        --gray-150: #f0eee6;
+        --gray-300: #d1cfc5;
+        --gray-500: #87867f;
+        --gray-700: #3d3d3a;
+        --white: #ffffff;
+        --accent: var(--clay);
+
+        /* type */
+        --serif: ui-serif, Georgia, 'Times New Roman', serif;
+        --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --mono: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+
+        /* shape */
+        --border: 1.5px solid var(--gray-300);
+        --radius-panel: 12px;
+        --radius-row: 8px;
+
+        color-scheme: light;
+      }
+
+      /* ---------- dark theme tokens ---------- */
+      /* Warm near-black ground; the neutral scale inverts, the clay accent is
+         preserved, and olive/rust lift a little so they read on dark surfaces.
+         Driven by the theme toggle (or the OS fallback just below). */
+      :root[data-theme='dark'] {
+        --ivory: #211f1d;
+        --slate: #f3f1ea;
+        --white: #2b2926;
+        --gray-100: #302e2a;
+        --gray-150: #35322d;
+        --gray-300: #46433d;
+        --gray-500: #a3a196;
+        --gray-700: #e2dfd5;
+        --oat: #3a362f;
+        --olive: #9cb67a;
+        --rust: #e56b54;
+
+        color-scheme: dark;
+      }
+      /* No-JS / pre-hydration fallback: honor the OS setting when the reader
+         has expressed no explicit preference. */
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) {
+          --ivory: #211f1d;
+          --slate: #f3f1ea;
+          --white: #2b2926;
+          --gray-100: #302e2a;
+          --gray-150: #35322d;
+          --gray-300: #46433d;
+          --gray-500: #a3a196;
+          --gray-700: #e2dfd5;
+          --oat: #3a362f;
+          --olive: #9cb67a;
+          --rust: #e56b54;
+
+          color-scheme: dark;
+        }
+      }
+      /* Severity chips (inline, any block) use fixed light tints; retint for dark. */
+      :root[data-theme='dark'] .sev.med {
+        background: #48332a;
+        color: #f0a684;
+      }
+      :root[data-theme='dark'] .sev.high {
+        background: #4d2a24;
+        color: #f0907a;
+      }
+      /* Code panels (block: code-grid) stay dark even though --slate flips. */
+      :root[data-theme='dark'] .code {
+        background: #16150f;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: var(--sans);
+        background: var(--ivory);
+        color: var(--gray-700);
+        line-height: 1.55;
+        padding: 56px 32px 120px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      /* ---------- document header ---------- */
+      .doc-head {
+        margin-bottom: 48px;
+        max-width: 820px;
+      }
+      .doc-head .eyebrow {
+        font-family: var(--mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--gray-500);
+        margin-bottom: 12px;
+      }
+      .doc-head h1 {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-size: 38px;
+        letter-spacing: -0.01em;
+        color: var(--slate);
+        margin-bottom: 14px;
+      }
+      .doc-head .lede {
+        font-size: 16px;
+        color: var(--gray-700);
+        max-width: 720px;
+      }
+      .doc-head .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        align-items: center;
+        margin-top: 16px;
+        font-size: 13.5px;
+        color: var(--gray-500);
+      }
+      .doc-head .meta .mono {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--gray-700);
+      }
+
+      .pill {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--gray-500);
+        background: var(--gray-100);
+        border: var(--border);
+        border-radius: 999px;
+        padding: 5px 11px;
+        white-space: nowrap;
+      }
+      .pill.accent {
+        color: var(--white);
+        background: var(--accent);
+        border-color: transparent;
+      }
+      .pill.done {
+        color: var(--white);
+        background: var(--olive);
+        border-color: transparent;
+      }
+
+      /* ---------- sections ---------- */
+      section {
+        margin-bottom: 56px;
+      }
+      .sec-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+      .sec-head h2 {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-size: 26px;
+        letter-spacing: -0.01em;
+        color: var(--slate);
+      }
+      .sec-intro {
+        font-size: 14.5px;
+        color: var(--gray-500);
+        max-width: 720px;
+        margin-bottom: 28px;
+      }
+      hr.rule {
+        border: none;
+        border-top: 1px solid var(--gray-300);
+        margin: 0 0 22px;
+      }
+
+      /* ---------- table of contents (block: toc) ---------- */
+      .toc {
+        margin-bottom: 48px;
+        max-width: 480px;
+      }
+      .toc-title {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--gray-500);
+        margin-bottom: 10px;
+      }
+      .toc-list {
+        list-style: none;
+        counter-reset: toc;
+      }
+      .toc-list li {
+        counter-increment: toc;
+      }
+      .toc-list li a {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 6px 0;
+        font-size: 14.5px;
+        color: var(--gray-700);
+        text-decoration: none;
+        border-bottom: 1px solid var(--gray-150);
+        transition: color 0.15s;
+      }
+      .toc-list li a:hover {
+        color: var(--accent);
+      }
+      .toc-list li a::before {
+        content: counter(toc, decimal-leading-zero);
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+        flex-shrink: 0;
+      }
+
+      /* ---------- prose typography ---------- */
+      .prose p {
+        font-size: 14.5px;
+        color: var(--gray-700);
+        max-width: 720px;
+        margin-bottom: 14px;
+        line-height: 1.65;
+      }
+      .prose ul,
+      .prose ol {
+        font-size: 14.5px;
+        color: var(--gray-700);
+        max-width: 720px;
+        margin-bottom: 14px;
+        padding-left: 24px;
+        line-height: 1.65;
+      }
+      .prose li + li {
+        margin-top: 4px;
+      }
+      .prose code {
+        font-family: var(--mono);
+        font-size: 13px;
+        background: var(--gray-150);
+        border: 1px solid var(--gray-300);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      .prose blockquote {
+        border-left: 3px solid var(--accent);
+        padding: 8px 16px;
+        margin: 14px 0;
+        color: var(--gray-500);
+        font-size: 14.5px;
+        max-width: 720px;
+      }
+      .prose strong {
+        color: var(--slate);
+      }
+
+      /* ---------- summary cards (block: summary-cards) ---------- */
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+      }
+      @media (max-width: 900px) {
+        .summary {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .summary .cell {
+        background: var(--white);
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        padding: 18px 20px;
+      }
+      .summary .k {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--gray-500);
+        margin-bottom: 6px;
+      }
+      .summary .v {
+        font-size: 17px;
+        color: var(--slate);
+        font-weight: 600;
+      }
+      .summary .v.accent {
+        color: var(--accent);
+      }
+
+      /* ---------- callout (block: callout) ---------- */
+      .callout {
+        border: var(--border);
+        border-left: 4px solid var(--gray-500);
+        border-radius: var(--radius-row);
+        background: var(--white);
+        padding: 14px 18px;
+        margin: 18px 0;
+        font-size: 14px;
+      }
+      .callout .tag {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        display: block;
+        margin-bottom: 4px;
+        color: var(--gray-500);
+      }
+      .callout.note {
+        border-left-color: var(--accent);
+      }
+      .callout.warn {
+        border-left-color: var(--rust);
+      }
+      .callout.success {
+        border-left-color: var(--olive);
+      }
+      .callout.decision {
+        border-left-color: var(--slate);
+      }
+
+      /* ---------- milestone / phase timeline (block: timeline) ---------- */
+      .milestones {
+        display: flex;
+        flex-direction: column;
+      }
+      .milestone {
+        display: grid;
+        grid-template-columns: 130px 28px 1fr;
+        gap: 0 18px;
+      }
+      .milestone .when {
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+        padding-top: 4px;
+      }
+      .milestone .dot-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .milestone .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--white);
+        border: 3px solid var(--accent);
+        margin-top: 4px;
+        flex-shrink: 0;
+      }
+      .milestone .dot.done {
+        background: var(--olive);
+        border-color: var(--olive);
+      }
+      .milestone .line {
+        width: 2px;
+        flex: 1;
+        background: var(--gray-300);
+        margin: 4px 0;
+      }
+      .milestone:last-child .line {
+        display: none;
+      }
+      .milestone .body {
+        padding-bottom: 36px;
+      }
+      .milestone .body h3 {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-size: 19px;
+        color: var(--slate);
+        margin-bottom: 4px;
+      }
+      .milestone .body p {
+        font-size: 14px;
+        color: var(--gray-500);
+        margin-bottom: 10px;
+        max-width: 620px;
+      }
+      .milestone .tags {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .milestone .tag {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        background: var(--gray-150);
+        border: 1px solid var(--gray-300);
+        border-radius: 6px;
+        padding: 3px 8px;
+        color: var(--gray-700);
+      }
+
+      /* ---------- event timeline (block: event-timeline) ---------- */
+      .timeline {
+        position: relative;
+        padding-left: 28px;
+      }
+      .timeline::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 6px;
+        bottom: 6px;
+        width: 2px;
+        background: var(--gray-300);
+      }
+      .tl-entry {
+        position: relative;
+        padding-bottom: 24px;
+      }
+      .tl-entry:last-child {
+        padding-bottom: 0;
+      }
+      .tl-dot {
+        position: absolute;
+        left: -28px;
+        top: 4px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--gray-500);
+        border: 3px solid var(--ivory);
+      }
+      .tl-dot.impact {
+        background: var(--clay);
+      }
+      .tl-dot.mitigated {
+        background: var(--olive);
+      }
+      .tl-time {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+      }
+      .tl-body {
+        font-size: 14px;
+      }
+      .tl-body strong {
+        color: var(--slate);
+      }
+
+      /* ---------- side-by-side code / approaches (block: code-grid) ---------- */
+      .code-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+      }
+      @media (max-width: 980px) {
+        .code-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .code-block {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .code-block .file-label {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+      }
+      .code {
+        background: var(--slate);
+        border-radius: var(--radius-panel);
+        padding: 18px 20px;
+        overflow-x: auto;
+        flex: 1;
+      }
+      .code pre {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.65;
+        color: #e8e6de;
+        white-space: pre;
+      }
+      .code .kw {
+        color: var(--clay);
+      }
+      .code .str {
+        color: var(--olive);
+      }
+      .code .cm {
+        color: var(--gray-500);
+      }
+      .code .fn {
+        color: #c9b98a;
+      }
+
+      /* ---------- inline severity chips (usable in any block) ---------- */
+      .sev {
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+      .sev.low {
+        background: var(--gray-150);
+        color: var(--olive);
+      }
+      .sev.med {
+        background: #f6e7de;
+        color: var(--clay);
+      }
+      .sev.high {
+        background: #f3dad3;
+        color: var(--rust);
+      }
+
+      /* ---------- annotated flowchart (block: flowchart) ---------- */
+      .flowchart-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 300px;
+        gap: 28px;
+        align-items: start;
+      }
+      @media (max-width: 920px) {
+        .flowchart-layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .flow-canvas {
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        background: var(--white);
+        padding: 28px;
+        overflow-x: auto;
+      }
+      svg.flow {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .flow text {
+        font-family: var(--mono);
+        font-size: 12px;
+        fill: var(--slate);
+        pointer-events: none;
+      }
+      .flow .sub,
+      .flow .lbl {
+        font-size: 10px;
+        fill: var(--gray-500);
+      }
+      .flow .node rect {
+        fill: var(--white);
+        stroke: var(--gray-300);
+        stroke-width: 1.5;
+        rx: 8;
+      }
+      .flow .node.term rect {
+        fill: var(--gray-150);
+        rx: 22;
+      }
+      .flow .node.gate path {
+        fill: var(--white);
+        stroke: var(--gray-300);
+        stroke-width: 1.5;
+      }
+      .flow .node.ok rect {
+        fill: rgba(120, 140, 93, 0.14);
+        stroke: var(--olive);
+      }
+      .flow .node.bad rect {
+        fill: rgba(188, 75, 57, 0.12);
+        stroke: var(--rust);
+      }
+      .flow.interactive .node {
+        cursor: pointer;
+      }
+      .flow .node.active rect,
+      .flow .node.active path {
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+      .flow .edge {
+        stroke: var(--gray-500);
+        stroke-width: 1.5;
+        fill: none;
+      }
+      .flow .edge.no {
+        stroke: var(--rust);
+        stroke-dasharray: 4 4;
+      }
+      .flow .edge.yes {
+        stroke: var(--olive);
+      }
+      .flow-panel {
+        position: sticky;
+        top: 24px;
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        background: var(--white);
+        padding: 20px 20px 22px;
+      }
+      @media (max-width: 920px) {
+        .flow-panel {
+          position: static;
+        }
+      }
+      .flow-panel .hint {
+        font-size: 12px;
+        color: var(--gray-500);
+        margin-bottom: 14px;
+      }
+      .flow-panel h3 {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-size: 19px;
+        margin-bottom: 6px;
+        color: var(--slate);
+      }
+      .flow-panel .meta {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--gray-500);
+        margin-bottom: 14px;
+      }
+      .flow-panel p {
+        font-size: 13.5px;
+        line-height: 1.6;
+        color: var(--gray-700);
+        margin-bottom: 12px;
+      }
+      .flow-panel pre {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.55;
+        background: var(--gray-150);
+        border: 1px solid var(--gray-300);
+        border-radius: 8px;
+        padding: 10px 12px;
+        white-space: pre-wrap;
+        color: var(--slate);
+      }
+      .flow-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        margin-top: 16px;
+        font-size: 12px;
+        color: var(--gray-700);
+      }
+      .flow-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .flow-legend .chip {
+        width: 22px;
+        height: 14px;
+        border: 1.5px solid var(--gray-300);
+        border-radius: 4px;
+        background: var(--white);
+      }
+      .flow-legend .chip.gate {
+        transform: rotate(45deg);
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+      }
+      .flow-legend .chip.ok {
+        background: rgba(120, 140, 93, 0.14);
+        border-color: var(--olive);
+      }
+      .flow-legend .chip.bad {
+        background: rgba(188, 75, 57, 0.12);
+        border-color: var(--rust);
+      }
+
+      /* ---------- before/after flow cards (block: flow-pair) ---------- */
+      .flow-pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 680px) {
+        .flow-pair {
+          grid-template-columns: 1fr;
+        }
+      }
+      .flowcard {
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        padding: 16px 16px 18px;
+        background: var(--ivory);
+      }
+      .flowcard.after {
+        border-color: var(--accent);
+      }
+      .flowcard .fc-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 12px;
+        color: var(--gray-500);
+      }
+      .flowcard.after .fc-label {
+        color: var(--accent);
+      }
+      .fnode {
+        border: var(--border);
+        background: var(--white);
+        border-radius: var(--radius-row);
+        padding: 7px 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-700);
+        text-align: center;
+      }
+      .fnode.new {
+        border-color: var(--accent);
+        background: rgba(217, 119, 87, 0.1);
+        color: var(--rust);
+      }
+      .fnode.store {
+        background: var(--oat);
+      }
+      .farrow {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 22px;
+        color: var(--gray-500);
+        font-size: 13px;
+        line-height: 1;
+      }
+      .farrow.lab {
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+      }
+      .fsplit {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .fsplit .farrow {
+        height: 20px;
+      }
+
+      /* ---------- numbered detail cards (used by block: tile-grid) ---------- */
+      .feature {
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        margin-bottom: 14px;
+        overflow: hidden;
+        background: var(--white);
+      }
+      .feature-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        padding: 14px 18px;
+        background: var(--gray-150);
+      }
+      .feature-num {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--accent);
+        font-weight: 600;
+        flex: none;
+      }
+      .feature-head h4 {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-size: 16.5px;
+        letter-spacing: -0.01em;
+        color: var(--slate);
+      }
+      .feature-body {
+        padding: 14px 18px 16px;
+      }
+      .feature-row {
+        display: grid;
+        grid-template-columns: 64px 1fr;
+        gap: 10px;
+        margin-bottom: 9px;
+        font-size: 14px;
+      }
+      .feature-row:last-child {
+        margin-bottom: 0;
+      }
+      .feature-row .k {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--gray-500);
+        padding-top: 3px;
+      }
+      .feature-row .v {
+        color: var(--gray-700);
+      }
+      .fchip {
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        background: var(--gray-100);
+        border: 1px solid var(--gray-300);
+        border-radius: 6px;
+        padding: 1.5px 7px;
+        color: var(--gray-700);
+        white-space: nowrap;
+        margin: 1px 2px 1px 0;
+      }
+
+      .feature[hidden] {
+        display: none;
+      }
+      .feature-head .kind {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--gray-500);
+        margin-left: auto;
+      }
+
+      /* ---------- filterable tiles + click-to-detail (block: tile-grid) ---------- */
+      .tile-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .tfilter {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        background: var(--white);
+        border: var(--border);
+        border-radius: 999px;
+        padding: 7px 15px;
+        color: var(--gray-500);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+      }
+      .tfilter:hover {
+        color: var(--slate);
+        border-color: var(--gray-500);
+      }
+      .tfilter:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .tfilter[aria-pressed='true'] {
+        background: var(--accent);
+        border-color: transparent;
+        color: var(--white);
+      }
+      .tile-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .tile {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+        text-align: left;
+        background: var(--white);
+        border: var(--border);
+        border-radius: 14px;
+        padding: 12px 12px 11px;
+        cursor: pointer;
+        color: var(--slate);
+        font: inherit;
+        transition: border-color 0.15s, background-color 0.15s;
+      }
+      .tile:hover {
+        border-color: var(--gray-500);
+      }
+      .tile:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      /* the flex display above outranks the UA [hidden] rule; restate it */
+      .tile[hidden] {
+        display: none;
+      }
+      .tile[aria-expanded='true'] {
+        border-color: var(--accent);
+        background: rgba(217, 119, 87, 0.09);
+      }
+      .tile .t-num {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .tile .t-name {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .tile .t-kind {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--gray-500);
+      }
+      .tile .t-kind::before {
+        content: '';
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 6px;
+        background: var(--gray-300);
+        vertical-align: 1px;
+      }
+      .tile[data-tone='ok'] .t-kind::before {
+        background: var(--olive);
+      }
+      .tile[data-tone='warn'] .t-kind::before {
+        background: var(--rust);
+      }
+      .tile[data-tone='accent'] .t-kind::before {
+        background: var(--accent);
+      }
+      .tile .t-does {
+        font-size: 12.5px;
+        line-height: 1.35;
+        color: var(--gray-700);
+      }
+      /* With JS the detail cards open one at a time under the tiles. Without JS
+         (and in print) every card stays visible and the tiles step aside. */
+      .js .tile-details .feature {
+        display: none;
+      }
+      .js .tile-details .feature.is-open {
+        display: block;
+      }
+      .js .tile-details .feature.is-open .feature-head {
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      /* ---------- labeled edge panel (block: labeled-panel) ---------- */
+      .lpanel {
+        border: var(--border);
+        border-left: 4px solid var(--gray-500);
+        border-radius: var(--radius-panel);
+        background: var(--white);
+        padding: 20px 24px;
+        margin: 18px 0;
+      }
+      .lpanel .lab {
+        font-family: var(--mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--gray-500);
+        margin-bottom: 14px;
+      }
+      .lpanel.warn {
+        border-left-color: var(--rust);
+      }
+      .lpanel.warn .lab {
+        color: var(--rust);
+      }
+      .lpanel.success {
+        border-left-color: var(--olive);
+      }
+      .lpanel.success .lab {
+        color: var(--olive);
+      }
+      .lpanel.note {
+        border-left-color: var(--accent);
+      }
+      .lpanel.note .lab {
+        color: var(--accent);
+      }
+      .lpanel ul {
+        list-style: none;
+      }
+      .lpanel li {
+        position: relative;
+        padding-left: 20px;
+        margin-bottom: 12px;
+        font-size: 14px;
+        color: var(--gray-700);
+        max-width: 68ch;
+      }
+      .lpanel li:last-child {
+        margin-bottom: 0;
+      }
+      .lpanel li::before {
+        content: '\2013';
+        position: absolute;
+        left: 0;
+        color: var(--gray-500);
+        font-weight: 700;
+      }
+      .lpanel.warn li::before {
+        color: var(--rust);
+      }
+      .lpanel.success li::before {
+        color: var(--olive);
+      }
+      .lpanel.note li::before {
+        color: var(--accent);
+      }
+      .lpanel li strong {
+        color: var(--slate);
+      }
+      .lpanel p {
+        font-size: 14px;
+        color: var(--gray-700);
+        max-width: 68ch;
+      }
+      .person {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 12px;
+        padding: 12px 0;
+        align-items: start;
+      }
+      .person + .person {
+        border-top: 1px dashed var(--gray-300);
+      }
+      .person .avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: var(--gray-150);
+        border: var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-700);
+      }
+      .person .name {
+        font-weight: 600;
+        color: var(--slate);
+        font-size: 14.5px;
+      }
+      .person .role {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+        margin-bottom: 4px;
+      }
+      .person .ask {
+        font-size: 14px;
+        color: var(--gray-700);
+      }
+
+      /* ---------- tabbed code panel (block: code-tabs) ---------- */
+      .code-tabs {
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        background: var(--white);
+        overflow: hidden;
+        position: relative;
+      }
+      .code-tabs > input[type='radio'] {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .code-tabs .tab-bar {
+        display: flex;
+        flex-wrap: wrap;
+        background: var(--gray-150);
+        border-bottom: var(--border);
+      }
+      .code-tabs label {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--gray-500);
+        padding: 10px 18px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1.5px;
+      }
+      .code-tabs label:hover {
+        color: var(--slate);
+      }
+      .code-tabs .tab-pane {
+        display: none;
+        padding: 16px 20px;
+        overflow-x: auto;
+      }
+      .code-tabs .tab-pane pre {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.65;
+        color: var(--gray-700);
+        white-space: pre;
+      }
+      .code-tabs > input:nth-of-type(1):checked ~ .tab-bar label:nth-of-type(1),
+      .code-tabs > input:nth-of-type(2):checked ~ .tab-bar label:nth-of-type(2),
+      .code-tabs > input:nth-of-type(3):checked ~ .tab-bar label:nth-of-type(3),
+      .code-tabs > input:nth-of-type(4):checked ~ .tab-bar label:nth-of-type(4) {
+        color: var(--slate);
+        background: var(--white);
+        border-bottom-color: var(--accent);
+      }
+      .code-tabs > input:nth-of-type(1):checked ~ .tab-pane.p1,
+      .code-tabs > input:nth-of-type(2):checked ~ .tab-pane.p2,
+      .code-tabs > input:nth-of-type(3):checked ~ .tab-pane.p3,
+      .code-tabs > input:nth-of-type(4):checked ~ .tab-pane.p4 {
+        display: block;
+      }
+
+      /* ---------- collapsible explainer (block: collapsible) ---------- */
+      details {
+        border: var(--border);
+        border-radius: var(--radius-row);
+        background: var(--white);
+        margin-bottom: 10px;
+      }
+      summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 14px 16px;
+        font-weight: 600;
+        color: var(--slate);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::before {
+        content: '›';
+        font-family: var(--mono);
+        color: var(--accent);
+        transition: transform 0.15s;
+        display: inline-block;
+      }
+      details[open] summary::before {
+        transform: rotate(90deg);
+      }
+      summary .where {
+        font-family: var(--mono);
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--gray-500);
+        margin-left: auto;
+      }
+      details .body {
+        padding: 0 16px 16px;
+      }
+      details .body p {
+        font-size: 14px;
+      }
+
+      /* ---------- diagram panel (block: diagram) ---------- */
+      .diagram {
+        background: var(--white);
+        border: var(--border);
+        border-radius: var(--radius-panel);
+        padding: 28px;
+        overflow-x: auto;
+      }
+      .diagram svg {
+        display: block;
+      }
+      .diagram text {
+        font-family: var(--mono);
+      }
+      .caption {
+        font-size: 13px;
+        color: var(--gray-500);
+        margin-top: 12px;
+      }
+      /* diagram node/edge grammar (block: diagram): component box, data store,
+         focal (accent) box, dashed alternate path, rust warning path. */
+      .diagram .n-box {
+        fill: var(--white);
+        stroke: var(--gray-300);
+        stroke-width: 1.5;
+      }
+      .diagram .n-store {
+        fill: var(--gray-100);
+      }
+      .diagram .n-hot {
+        stroke: var(--accent);
+        stroke-width: 2;
+      }
+      .diagram .n-dash {
+        stroke-dasharray: 5 4;
+      }
+      .diagram .n-t {
+        font-size: 13px;
+        font-weight: 600;
+        fill: var(--slate);
+      }
+      .diagram .n-s {
+        font-size: 11px;
+        fill: var(--gray-500);
+      }
+      .diagram .e-lab {
+        font-size: 11px;
+        fill: var(--gray-500);
+      }
+      .diagram .e-lab.warn {
+        fill: var(--rust);
+      }
+      .diagram .edge {
+        stroke: var(--gray-500);
+        stroke-width: 1.5;
+        fill: none;
+      }
+      .diagram .edge.dash {
+        stroke-dasharray: 5 4;
+      }
+      .diagram .edge.warn {
+        stroke: var(--rust);
+      }
+      .diagram g[data-tip] {
+        cursor: help;
+      }
+      .diagram g[data-tip]:hover .n-box,
+      .diagram g[data-tip]:focus .n-box {
+        stroke: var(--accent);
+      }
+      /* hover fine-print for [data-tip] nodes (diagram block) */
+      .hover-tip {
+        display: none;
+        position: fixed;
+        z-index: 50;
+        max-width: 320px;
+        background: var(--slate);
+        color: var(--ivory);
+        font-size: 12.5px;
+        line-height: 1.45;
+        padding: 8px 11px;
+        border-radius: 8px;
+        pointer-events: none;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+      }
+
+      /* ---------- token swatches (block: swatches) ---------- */
+      .swatch-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 18px;
+      }
+      .swatch .chip {
+        width: 100%;
+        height: 56px;
+        border-radius: var(--radius-row);
+        border: var(--border);
+        margin-bottom: 8px;
+      }
+      .swatch .hex {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-700);
+        display: block;
+      }
+      .swatch .token {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--gray-500);
+        display: block;
+      }
+
+      /* ---------- sources footer (block: sources) ---------- */
+      .sources {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--gray-500);
+        border-top: 1px solid var(--gray-300);
+        padding-top: 16px;
+        margin-top: 8px;
+      }
+
+      /* ---------- smooth theme change ---------- */
+      /* Theme is set before first paint, so these transitions only fire on a
+         deliberate toggle, never on load. */
+      body,
+      .summary .cell,
+      .callout,
+      details,
+      .diagram,
+      .diagram rect,
+      .diagram text,
+      .diagram line,
+      .diagram path,
+      .flow-canvas,
+      .flow rect,
+      .flow text,
+      .flow path,
+      .flow-panel,
+      .flowcard,
+      .fnode,
+      .feature,
+      .feature-head,
+      .tile,
+      .tfilter,
+      .lpanel,
+      .code-tabs,
+      .fchip,
+      .pill,
+      .milestone .tag,
+      .milestone .dot,
+      .code,
+      .theme-toggle,
+      .theme-toggle button,
+      h1,
+      h2,
+      h3,
+      .prose p,
+      .lede,
+      .sec-intro,
+      .caption,
+      .toc-list li a {
+        transition: background-color 0.28s ease, border-color 0.28s ease,
+          color 0.22s ease, fill 0.28s ease, stroke 0.28s ease;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+
+      /* ---------- theme toggle (light / dark / system) ---------- */
+      .theme-toggle {
+        position: fixed;
+        top: 18px;
+        right: 20px;
+        z-index: 50;
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        background: var(--white);
+        border: var(--border);
+        border-radius: 999px;
+        box-shadow: 0 2px 8px rgba(20, 20, 19, 0.09);
+      }
+      .theme-toggle button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        border-radius: 999px;
+        color: var(--gray-500);
+        cursor: pointer;
+      }
+      .theme-toggle button:hover {
+        color: var(--slate);
+        background: var(--gray-100);
+      }
+      .theme-toggle button[aria-pressed='true'],
+      .theme-toggle button[aria-pressed='true']:hover {
+        background: var(--accent);
+        color: var(--white);
+      }
+      .theme-toggle button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .theme-toggle svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+      }
+      @media (max-width: 640px) {
+        .theme-toggle {
+          top: 12px;
+          right: 12px;
+        }
+      }
+
+      /* ---------- print ---------- */
+      @media print {
+        .theme-toggle {
+          display: none;
+        }
+        body {
+          background: var(--white);
+          padding: 0;
+        }
+        section {
+          break-inside: avoid;
+        }
+        details {
+          break-inside: avoid;
+        }
+        details:not([open]) {
+        } /* leave authored open/closed state */
+        .js .tile-details .feature {
+          display: block;
+        }
+        .tile-grid,
+        .tile-filters {
+          display: none;
+        }
+      }
+
+      /* ---------- narrow screens ---------- */
+      @media (max-width: 640px) {
+        body {
+          padding: 64px 16px 80px;
+        }
+        .doc-head h1 {
+          font-size: 30px;
+        }
+        .milestone {
+          grid-template-columns: 56px 20px 1fr;
+          gap: 0 10px;
+        }
+        .diagram,
+        .flow-canvas {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Theme control: light / dark / system. Preference persists in
+         localStorage; "system" tracks the OS setting live. The effective theme
+         is written to <html data-theme> before first paint to avoid a flash. -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var KEY = 'thariq-doc-theme';
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+        function getPref() {
+          try {
+            return localStorage.getItem(KEY) || 'system';
+          } catch (e) {
+            return 'system';
+          }
+        }
+        function resolve(pref) {
+          if (pref === 'system') return mq.matches ? 'dark' : 'light';
+          return pref;
+        }
+        function apply() {
+          var pref = getPref();
+          root.setAttribute('data-theme', resolve(pref));
+          var btns = document.querySelectorAll('.theme-toggle button');
+          for (var i = 0; i < btns.length; i++) {
+            var on = btns[i].getAttribute('data-set-theme') === pref;
+            btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+          }
+        }
+
+        // Set the effective theme immediately (before the body renders).
+        root.setAttribute('data-theme', resolve(getPref()));
+
+        function wire() {
+          var btns = document.querySelectorAll('.theme-toggle button');
+          for (var i = 0; i < btns.length; i++) {
+            btns[i].addEventListener('click', function () {
+              try {
+                localStorage.setItem(KEY, this.getAttribute('data-set-theme'));
+              } catch (e) {}
+              apply();
+            });
+          }
+          apply();
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', wire);
+        } else {
+          wire();
+        }
+        // Follow the OS while in "system" mode.
+        mq.addEventListener('change', function () {
+          if (getPref() === 'system') apply();
+        });
+      })();
+    </script>
+
+    <div class="theme-toggle" role="group" aria-label="Color theme">
+      <button type="button" data-set-theme="light" title="Light" aria-label="Light theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+      </button>
+      <button type="button" data-set-theme="dark" title="Dark" aria-label="Dark theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
+      <button type="button" data-set-theme="system" title="System" aria-label="Match system theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+      </button>
+    </div>
+
+    <main class="page">
+      <header class="doc-head">
+        <div class="eyebrow">Open source · Android · Dictation</div>
+        <h1>Whisper LP · Architecture</h1>
+        <p class="lede">
+          Whisper LP puts a small dictation button over every app on an Android phone. Tap it, speak, and the text lands
+          where you are typing, transcribed by OpenAI with your own API key. It can also fix the grammar of text you typed,
+          and listen on the phone for "hey claude" to open the Claude app's voice assistant. This page shows how audio
+          becomes text, how the text gets into another app's field, how the wake word decides when to listen, and what
+          leaves the phone.
+        </p>
+        <div class="meta">
+          <span class="pill accent">Apache-2.0</span>
+          <span class="pill">Android 11+</span>
+          <span class="pill">arm64</span>
+          <span class="pill">No backend</span>
+          <a class="mono" href="https://github.com/lperezmo/phone-whisper-android">github.com/lperezmo/phone-whisper-android</a>
+          <a href="https://github.com/lperezmo/phone-whisper-android#install">Install guide</a>
+          <a href="https://github.com/lperezmo/phone-whisper-android/releases/latest">Download the APK</a>
+        </div>
+      </header>
+
+      <nav class="toc">
+        <div class="toc-title">Contents</div>
+        <ol class="toc-list">
+          <li><a href="#at-a-glance">At a glance</a></li>
+          <li><a href="#dictation">Dictation pipeline</a></li>
+          <li><a href="#insertion">Getting text into the field</a></li>
+          <li><a href="#grammar-fix">Grammar fix</a></li>
+          <li><a href="#wake-word">Wake word</a></li>
+          <li><a href="#data-flow">Data flow</a></li>
+          <li><a href="#settings">Settings</a></li>
+          <li><a href="#inside-the-app">Inside the app</a></li>
+          <li><a href="#security">Security</a></li>
+          <li><a href="#setup">Setup</a></li>
+        </ol>
+      </nav>
+
+      <section id="at-a-glance">
+        <div class="sec-head"><h2>At a glance</h2></div>
+        <hr class="rule" />
+        <div class="summary">
+          <div class="cell">
+            <div class="k">Talks to</div>
+            <div class="v">OpenAI only</div>
+          </div>
+          <div class="cell">
+            <div class="k">Speech to text</div>
+            <div class="v">gpt-transcribe</div>
+          </div>
+          <div class="cell">
+            <div class="k">Wake word</div>
+            <div class="v">On the phone</div>
+          </div>
+          <div class="cell">
+            <div class="k">Backend</div>
+            <div class="v accent">None</div>
+          </div>
+        </div>
+        <div class="prose" style="margin-top: 22px">
+          <p>
+            Everything runs in one Android app. An accessibility service hosts the floating button and types into other apps;
+            OpenAI does the transcription and the cleanup; a 5 MB keyword-spotting model runs the wake word locally. There is
+            no server of ours in between, no account, and no analytics.
+          </p>
+        </div>
+      </section>
+
+      <section id="dictation">
+        <div class="sec-head"><h2>Dictation pipeline</h2></div>
+        <p class="sec-intro">
+          A tap starts the recording and a second tap sends it. The TLS connection to OpenAI is opened while you are still
+          talking, so the upload starts without a handshake. Hover a box for the details.
+        </p>
+        <div class="diagram">
+          <svg viewBox="0 0 900 370" width="100%" style="min-width: 720px" role="img"
+            aria-label="The floating button starts the recorder; the recording is encoded as AAC and uploaded to OpenAI's transcription endpoint, or streamed live over the Realtime API. The transcript optionally goes through cleanup, then a plausibility guard, then the text injector types it into the focused field.">
+            <defs>
+              <marker id="dp-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
+              </marker>
+            </defs>
+
+            <!-- OpenAI boundary -->
+            <rect x="540" y="8" width="344" height="348" rx="16" fill="none" stroke="var(--gray-300)" stroke-width="1.5" stroke-dasharray="6 5" />
+            <text class="n-s" x="558" y="346">OpenAI · api.openai.com</text>
+
+            <g data-tip="An accessibility overlay window. Tap to start, tap again to stop. It turns red and pulses while recording, grey while working, and amber after a failure.">
+              <rect class="n-box" x="20" y="30" width="150" height="64" rx="9" />
+              <text class="n-t" x="95" y="57" text-anchor="middle">Floating button</text>
+              <text class="n-s" x="95" y="75" text-anchor="middle">tap · tap</text>
+            </g>
+            <line class="edge" x1="170" y1="62" x2="196" y2="62" marker-end="url(#dp-arr)" />
+
+            <g data-tip="AudioRecord at 16 kHz mono. Capped at 10 minutes, and at 2 minutes when the phone is locked.">
+              <rect class="n-box" x="198" y="30" width="150" height="64" rx="9" />
+              <text class="n-t" x="273" y="57" text-anchor="middle">Recorder</text>
+              <text class="n-s" x="273" y="75" text-anchor="middle">16 kHz mono PCM</text>
+            </g>
+            <line class="edge" x1="348" y1="62" x2="374" y2="62" marker-end="url(#dp-arr)" />
+
+            <g data-tip="The phone's AAC encoder makes a 64 kbps .m4a, about 4x smaller than WAV. WAV is the fallback if the encoder fails.">
+              <rect class="n-box" x="376" y="30" width="140" height="64" rx="9" />
+              <text class="n-t" x="446" y="57" text-anchor="middle">AAC encoder</text>
+              <text class="n-s" x="446" y="75" text-anchor="middle">64 kbps .m4a</text>
+            </g>
+            <line class="edge" x1="516" y1="62" x2="566" y2="62" marker-end="url(#dp-arr)" />
+            <text class="e-lab" x="541" y="52" text-anchor="middle">upload</text>
+
+            <g data-tip="Multipart upload with the model, your vocabulary as keywords, and your languages as hints. If a model rejects the hints with a 400, it is retried once with the model and the file only.">
+              <rect class="n-box n-hot" x="568" y="30" width="296" height="64" rx="9" />
+              <text class="n-t" x="716" y="57" text-anchor="middle">Transcription</text>
+              <text class="n-s" x="716" y="75" text-anchor="middle">POST /v1/audio/transcriptions</text>
+            </g>
+
+            <path class="edge dash" d="M273 94 L273 164 L566 164" marker-end="url(#dp-arr)" />
+            <text class="e-lab" x="420" y="156" text-anchor="middle">live mode: streamed while you talk</text>
+            <g data-tip="Optional. A Realtime API WebSocket with intent=transcription gets the audio as 24 kHz PCM16 in 100 ms pieces while you talk, so the text is ready about half a second after you stop. If the stream fails, the same recording goes through the upload above.">
+              <rect class="n-box n-dash" x="568" y="134" width="250" height="60" rx="9" />
+              <text class="n-t" x="693" y="159" text-anchor="middle">Live transcription</text>
+              <text class="n-s" x="693" y="177" text-anchor="middle">wss /v1/realtime</text>
+            </g>
+
+            <path class="edge" d="M848 94 L848 256" marker-end="url(#dp-arr)" />
+            <text class="e-lab" x="840" y="228" text-anchor="end">transcript</text>
+            <path class="edge dash" d="M693 194 L693 256" marker-end="url(#dp-arr)" />
+
+            <g data-tip="Optional, on by default. The Responses API with your cleanup prompt and vocabulary, the lowest reasoning effort, and store: false. Fixes punctuation, capitalization and filler words.">
+              <rect class="n-box" x="568" y="258" width="296" height="64" rx="9" />
+              <text class="n-t" x="716" y="285" text-anchor="middle">Cleanup</text>
+              <text class="n-s" x="716" y="303" text-anchor="middle">POST /v1/responses · store: false</text>
+            </g>
+            <line class="edge" x1="568" y1="290" x2="516" y2="290" marker-end="url(#dp-arr)" />
+
+            <g data-tip="Rejects a cleanup that is clearly not a cleanup: more than twice as long (it answered a dictated question), or under 35% of a long transcript. The raw transcript is inserted instead, with a note.">
+              <rect class="n-box" x="336" y="258" width="178" height="64" rx="9" />
+              <text class="n-t" x="425" y="285" text-anchor="middle">Plausibility guard</text>
+              <text class="n-s" x="425" y="303" text-anchor="middle">else the raw text</text>
+            </g>
+            <line class="edge" x1="336" y1="290" x2="276" y2="290" marker-end="url(#dp-arr)" />
+
+            <g data-tip="Finds the field you are typing in and inserts at the cursor. See the next section.">
+              <rect class="n-box n-hot" x="20" y="258" width="254" height="64" rx="9" />
+              <text class="n-t" x="147" y="285" text-anchor="middle">TextInjector</text>
+              <text class="n-s" x="147" y="303" text-anchor="middle">cursor · clipboard · undo</text>
+            </g>
+          </svg>
+          <p class="caption">
+            A failed request keeps the audio: the button turns amber, a tap sends the same recording again, and a long-press
+            discards it.
+          </p>
+        </div>
+
+        <div class="diagram" style="margin-top: 18px">
+          <svg viewBox="0 0 900 310" width="100%" style="min-width: 720px" role="img"
+            aria-label="The button's states: idle, recording, working and retry. Tap moves from idle to recording and from recording to working; working returns to idle when the text is placed, or goes to retry on an error; retry goes back to working on a tap, or to idle on a long-press.">
+            <defs>
+              <marker id="bs-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
+              </marker>
+              <marker id="bs-arr-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--rust)" />
+              </marker>
+            </defs>
+            <path class="edge" d="M590 92 C590 26, 95 26, 95 90" marker-end="url(#bs-arr)" />
+            <text class="e-lab" x="342" y="40" text-anchor="middle">text inserted, or copied to the clipboard</text>
+
+            <g data-tip="Waiting. Long-press here fixes the grammar of the selection or the focused field.">
+              <rect class="n-box n-store" x="20" y="92" width="150" height="56" rx="22" />
+              <text class="n-t" x="95" y="124" text-anchor="middle">IDLE</text>
+            </g>
+            <line class="edge" x1="170" y1="120" x2="256" y2="120" marker-end="url(#bs-arr)" />
+            <text class="e-lab" x="213" y="110" text-anchor="middle">tap</text>
+
+            <g data-tip="Recording. The field that has focus now is remembered, in case the app drops focus during a long dictation.">
+              <rect class="n-box" x="258" y="92" width="170" height="56" rx="9" />
+              <text class="n-t" x="343" y="116" text-anchor="middle">RECORDING</text>
+              <text class="n-s" x="343" y="134" text-anchor="middle">red, pulsing</text>
+            </g>
+            <line class="edge" x1="428" y1="120" x2="506" y2="120" marker-end="url(#bs-arr)" />
+            <text class="e-lab" x="467" y="110" text-anchor="middle">tap</text>
+
+            <g data-tip="Transcribing and cleaning up, or fixing grammar. One job at a time.">
+              <rect class="n-box n-hot" x="508" y="92" width="170" height="56" rx="9" />
+              <text class="n-t" x="593" y="116" text-anchor="middle">WORKING</text>
+              <text class="n-s" x="593" y="134" text-anchor="middle">grey</text>
+            </g>
+            <line class="edge warn" x1="678" y1="120" x2="736" y2="120" marker-end="url(#bs-arr-warn)" />
+            <text class="e-lab warn" x="707" y="110" text-anchor="middle">error</text>
+
+            <g data-tip="The recording is kept in memory until it is sent or discarded.">
+              <rect class="n-box" x="738" y="92" width="142" height="56" rx="9" />
+              <text class="n-t" x="809" y="116" text-anchor="middle">RETRY</text>
+              <text class="n-s" x="809" y="134" text-anchor="middle">amber, audio kept</text>
+            </g>
+            <path class="edge" d="M770 148 C770 186, 620 186, 620 150" marker-end="url(#bs-arr)" />
+            <text class="e-lab" x="695" y="202" text-anchor="middle">tap: same audio</text>
+            <path class="edge dash" d="M850 148 C850 300, 60 300, 60 150" marker-end="url(#bs-arr)" />
+            <text class="e-lab" x="450" y="296" text-anchor="middle">long-press: discard</text>
+          </svg>
+          <p class="caption">
+            On the lock screen a recording stops after 2 minutes, and after 5 recordings the button asks you to unlock.
+          </p>
+        </div>
+      </section>
+
+      <section id="insertion">
+        <div class="sec-head"><h2>Getting text into the field</h2></div>
+        <p class="sec-intro">
+          Dictated text goes in through the accessibility service. Arrow keys for the optional arrow pad go through a
+          keyboard, because only an input method may send key events into another app.
+        </p>
+        <div class="flow-pair">
+          <div class="flowcard after">
+            <div class="fc-label">Dictated text · accessibility service</div>
+            <div class="fnode">Find the field</div>
+            <div class="farrow lab">↓ <span>live focus, then every window</span></div>
+            <div class="fnode new">ACTION_SET_TEXT at the cursor</div>
+            <div class="farrow lab">↓ <span>refused</span></div>
+            <div class="fnode">Paste action · clipboard marked sensitive</div>
+            <div class="farrow lab">↓ <span>no field, or refused</span></div>
+            <div class="fnode store">Copied to the clipboard</div>
+          </div>
+          <div class="flowcard">
+            <div class="fc-label">Arrow keys · input method</div>
+            <div class="fnode">Push the pad's knob</div>
+            <div class="farrow lab">↓ <span>switch keyboards</span></div>
+            <div class="fnode new">KeysInputMethodService</div>
+            <div class="farrow lab">↓ <span>sendKeyEvent only</span></div>
+            <div class="fnode">Arrow or Enter in the app</div>
+            <div class="farrow lab">↓ <span>4 s after the last arrow</span></div>
+            <div class="fnode store">Your own keyboard comes back</div>
+          </div>
+        </div>
+        <div class="prose" style="margin-top: 22px">
+          <ul>
+            <li>
+              <strong>Finding the field.</strong> Live input focus first, service-wide and then in every interactive window,
+              retried briefly because web views build their tree lazily. If focus is gone by the time a long dictation is
+              transcribed, the field that was focused when recording started, or the last one you typed in, is used if it is
+              still on screen.
+            </li>
+            <li>
+              <strong>Inserting.</strong> <code>ACTION_SET_TEXT</code> writes the text at the cursor, replacing any selection,
+              with a space when it follows a word. The clipboard is not touched. Surfaces that refuse it (Termux, password
+              fields) get a paste instead.
+            </li>
+            <li>
+              <strong>Undo.</strong> For 5 seconds a chip beside the button puts the field back as it was, unless you have
+              edited it since. The previous text is kept in memory only for that.
+            </li>
+            <li>
+              <strong>The arrows keyboard</strong> draws nothing, reads no text and has no network code. The accessibility
+              service switches to it when you touch the pad and back to your keyboard afterwards, or at once when you tap into
+              a text field.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="grammar-fix">
+        <div class="sec-head"><h2>Grammar fix</h2></div>
+        <p class="sec-intro">
+          Two ways in, one request: the text goes to the Responses API with the grammar-fix prompt and
+          <code>store: false</code>, and the same plausibility guard rejects a reply that is not a fix.
+        </p>
+        <div class="lpanel note">
+          <div class="lab">Long-press the floating button · accessibility</div>
+          <ul>
+            <li>Fixes the <strong>selection</strong>, or the <strong>whole focused field</strong> when nothing is selected. Password fields are skipped.</li>
+            <li>Checks the field has not changed while the request was out, then replaces just that range. Undo works as for dictation.</li>
+          </ul>
+        </div>
+        <div class="lpanel">
+          <div class="lab">Fix grammar in the text-selection menu · PROCESS_TEXT</div>
+          <ul>
+            <li>Works in any app that offers the standard selection menu, and needs <strong>no accessibility access</strong>.</li>
+            <li>The calling app replaces editable text itself; read-only text (a web page, a received message) is fixed onto the clipboard.</li>
+            <li>The activity is exported, so any app can call it. It accepts at most <strong>10 requests a minute</strong>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="wake-word">
+        <div class="sec-head"><h2>Wake word</h2></div>
+        <p class="sec-intro">
+          A microphone foreground service feeds 100 ms of 16 kHz audio at a time to a sherpa-onnx keyword spotter. When it
+          hears "hey claude" it lets go of the microphone and opens Claude's voice assistant. A small state machine, tested
+          without Android, decides when the microphone is on.
+        </p>
+        <div class="diagram">
+          <svg viewBox="0 0 900 330" width="100%" style="min-width: 720px" role="img"
+            aria-label="Wake word states: off, listening, waiting and busy. Start moves from off to listening. A detected keyword moves to waiting, with the microphone off and Claude opened. When Claude takes the microphone the state is busy; if nobody takes it within 10 seconds it listens again. Listening pauses to busy when another app records, and busy returns to listening once the microphone has been free for a second and the cooldown is over.">
+            <defs>
+              <marker id="ww-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
+              </marker>
+              <marker id="ww-arr-yes" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--olive)" />
+              </marker>
+            </defs>
+
+            <g data-tip="The wake word is off, or stopped from the notification, the settings switch, or a WAKE_OFF intent. Every state returns here on stop.">
+              <rect class="n-box n-store" x="20" y="130" width="120" height="56" rx="22" />
+              <text class="n-t" x="80" y="162" text-anchor="middle">OFF</text>
+            </g>
+            <line class="edge" x1="140" y1="158" x2="246" y2="158" marker-end="url(#ww-arr)" />
+            <text class="e-lab" x="193" y="148" text-anchor="middle">start</text>
+
+            <g data-tip="AudioRecord (voice recognition source) into the keyword spotter. Keywords are CMU phones, so HEY_CLAUDE, HEY_CLOUD and HEY_CLOD are three short lines. Threshold 0.45 minus 0.05 per sensitivity level; the default 5 is 0.20.">
+              <rect class="n-box n-hot" x="248" y="126" width="196" height="64" rx="9" />
+              <text class="n-t" x="346" y="153" text-anchor="middle">LISTENING</text>
+              <text class="n-s" x="346" y="171" text-anchor="middle">mic on · spotter running</text>
+            </g>
+
+            <path class="edge" d="M444 140 L616 70" marker-end="url(#ww-arr)" />
+            <text class="e-lab" x="500" y="92" text-anchor="middle">"hey claude"</text>
+
+            <path class="edge dash" d="M618 44 C 470 30, 360 60, 346 124" marker-end="url(#ww-arr)" />
+            <text class="e-lab" x="470" y="28" text-anchor="middle">nobody took the mic in 10 s</text>
+
+            <g data-tip="The microphone is released and ACTION_VOICE_ASSIST is sent to the Claude app (or your default assistant if Claude is not installed), from the accessibility service's context so Android allows it from the background.">
+              <rect class="n-box" x="618" y="30" width="250" height="64" rx="9" />
+              <text class="n-t" x="743" y="57" text-anchor="middle">WAITING</text>
+              <text class="n-s" x="743" y="75" text-anchor="middle">mic off · Claude opened</text>
+            </g>
+            <line class="edge" x1="743" y1="94" x2="743" y2="226" marker-end="url(#ww-arr)" />
+            <text class="e-lab" x="752" y="165" text-anchor="start">Claude takes the mic</text>
+
+            <path class="edge" d="M444 178 L616 244" marker-end="url(#ww-arr)" />
+            <text class="e-lab" x="506" y="232" text-anchor="middle">mic busy elsewhere</text>
+
+            <g data-tip="Another app is recording, or the audio mode is not normal. Claude's voice mode holds communication mode for the whole conversation, and a phone call does the same, so listening waits for both.">
+              <rect class="n-box" x="618" y="228" width="250" height="64" rx="9" />
+              <text class="n-t" x="743" y="255" text-anchor="middle">BUSY</text>
+              <text class="n-s" x="743" y="273" text-anchor="middle">another app has the mic</text>
+            </g>
+            <path class="edge yes" d="M618 282 C 480 300, 346 276, 346 192" marker-end="url(#ww-arr-yes)" />
+            <text class="e-lab" x="470" y="318" text-anchor="middle">free for 1 s, and 4 s after a detection</text>
+          </svg>
+          <p class="caption">
+            On the way back to listening, if music was playing when the keyword fired and nothing is playing now, the service
+            sends one media PLAY key.
+          </p>
+        </div>
+        <div class="callout note">
+          <span class="tag">Starting it</span>
+          Android only lets a microphone foreground service start while the app is in the foreground. So it is started from
+          the settings screen, from an invisible activity (Tasker and adb send <code>WAKE_ON</code>, <code>WAKE_OFF</code> or
+          <code>WAKE_TOGGLE</code> to it), or by the accessibility service when Android rebinds it after a reboot or update.
+          When Android refuses, a notification offers to turn it back on with one tap.
+        </div>
+      </section>
+
+      <section id="data-flow">
+        <div class="sec-head"><h2>Data flow</h2></div>
+        <p class="sec-intro">
+          The only network destination is <code>api.openai.com</code>, reached directly from the phone with your key.
+        </p>
+        <div class="diagram">
+          <svg viewBox="0 0 900 320" width="100%" style="min-width: 720px" role="img"
+            aria-label="On the phone, Whisper LP types into other apps and opens the Claude app with an intent; the wake word model runs inside it. The only arrow leaving the phone goes to OpenAI, carrying audio, transcripts and text to fix.">
+            <defs>
+              <marker id="df-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
+              </marker>
+            </defs>
+
+            <rect x="20" y="20" width="580" height="290" rx="16" fill="none" stroke="var(--gray-300)" stroke-width="1.5" stroke-dasharray="6 5" />
+            <text class="n-s" x="38" y="42">your phone</text>
+
+            <g data-tip="Settings live in the app's private storage, with app backup off. The OpenAI key is encrypted with AES-GCM under an Android Keystore key.">
+              <rect class="n-box n-hot" x="50" y="100" width="230" height="84" rx="9" />
+              <text class="n-t" x="165" y="128" text-anchor="middle">Whisper LP</text>
+              <text class="n-s" x="165" y="148" text-anchor="middle">API key in the Keystore</text>
+              <text class="n-s" x="165" y="166" text-anchor="middle">logs: metadata only</text>
+            </g>
+            <g data-tip="Audio is processed in memory and discarded as it goes. It is never written to storage, sent, or logged.">
+              <rect class="n-box n-store" x="50" y="226" width="230" height="56" rx="9" />
+              <text class="n-t" x="165" y="250" text-anchor="middle">Keyword spotter</text>
+              <text class="n-s" x="165" y="268" text-anchor="middle">wake audio stays in memory</text>
+            </g>
+            <line class="edge dash" x1="165" y1="226" x2="165" y2="188" marker-end="url(#df-arr)" />
+
+            <g data-tip="Opened with the VOICE_ASSIST intent. No text or audio is handed over; from then on the Claude app handles your speech under its own terms.">
+              <rect class="n-box" x="360" y="100" width="210" height="64" rx="9" />
+              <text class="n-t" x="465" y="127" text-anchor="middle">Claude app</text>
+              <text class="n-s" x="465" y="145" text-anchor="middle">opened by intent</text>
+            </g>
+            <line class="edge dash" x1="280" y1="132" x2="356" y2="132" marker-end="url(#df-arr)" />
+            <text class="e-lab" x="318" y="124" text-anchor="middle">intent</text>
+
+            <g data-tip="Dictated text is typed into their fields through the accessibility service; the selection menu's Fix grammar sends text to Whisper LP.">
+              <rect class="n-box" x="360" y="210" width="210" height="64" rx="9" />
+              <text class="n-t" x="465" y="237" text-anchor="middle">Other apps</text>
+              <text class="n-s" x="465" y="255" text-anchor="middle">text fields · selection menu</text>
+            </g>
+            <path class="edge" d="M280 170 L356 236" marker-end="url(#df-arr)" marker-start="url(#df-arr)" />
+
+            <path class="edge" d="M220 100 L220 70 L740 70 L740 116" marker-end="url(#df-arr)" />
+            <text class="e-lab" x="480" y="62" text-anchor="middle">audio · transcript · text to fix · your API key</text>
+
+            <g data-tip="Transcription, cleanup and grammar fix, and the model list for the pickers. Cleanup and grammar-fix requests are sent with store: false.">
+              <rect class="n-box n-hot" x="640" y="118" width="230" height="84" rx="9" />
+              <text class="n-t" x="755" y="146" text-anchor="middle">OpenAI</text>
+              <text class="n-s" x="755" y="166" text-anchor="middle">transcribe · clean up · fix</text>
+              <text class="n-s" x="755" y="184" text-anchor="middle">under your OpenAI terms</text>
+            </g>
+          </svg>
+          <p class="caption">One arrow leaves the phone. The wake word and the arrows keyboard send nothing anywhere.</p>
+        </div>
+        <div class="flow-pair" style="margin-top: 18px">
+          <div class="lpanel note" style="margin: 0">
+            <div class="lab">Leaves the phone, to OpenAI</div>
+            <ul>
+              <li>Your recording, for transcription.</li>
+              <li>The transcript, when cleanup is on.</li>
+              <li>The text you ask it to fix.</li>
+              <li>Your vocabulary and language hints, with those requests.</li>
+            </ul>
+          </div>
+          <div class="lpanel success" style="margin: 0">
+            <div class="lab">Stays on the phone</div>
+            <ul>
+              <li>Wake word audio, processed in memory only.</li>
+              <li>The API key, settings and usage counts.</li>
+              <li>Logs: sizes, timings and error messages, never text.</li>
+              <li>What the accessibility service sees.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings">
+        <div class="sec-head"><h2>Settings</h2></div>
+        <p class="sec-intro">One screen, built in code. Defaults are chosen so a new install works with just an API key.</p>
+        <div class="flow-pair">
+          <div class="lpanel" style="margin: 0">
+            <div class="lab">Dictation</div>
+            <ul>
+              <li><strong>Transcription model</strong> <code>gpt-transcribe</code>, picked from the models your key can use.</li>
+              <li><strong>Live transcription</strong> off: streams while you talk instead of uploading after.</li>
+              <li><strong>Languages</strong> empty, which auto-detects; codes such as <code>en, es</code> are sent as hints.</li>
+              <li><strong>Vocabulary</strong>: names and terms to spell exactly.</li>
+              <li><strong>Clean up transcript</strong> on, with <code>gpt-5.6-luna</code> and a Simple, Dev or Custom prompt.</li>
+              <li><strong>Grammar fix prompt</strong>: its own prompt, since that text was typed, not dictated.</li>
+            </ul>
+          </div>
+          <div class="lpanel" style="margin: 0">
+            <div class="lab">Extras, all off by default</div>
+            <ul>
+              <li><strong>Wake word</strong>, with sensitivity 1 to 7 (default 5) and resume music after Claude.</li>
+              <li><strong>Arrow pad</strong>, with automatic keyboard switching.</li>
+              <li><strong>Volume pill</strong>: Silent + DND for an hour, Mute, Medium, Loud.</li>
+              <li><strong>Usage</strong>: dictations, minutes and an estimated cost from list prices.</li>
+              <li><strong>About</strong>: open-source licenses and third-party notices.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="inside-the-app">
+        <div class="sec-head"><h2>Inside the app</h2></div>
+        <p class="sec-intro">
+          One Gradle module in Kotlin. The decisions (pipeline, prompts, wake word states, presets, rate limit) are plain
+          classes with JVM unit tests; the Android classes wire them to the system.
+        </p>
+        <div class="lpanel note">
+          <div class="lab">Dictation and text</div>
+          <ul>
+            <li><strong>WhisperAccessibilityService</strong>: the floating button, gestures, overlays and the dictation state machine.</li>
+            <li><strong>Recorder, AacEncoder, LiveTranscription</strong>: capture, encoding, and the Realtime stream.</li>
+            <li><strong>DictationPipeline, OpenAiClient, Prompts</strong>: transcribe, clean up, the plausibility guard, and the requests.</li>
+            <li><strong>TextInjector</strong>: finding the field, inserting, replacing a range, undo, clipboard fallback.</li>
+            <li><strong>FixGrammarActivity, RateLimiter</strong>: the selection-menu fix.</li>
+          </ul>
+        </div>
+        <div class="lpanel">
+          <div class="lab">Wake word and extras</div>
+          <ul>
+            <li><strong>WakeWord, WakeWordService, WakeControlActivity</strong>: the state machine, the microphone service, and the Tasker switch.</li>
+            <li><strong>com.k2fsa.sherpa.onnx</strong>: sherpa-onnx's Kotlin bindings, vendored; the native library and model are fetched and checksummed at build time.</li>
+            <li><strong>JoystickView, KeysInputMethodService</strong>: the arrow pad and its keyboard.</li>
+            <li><strong>VolumePresets, VolumeController, VolumePillView, VolumeTrackView</strong>: the presets.</li>
+            <li><strong>MainActivity, LicensesActivity, AppSettings, SecretStore, Usage</strong>: settings, licenses, storage, the encrypted key, the usage counter.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="security">
+        <div class="sec-head"><h2>Security</h2></div>
+        <p class="sec-intro">
+          The app types into other apps and records your voice, so it asks for a lot. The full model, and how to report a
+          problem, is in <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/SECURITY.md">SECURITY.md</a>.
+        </p>
+        <div class="lpanel success">
+          <div class="lab">What protects it</div>
+          <ul>
+            <li><strong>No backend.</strong> Requests go straight to OpenAI with your key; nothing else is contacted.</li>
+            <li><strong>Encrypted key.</strong> AES-GCM under an Android Keystore key, with app backup off.</li>
+            <li><strong>Local wake word.</strong> Its audio never leaves memory; only which keyword fired is logged.</li>
+            <li><strong>Metadata-only logs</strong> and clipboard copies marked sensitive.</li>
+            <li><strong>Signed releases</strong> built by GitHub Actions from tagged commits; pull requests never see the key.</li>
+          </ul>
+        </div>
+        <div class="lpanel warn">
+          <div class="lab">What you are trusting</div>
+          <ul>
+            <li><strong>OpenAI</strong> with your audio and the text you send, under your agreement with them.</li>
+            <li><strong>Other apps</strong> with two exported entry points: Fix grammar can spend your key (10 a minute at most), and the wake word switch can turn listening on (only once you set it up) or off. Use a key with a monthly spend limit.</li>
+            <li><strong>The Claude app</strong> once the wake word opens it.</li>
+            <li><strong>The accessibility service</strong>, which watches which field is focused in every app and reads a field only when you dictate, fix or undo.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="setup">
+        <div class="sec-head"><h2>Setup</h2></div>
+        <p class="sec-intro">
+          A few minutes. Each step is in the
+          <a href="https://github.com/lperezmo/phone-whisper-android#install">README</a>, and the status line at the top of the
+          app says Ready when the required ones are done.
+        </p>
+        <div class="milestones">
+          <div class="milestone">
+            <div class="when">Step 1</div>
+            <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+            <div class="body">
+              <h3>Install the APK</h3>
+              <p>Download the signed APK from GitHub Releases and open it, or <code>adb install</code> it.</p>
+              <div class="tags"><span class="tag">Android 11+</span><span class="tag">arm64</span></div>
+            </div>
+          </div>
+          <div class="milestone">
+            <div class="when">Step 2</div>
+            <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+            <div class="body">
+              <h3>Microphone and API key</h3>
+              <p>Allow the microphone on first launch, then paste an OpenAI API key, ideally one with a spend limit.</p>
+            </div>
+          </div>
+          <div class="milestone">
+            <div class="when">Step 3</div>
+            <div class="dot-col"><span class="dot done"></span><span class="line"></span></div>
+            <div class="body">
+              <h3>Accessibility service</h3>
+              <p>Turn on Whisper LP in the accessibility settings. On Android 13+, if the switch is greyed out, first use Allow restricted settings in the app's info page.</p>
+              <div class="tags"><span class="tag">Ready</span></div>
+            </div>
+          </div>
+          <div class="milestone">
+            <div class="when">Optional</div>
+            <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+            <div class="body">
+              <h3>Wake word</h3>
+              <p>Turn it on, allow notifications, and allow Display over other apps so it can open Claude from anywhere.</p>
+            </div>
+          </div>
+          <div class="milestone">
+            <div class="when">Optional</div>
+            <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+            <div class="body">
+              <h3>Arrow pad and volume presets</h3>
+              <p>Enable the Whisper LP arrows keyboard in the system keyboard settings, and grant Do Not Disturb access for the presets.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="sources">
+        Apache-2.0 licensed · <a href="https://github.com/lperezmo/phone-whisper-android">source</a> ·
+        <a href="https://github.com/lperezmo/phone-whisper-android/releases">releases</a> ·
+        <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/SECURITY.md">security</a> ·
+        <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a> ·
+        not affiliated with Anthropic or OpenAI
+      </footer>
+    </main>
+
+    <!-- Hover fine-print for [data-tip] nodes (diagram block). Shows the tip on
+         mouse hover and keyboard focus. Safe to delete, together with the
+         .hover-tip CSS, if no element in the doc carries data-tip. -->
+    <div class="hover-tip" id="hover-tip" role="status" aria-live="polite"></div>
+    <script>
+      (function () {
+        var tip = document.getElementById('hover-tip');
+        if (!tip) return;
+        var nodes = document.querySelectorAll('[data-tip]');
+        if (!nodes.length) return;
+        function show(evt, text) {
+          tip.textContent = text;
+          tip.style.display = 'block';
+          var x = evt.clientX + 14;
+          var y = evt.clientY + 12;
+          if (x + tip.offsetWidth > window.innerWidth - 8) x = evt.clientX - tip.offsetWidth - 14;
+          if (y + tip.offsetHeight > window.innerHeight - 8) y = evt.clientY - tip.offsetHeight - 12;
+          tip.style.left = x + 'px';
+          tip.style.top = y + 'px';
+        }
+        function hide() {
+          tip.style.display = 'none';
+        }
+        Array.prototype.forEach.call(nodes, function (n) {
+          var text = n.getAttribute('data-tip');
+          n.addEventListener('mousemove', function (e) {
+            show(e, text);
+          });
+          n.addEventListener('mouseleave', hide);
+          n.setAttribute('tabindex', '0');
+          n.addEventListener('focus', function () {
+            var r = n.getBoundingClientRect();
+            show({ clientX: r.left + r.width / 2, clientY: r.top }, text);
+          });
+          n.addEventListener('blur', hide);
+        });
+      })();
+    </script>
+  </body>
+</html>
