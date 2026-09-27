@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The arrow keyboard: no keys of its own, driven by the floating joystick. -->
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="com.lperezmo.phonewhisper.MainActivity"
+    android:settingsActivity="com.lperezmo.voicerelay.MainActivity"
     android:supportsSwitchingToNextInputMethod="true">
     <subtype
         android:label="@string/keys_ime_label"

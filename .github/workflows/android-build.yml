@@ -132,14 +132,14 @@ jobs:
             echo "::error::release build produced an unsigned APK"
             exit 1
           fi
-          cp "$APK_SOURCE" "dist/phone-whisper-android-v${{ steps.version.outputs.name }}.apk"
+          cp "$APK_SOURCE" "dist/voice-relay-v${{ steps.version.outputs.name }}.apk"
           # The license notices travel with the APK on the release page too.
           cp NOTICE THIRD_PARTY_NOTICES.md dist/
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phone-whisper-android-v${{ steps.version.outputs.name }}
+          name: voice-relay-v${{ steps.version.outputs.name }}
           path: dist/*
           # Artifacts count against the account's Actions storage quota.
           # Releases keep their APK on the GitHub release (release assets do
@@ -158,7 +158,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: phone-whisper-android-v${{ needs.build.outputs.version_name }}
+          name: voice-relay-v${{ needs.build.outputs.version_name }}
           path: dist
 
       # The GitHub release already exists (semantic-release wrote it and its
@@ -168,11 +168,11 @@ jobs:
         with:
           tag_name: v${{ needs.build.outputs.version_name }}
           files: |
-            dist/phone-whisper-android-v${{ needs.build.outputs.version_name }}.apk
+            dist/voice-relay-v${{ needs.build.outputs.version_name }}.apk
             dist/NOTICE
             dist/THIRD_PARTY_NOTICES.md
 
       - name: Delete the Actions copy of the APK
         uses: geekyeggo/delete-artifact@f275313e70c08f6120db482d7a6b98377786765b # v5.1.0
         with:
-          name: phone-whisper-android-v${{ needs.build.outputs.version_name }}
+          name: voice-relay-v${{ needs.build.outputs.version_name }}

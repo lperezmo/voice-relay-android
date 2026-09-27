@@ -1,4 +1,4 @@
-Phone Whisper Android
+Voice Relay
 Copyright 2026 lperezmo
 
 This product is a modified version of Phone Whisper
@@ -7,7 +7,7 @@ License, Version 2.0. The original commit history is preserved in this
 repository.
 
 Changes from upstream include: a new application id and package
-(com.lperezmo.phonewhisper), release signing, updated Android SDK and build
+(com.lperezmo.voicerelay), release signing, updated Android SDK and build
 tooling, removal of on-device speech recognition, an on-device wake word, and
 subsequent changes recorded in the git history.
 

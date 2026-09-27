@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Whisper LP Architecture</title>
-    <meta name="description" content="How Whisper LP turns speech into text in any Android app: the dictation pipeline to OpenAI, text insertion, grammar fix, the on-device wake word, data flow and the security model." />
+    <title>Voice Relay Architecture</title>
+    <meta name="description" content="How Voice Relay turns speech into text in any Android app: the dictation pipeline to OpenAI, text insertion, grammar fix, the on-device wake word, data flow and the security model." />
     <style>
       :root {
         /* palette */
@@ -1544,9 +1544,9 @@
     <main class="page">
       <header class="doc-head">
         <div class="eyebrow">Open source · Android · Dictation</div>
-        <h1>Whisper LP · Architecture</h1>
+        <h1>Voice Relay · Architecture</h1>
         <p class="lede">
-          Whisper LP puts a small dictation button over every app on an Android phone. Tap it, speak, and the text lands
+          Voice Relay puts a small dictation button over every app on an Android phone. Tap it, speak, and the text lands
           where you are typing, transcribed by OpenAI with your own API key. It can also fix the grammar of text you typed,
           and listen on the phone for "hey claude" to open the Claude app's voice assistant. This page shows how audio
           becomes text, how the text gets into another app's field, how the wake word decides when to listen, and what
@@ -1557,9 +1557,9 @@
           <span class="pill">Android 11+</span>
           <span class="pill">arm64</span>
           <span class="pill">No backend</span>
-          <a class="mono" href="https://github.com/lperezmo/phone-whisper-android">github.com/lperezmo/phone-whisper-android</a>
-          <a href="https://github.com/lperezmo/phone-whisper-android#install">Install guide</a>
-          <a href="https://github.com/lperezmo/phone-whisper-android/releases/latest">Download the APK</a>
+          <a class="mono" href="https://github.com/lperezmo/voice-relay-android">github.com/lperezmo/voice-relay-android</a>
+          <a href="https://github.com/lperezmo/voice-relay-android#install">Install guide</a>
+          <a href="https://github.com/lperezmo/voice-relay-android/releases/latest">Download the APK</a>
         </div>
       </header>
 
@@ -1902,7 +1902,7 @@
         </p>
         <div class="diagram">
           <svg viewBox="0 0 900 320" width="100%" style="min-width: 720px" role="img"
-            aria-label="On the phone, Whisper LP types into other apps and opens the Claude app with an intent; the wake word model runs inside it. The only arrow leaving the phone goes to OpenAI, carrying audio, transcripts and text to fix.">
+            aria-label="On the phone, Voice Relay types into other apps and opens the Claude app with an intent; the wake word model runs inside it. The only arrow leaving the phone goes to OpenAI, carrying audio, transcripts and text to fix.">
             <defs>
               <marker id="df-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
@@ -1914,7 +1914,7 @@
 
             <g data-tip="Settings live in the app's private storage, with app backup off. The OpenAI key is encrypted with AES-GCM under an Android Keystore key.">
               <rect class="n-box n-hot" x="50" y="100" width="230" height="84" rx="9" />
-              <text class="n-t" x="165" y="128" text-anchor="middle">Whisper LP</text>
+              <text class="n-t" x="165" y="128" text-anchor="middle">Voice Relay</text>
               <text class="n-s" x="165" y="148" text-anchor="middle">API key in the Keystore</text>
               <text class="n-s" x="165" y="166" text-anchor="middle">logs: metadata only</text>
             </g>
@@ -1933,7 +1933,7 @@
             <line class="edge dash" x1="280" y1="132" x2="356" y2="132" marker-end="url(#df-arr)" />
             <text class="e-lab" x="318" y="124" text-anchor="middle">intent</text>
 
-            <g data-tip="Dictated text is typed into their fields through the accessibility service; the selection menu's Fix grammar sends text to Whisper LP.">
+            <g data-tip="Dictated text is typed into their fields through the accessibility service; the selection menu's Fix grammar sends text to Voice Relay.">
               <rect class="n-box" x="360" y="210" width="210" height="64" rx="9" />
               <text class="n-t" x="465" y="237" text-anchor="middle">Other apps</text>
               <text class="n-s" x="465" y="255" text-anchor="middle">text fields · selection menu</text>
@@ -2034,7 +2034,7 @@
         <div class="sec-head"><h2>Security</h2></div>
         <p class="sec-intro">
           The app types into other apps and records your voice, so it asks for a lot. The full model, and how to report a
-          problem, is in <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/SECURITY.md">SECURITY.md</a>.
+          problem, is in <a href="https://github.com/lperezmo/voice-relay-android/blob/main/SECURITY.md">SECURITY.md</a>.
         </p>
         <div class="lpanel success">
           <div class="lab">What protects it</div>
@@ -2061,7 +2061,7 @@
         <div class="sec-head"><h2>Setup</h2></div>
         <p class="sec-intro">
           A few minutes. Each step is in the
-          <a href="https://github.com/lperezmo/phone-whisper-android#install">README</a>, and the status line at the top of the
+          <a href="https://github.com/lperezmo/voice-relay-android#install">README</a>, and the status line at the top of the
           app says Ready when the required ones are done.
         </p>
         <div class="milestones">
@@ -2087,7 +2087,7 @@
             <div class="dot-col"><span class="dot done"></span><span class="line"></span></div>
             <div class="body">
               <h3>Accessibility service</h3>
-              <p>Turn on Whisper LP in the accessibility settings. On Android 13+, if the switch is greyed out, first use Allow restricted settings in the app's info page.</p>
+              <p>Turn on Voice Relay in the accessibility settings. On Android 13+, if the switch is greyed out, first use Allow restricted settings in the app's info page.</p>
               <div class="tags"><span class="tag">Ready</span></div>
             </div>
           </div>
@@ -2104,17 +2104,17 @@
             <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
             <div class="body">
               <h3>Arrow pad and volume presets</h3>
-              <p>Enable the Whisper LP arrows keyboard in the system keyboard settings, and grant Do Not Disturb access for the presets.</p>
+              <p>Enable the Voice Relay arrows keyboard in the system keyboard settings, and grant Do Not Disturb access for the presets.</p>
             </div>
           </div>
         </div>
       </section>
 
       <footer class="sources">
-        Apache-2.0 licensed · <a href="https://github.com/lperezmo/phone-whisper-android">source</a> ·
-        <a href="https://github.com/lperezmo/phone-whisper-android/releases">releases</a> ·
-        <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/SECURITY.md">security</a> ·
-        <a href="https://github.com/lperezmo/phone-whisper-android/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a> ·
+        Apache-2.0 licensed · <a href="https://github.com/lperezmo/voice-relay-android">source</a> ·
+        <a href="https://github.com/lperezmo/voice-relay-android/releases">releases</a> ·
+        <a href="https://github.com/lperezmo/voice-relay-android/blob/main/SECURITY.md">security</a> ·
+        <a href="https://github.com/lperezmo/voice-relay-android/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a> ·
         not affiliated with Anthropic or OpenAI
       </footer>
     </main>

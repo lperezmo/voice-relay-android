@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "phone-whisper-android"
+rootProject.name = "voice-relay-android"
 include(":app")

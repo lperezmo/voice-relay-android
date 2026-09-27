@@ -31,11 +31,11 @@ fun signingValue(env: String, prop: String): String? = System.getenv(env) ?: loc
 val hasSigningConfig = keystoreFilePath != null && File(keystoreFilePath).exists()
 
 android {
-    namespace = "com.lperezmo.phonewhisper"
+    namespace = "com.lperezmo.voicerelay"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.lperezmo.phonewhisper"
+        applicationId = "com.lperezmo.voicerelay"
         minSdk = 30
         targetSdk = 36
         versionCode = appVersionCode

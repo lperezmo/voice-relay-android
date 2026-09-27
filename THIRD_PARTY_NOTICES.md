@@ -1,6 +1,6 @@
 # Third-party notices
 
-Whisper LP (Phone Whisper Android) is licensed under the Apache License, Version 2.0: see
+Voice Relay is licensed under the Apache License, Version 2.0: see
 [LICENSE](LICENSE) and [NOTICE](NOTICE). The APK also contains the third-party software listed
 here. Each keeps its own license. Where a license asks for its text to travel with the binary, the
 text is below or in the [`licenses/`](licenses) folder, and all of it is also inside the app under
@@ -52,7 +52,7 @@ ONNX Runtime's version is also embedded in the library itself.
 version 3 or later. Its full text is in [`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt). The
 complete corresponding source for `libsherpa-onnx-jni.so` is public: the sherpa-onnx v1.13.8
 source tree and build script linked above, and the source of every component in the table at the
-exact version or commit linked. The source of Whisper LP itself is this repository.
+exact version or commit linked. The source of Voice Relay itself is this repository.
 
 ### ONNX Runtime
 
@@ -283,7 +283,7 @@ files, renamed but otherwise unmodified: the int8 encoder and joiner, the decode
   spotting models is open at https://github.com/k2-fsa/sherpa-onnx/issues/3802. This file will
   be updated if the answer changes anything.
 
-The keyword list, `app/src/main/assets/wake/keywords.txt`, is part of Whisper LP.
+The keyword list, `app/src/main/assets/wake/keywords.txt`, is part of Voice Relay.
 
 ## 3. Java and Kotlin libraries
 
@@ -306,7 +306,7 @@ under the Mozilla Public License, version 2.0 ([`licenses/MPL-2.0.txt`](licenses
 
 ## 4. Upstream project
 
-Whisper LP is a modified version of Phone Whisper by kafkasl
+Voice Relay is a modified version of Phone Whisper by kafkasl
 (https://github.com/kafkasl/phone-whisper), licensed under the Apache License, Version 2.0. See
 [NOTICE](NOTICE).
 
@@ -314,7 +314,7 @@ Whisper LP is a modified version of Phone Whisper by kafkasl
 
 | File | Used by |
 |---|---|
-| [LICENSE](LICENSE) | Apache License 2.0: Whisper LP, sherpa-onnx, kaldi-native-fbank, kaldi-decoder, kaldifst, OpenFst, simple-sentencepiece, the wake word model, and the Java and Kotlin libraries |
+| [LICENSE](LICENSE) | Apache License 2.0: Voice Relay, sherpa-onnx, kaldi-native-fbank, kaldi-decoder, kaldifst, OpenFst, simple-sentencepiece, the wake word model, and the Java and Kotlin libraries |
 | [`licenses/onnxruntime-ThirdPartyNotices.txt`](licenses/onnxruntime-ThirdPartyNotices.txt) | ONNX Runtime's third-party notices |
 | [`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt) | espeak-ng |
 | [`licenses/MPL-2.0.txt`](licenses/MPL-2.0.txt) | Eigen, the Public Suffix List in OkHttp |

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/logo.svg" width="128" height="128" alt="Whisper LP logo">
+  <img src="docs/logo.svg" width="128" height="128" alt="Voice Relay logo">
 </p>
 
-# Whisper LP
+# Voice Relay
 
-[![Build](https://img.shields.io/github/actions/workflow/status/lperezmo/phone-whisper-android/release.yml?branch=main&label=build)](https://github.com/lperezmo/phone-whisper-android/actions/workflows/release.yml)
-[![Release](https://img.shields.io/github/v/release/lperezmo/phone-whisper-android)](https://github.com/lperezmo/phone-whisper-android/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/lperezmo/voice-relay-android/release.yml?branch=main&label=build)](https://github.com/lperezmo/voice-relay-android/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/lperezmo/voice-relay-android)](https://github.com/lperezmo/voice-relay-android/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Android 11+](https://img.shields.io/badge/Android-11%2B-3ddc84)
 
@@ -26,14 +26,15 @@ It also has a few extras, all off until you turn them on:
 There is no server in between and no account to create: the app talks straight to OpenAI with
 your key. Dictation needs an internet connection; the wake word does not.
 
-Architecture overview: https://lperezmo.github.io/phone-whisper-android/ (published once the
+Architecture overview: https://lperezmo.github.io/voice-relay-android/ (published once the
 repository is public; until then, open [`docs/index.html`](docs/index.html) locally).
 
-Whisper LP is based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper)
-(Apache-2.0, see [NOTICE](NOTICE)). The project is called Phone Whisper Android; on the phone
-the app is **Whisper LP**, with a teal icon.
+Voice Relay is based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper)
+(Apache-2.0, see [NOTICE](NOTICE)). On the phone it shows up as **Voice Relay**, with a teal
+icon. It pairs with [Phone Relay](https://github.com/lperezmo/phone-relay-android), which lets
+Claude use the phone: say "hey Claude", ask, and Claude can act on it.
 
-Whisper LP is an independent project. It is not affiliated with, endorsed by, or sponsored by
+Voice Relay is an independent project. It is not affiliated with, endorsed by, or sponsored by
 Anthropic or OpenAI. "Claude" and "OpenAI" are trademarks of their owners and are named only to
 describe what the app works with.
 
@@ -56,14 +57,14 @@ transcription (off by default) costs about $0.017 per minute. The app keeps its 
 
 ## Install
 
-1. On the phone, download `phone-whisper-android-vX.Y.Z.apk` from the
-   [latest release](https://github.com/lperezmo/phone-whisper-android/releases/latest) and open
+1. On the phone, download `voice-relay-vX.Y.Z.apk` from the
+   [latest release](https://github.com/lperezmo/voice-relay-android/releases/latest) and open
    it. Allow installs from your browser or file manager when Android asks.
-2. Open **Whisper LP**, allow the **microphone**, and tap **API key** to paste your OpenAI key.
-3. Tap **Accessibility service**, read the explanation, and turn on Whisper LP.
+2. Open **Voice Relay**, allow the **microphone**, and tap **API key** to paste your OpenAI key.
+3. Tap **Accessibility service**, read the explanation, and turn on Voice Relay.
 
    **On Android 13 and newer the switch may be greyed out** ("Restricted setting"). Android does
-   this for apps installed from a browser or file manager. Go to **Settings > Apps > Whisper LP**,
+   this for apps installed from a browser or file manager. Go to **Settings > Apps > Voice Relay**,
    open the three-dot menu at the top right, tap **Allow restricted settings**, confirm, and go
    back to the accessibility switch.
 
@@ -74,7 +75,7 @@ Or install from a computer with [adb](https://developer.android.com/tools/adb), 
 avoids the restricted-setting step:
 
 ```sh
-adb install -r phone-whisper-android-vX.Y.Z.apk
+adb install -r voice-relay-vX.Y.Z.apk
 ```
 
 Updates install over the previous version and keep your settings, as long as both came from this
@@ -90,7 +91,7 @@ repository's releases (see [Signing](#signing-and-forks)).
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
 | Alarms and reminders | Ending the one-hour Do Not Disturb preset on time (optional) | Tapping the row in the Volume presets section |
-| Input method (Whisper LP arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
+| Input method (Voice Relay arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
 | Internet | Requests to OpenAI | Granted at install |
 
 Why a keyboard, and why accessibility: see [Why does it register a keyboard?](#why-does-it-register-a-keyboard)
@@ -168,7 +169,7 @@ How it works:
   0.20. Raise it if it misses you, lower it if it fires by mistake. Words that sound like the
   phrase ("hey clown", "okay cloudy") can trigger it at any setting.
 - **Display over other apps** is what Android requires before an app may open another app from
-  the background. Grant it when asked; Whisper LP draws nothing with it.
+  the background. Grant it when asked; Voice Relay draws nothing with it.
 
 After a reboot or an app update it comes back on its own when Android reconnects the
 accessibility service. If Android refuses to start it at that moment, a notification says so, and
@@ -182,15 +183,15 @@ finishes at once, including over the lock screen):
 
 | Field | Value |
 |---|---|
-| Action | `com.lperezmo.phonewhisper.WAKE_ON`, `com.lperezmo.phonewhisper.WAKE_OFF`, or `com.lperezmo.phonewhisper.WAKE_TOGGLE` |
-| Package | `com.lperezmo.phonewhisper` |
-| Class | `com.lperezmo.phonewhisper.WakeControlActivity` |
+| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, or `com.lperezmo.voicerelay.WAKE_TOGGLE` |
+| Package | `com.lperezmo.voicerelay` |
+| Class | `com.lperezmo.voicerelay.WakeControlActivity` |
 | Target | Activity |
 
 The same from a computer:
 
 ```sh
-adb shell am start -a com.lperezmo.phonewhisper.WAKE_ON -n com.lperezmo.phonewhisper/.WakeControlActivity
+adb shell am start -a com.lperezmo.voicerelay.WAKE_ON -n com.lperezmo.voicerelay/.WakeControlActivity
 ```
 
 `WAKE_ON` only works after the wake word has been turned on once in the app, which is where its
@@ -212,7 +213,7 @@ has no arrow row.
 | **Long-press the ring** | Switch to the arrows keyboard by hand, and pin it there until you switch back. |
 
 Arrow keys can only reach another app through a keyboard, so the pad comes with one. Enable
-**Whisper LP arrows** once in the system keyboard settings (the **Arrows keyboard** row in the app
+**Voice Relay arrows** once in the system keyboard settings (the **Arrows keyboard** row in the app
 links there). By default, touching the knob switches to it and your own keyboard comes back 4
 seconds after the last arrow, or at once when you tap into a text field. Turn **Switch keyboard
 automatically** off to switch by hand with a long-press on the ring.
@@ -230,7 +231,7 @@ does not have; a keyboard may send keys through its `InputConnection`. So the pa
 - **types nothing and reads nothing.** The only thing it asks its `InputConnection` to do is
   `sendKeyEvent` for the arrows and Enter. It does not read the text around the cursor, the
   selection, or the field, and logs nothing. It is 55 lines:
-  [`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/phonewhisper/KeysInputMethodService.kt).
+  [`KeysInputMethodService.kt`](app/src/main/kotlin/com/lperezmo/voicerelay/KeysInputMethodService.kt).
 
 Android shows its usual warning that a keyboard can collect what you type when you enable it.
 That warning is generic and applies to every keyboard; this one has no code that could.
@@ -300,8 +301,8 @@ vulnerabilities privately, as SECURITY.md describes.
 ## Troubleshooting
 
 - **The accessibility switch is greyed out.** Allow restricted settings: **Settings > Apps >
-  Whisper LP**, three-dot menu, **Allow restricted settings**. See [Install](#install).
-- **The floating button is gone after an update.** Turn Whisper LP off and on again in
+  Voice Relay**, three-dot menu, **Allow restricted settings**. See [Install](#install).
+- **The floating button is gone after an update.** Turn Voice Relay off and on again in
   **Settings > Accessibility**. Some phones also stop it to save battery: set the app's battery
   use to unrestricted.
 - **The text lands on the clipboard instead of the field.** That app's text field does not
@@ -316,7 +317,7 @@ vulnerabilities privately, as SECURITY.md describes.
 - **The wake word fires by mistake, or misses you.** Lower or raise **Sensitivity**.
 - **The wake word stopped after a reboot.** It restarts when Android reconnects the
   accessibility service; if Android blocks that, tap the notification that says so.
-- **Logs.** `adb logcat -s PhoneWhisper`. Each dictation logs a line such as
+- **Logs.** `adb logcat -s VoiceRelay`. Each dictation logs a line such as
   `Dictation: upload audio.m4a 58 KB, transcribe 1340 ms, cleanup 910 ms`.
 
 ## Building from source
