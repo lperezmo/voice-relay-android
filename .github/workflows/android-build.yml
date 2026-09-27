@@ -158,7 +158,7 @@ jobs:
           APK="dist/voice-relay-v${{ steps.version.outputs.name }}.apk"
           unzip -l "$APK" 'lib/*'
           unzip -o -q "$APK" lib/arm64-v8a/libsherpa-onnx-jni.so -d "$RUNNER_TEMP/apk"
-          if grep -a -q -i espeak "$RUNNER_TEMP/apk/lib/arm64-v8a/libsherpa-onnx-jni.so"; then
+          if grep -a -q -E '(^|[^w])espeak' "$RUNNER_TEMP/apk/lib/arm64-v8a/libsherpa-onnx-jni.so"; then
             echo "::error::the APK's libsherpa-onnx-jni.so contains espeak-ng"
             exit 1
           fi

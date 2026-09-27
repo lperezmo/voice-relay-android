@@ -126,7 +126,8 @@ else
   lib_stamp_text="$LIB_ARTIFACT"
 fi
 
-if grep -a -q -i espeak "$source_lib"; then
+# Case-sensitive, and "wespeaker" (speaker embeddings, kept) is not espeak-ng.
+if grep -a -q -E '(^|[^w])espeak' "$source_lib"; then
   echo "fetch_sherpa.sh: $source_lib contains espeak-ng (GPL); use the CI build from scripts/build_sherpa.sh" >&2
   exit 1
 fi

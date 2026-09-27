@@ -27,15 +27,23 @@ fi
 status=0
 echo "verify_sherpa_lib.sh: $LIB ($(wc -c < "$LIB") bytes)"
 
-for pattern in espeak piper_phonemize piper-phonemize cppjieba fastcluster; do
-  hits="$(grep -a -o -i -c -- "$pattern" "$LIB" || true)"
-  if [[ "$hits" != "0" ]]; then
-    echo "  FAIL: $hits line(s) match '$pattern'"
+# Case-sensitive: "OfflineSpeaker" contains "eSpeak", and the speaker
+# embedding code (kept) names the WeSpeaker project, so "wespeaker" is allowed.
+check_absent() { # label regex
+  local hits
+  hits="$(grep -a -o -E -- "$2" "$LIB" | tr -c '[:print:]\n' . | sort | uniq -c || true)"
+  if [[ -n "$hits" ]]; then
+    echo "  FAIL: $1 found:"
+    sed 's/^/      /' <<< "$hits"
     status=1
   else
-    echo "  ok: no '$pattern'"
+    echo "  ok: no $1"
   fi
-done
+}
+check_absent "espeak-ng" '.{0,24}(^|[^w])espeak.{0,24}'
+check_absent "piper-phonemize" '.{0,24}piper.phonemize.{0,24}'
+check_absent "cppjieba" '.{0,24}cppjieba.{0,24}'
+check_absent "hclust-cpp (fastcluster)" '.{0,24}fastcluster.{0,24}'
 
 exported="$("$NM" -D --defined-only "$LIB" | awk '{print $NF}')"
 missing=0
