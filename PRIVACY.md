@@ -40,9 +40,12 @@ requests sent directly to OpenAI. There is no relay server.
 
 ## Accessibility Service
 
-The app uses Android Accessibility Service only to identify the currently focused text field and
-insert or fix text after you explicitly interact with the floating overlay button. It does not
-monitor browsing, collect screen content for analytics, or perform background automation.
+The app uses Android's Accessibility Service to show its floating button and to put text where you
+are typing. To know where that is, it is told whenever a text field gains focus or its cursor
+moves, in any app, and keeps a reference to the last focused field in memory. It reads a field's
+text only when you dictate into it, fix its grammar (that text is then sent to OpenAI), or undo a
+change there. Nothing it sees is written to storage or to the logs. It does not monitor browsing,
+collect screen content for analytics, or perform background automation.
 
 ## Input Method (the arrows keyboard)
 

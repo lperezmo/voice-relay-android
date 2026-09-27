@@ -209,9 +209,11 @@ Then open **Whisper LP** and:
 
 ## Why does it need Accessibility?
 
-Only to show the floating button and to put text into the field you are using. It reads the
-screen only at the moment it inserts or fixes text, to find the focused field. It does not run
-background automation and does not send screen content anywhere. It never becomes your typing
+To show the floating button and to put text into the field you are using. To know where that
+is, it watches which text field is focused, in every app, and remembers the last one. It reads a
+field's text only when you dictate into it, fix its grammar, or undo a change there, and only the
+text you ask it to fix is sent anywhere (to OpenAI). It does not store or log what it sees and
+does not run background automation. It never becomes your typing
 keyboard, though the arrow pad does switch keyboards temporarily, which the next section explains.
 
 ## Why does it register a keyboard?

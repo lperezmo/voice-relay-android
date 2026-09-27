@@ -445,9 +445,10 @@ class MainActivity : AppCompatActivity() {
             .setMessage(
                 "Whisper LP uses the accessibility service to show the floating dictation button " +
                     "and to type your dictated text into the text field you are using.\n\n" +
-                    "It only reads the screen at the moment it inserts text, to find the focused field. " +
-                    "It does not record, store, or send screen content anywhere.\n\n" +
-                    "Your audio and transcript go only to OpenAI, using your own API key."
+                    "To know where to type, it watches which text field is focused, in every app. " +
+                    "It reads a field's text only when you dictate into it, fix its grammar, or undo " +
+                    "a change there. It does not record or store screen content.\n\n" +
+                    "Your audio, and the text you ask it to fix, go only to OpenAI, using your own API key."
             )
             .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             .setNegativeButton("Not now", null)
