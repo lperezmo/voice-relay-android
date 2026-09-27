@@ -10,3 +10,5 @@ signing.properties
 *.keystore
 *.aab
 node_modules/
+app/src/main/jniLibs/
+app/src/main/assets/wake/model/

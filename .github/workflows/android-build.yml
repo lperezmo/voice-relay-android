@@ -100,6 +100,20 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
+      # The wake word's native library and model are pinned and checksummed by
+      # the script, and too big to commit. Cached on the script's hash, so a
+      # version bump fetches fresh files.
+      - name: Cache wake word files
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/jniLibs
+            app/src/main/assets/wake/model
+          key: wake-word-${{ hashFiles('scripts/fetch_sherpa.sh') }}
+
+      - name: Fetch wake word files
+        run: scripts/fetch_sherpa.sh
+
       - name: Test and build APK
         env:
           KEYSTORE_PASSWORD: ${{ env.IS_RELEASE == 'true' && secrets.KEYSTORE_PASSWORD || '' }}

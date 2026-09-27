@@ -16,4 +16,10 @@
         <item name="colorPrimary">@color/primary</item>
         <item name="windowNoTitle">true</item>
     </style>
+
+    <!-- WakeControlActivity: runs and finishes without drawing anything. -->
+    <style name="Theme.PhoneWhisper.Invisible" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 </resources>

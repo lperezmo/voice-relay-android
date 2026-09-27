@@ -197,6 +197,12 @@ class WhisperAccessibilityService : AccessibilityService() {
         refreshVolumePill()
         // If a crash or an update left the arrows keyboard selected, undo that now.
         restorePreviousKeyboard()
+        // Android rebinds this service after a reboot or an app update, which is the
+        // one moment the wake word can come back without you opening the app. If
+        // Android refuses the start, a notification offers to turn it back on.
+        if (settings.wakeWordEnabled && !WakeWordService.running) {
+            WakeWordService.start(this, "accessibility service connected")
+        }
     }
 
     // --- Arrow joystick ---

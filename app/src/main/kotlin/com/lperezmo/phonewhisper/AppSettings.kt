@@ -87,6 +87,30 @@ class AppSettings(context: Context) {
         get() = prefs.getString("previous_ime", "") ?: ""
         set(v) = prefs.edit().putString("previous_ime", v).apply()
 
+    /** Listen for "hey claude" and open Claude's voice assistant. */
+    var wakeWordEnabled: Boolean
+        get() = prefs.getBoolean("wake_word", false)
+        set(v) = prefs.edit().putBoolean("wake_word", v).apply()
+
+    /**
+     * Set the first time the wake word is turned on in the app, where its
+     * permissions are granted. Until then, Tasker and other apps cannot turn it on.
+     */
+    var wakeWordSetUp: Boolean
+        get() = prefs.getBoolean("wake_word_set_up", false)
+        set(v) = prefs.edit().putBoolean("wake_word_set_up", v).apply()
+
+    /** 1 (strict) to 7 (loose); see [WakeWord.threshold]. */
+    var wakeSensitivity: Int
+        get() = prefs.getInt("wake_sensitivity", WakeWord.DEFAULT_SENSITIVITY)
+            .coerceIn(WakeWord.MIN_SENSITIVITY, WakeWord.MAX_SENSITIVITY)
+        set(v) = prefs.edit().putInt("wake_sensitivity", v).apply()
+
+    /** Press play again once Claude is done, if music was playing when the wake word fired. */
+    var wakeResumeMedia: Boolean
+        get() = prefs.getBoolean("wake_resume_media", true)
+        set(v) = prefs.edit().putBoolean("wake_resume_media", v).apply()
+
     /** Terms to spell exactly: names, products, jargon. Stored one per line. */
     var vocabulary: List<String>
         get() = splitList(prefs.getString("vocabulary", "") ?: "")
