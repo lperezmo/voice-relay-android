@@ -36,6 +36,10 @@ class FixGrammarActivity : AppCompatActivity() {
         when {
             text.isNullOrBlank() -> return finishWith("Nothing selected")
             apiKey.isBlank() -> return finishWith("Set your OpenAI API key in Whisper LP")
+            !limiter.tryAcquire(android.os.SystemClock.elapsedRealtime()) -> {
+                Log.w("PhoneWhisper", "Selection fix: refused, more than $MAX_PER_MINUTE requests in a minute")
+                return finishWith("Too many grammar fixes in a minute. Try again shortly.")
+            }
         }
 
         setContentView(LinearLayout(this).apply {
@@ -96,5 +100,15 @@ class FixGrammarActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         setResult(RESULT_CANCELED)
         finish()
+    }
+
+    companion object {
+        /**
+         * This activity is exported (every app's selection menu has to reach it), so
+         * any installed app can send it text and spend the user's OpenAI key. Cap the
+         * rate well above what a person selecting text would ever do.
+         */
+        const val MAX_PER_MINUTE = 10
+        private val limiter = RateLimiter(MAX_PER_MINUTE, 60_000)
     }
 }
