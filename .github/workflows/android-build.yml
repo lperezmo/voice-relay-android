@@ -52,7 +52,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 
       - name: Read versionName
         id: version
@@ -164,7 +164,7 @@ jobs:
       # The GitHub release already exists (semantic-release wrote it and its
       # notes), so only the APK and the license notices are attached here.
       - name: Attach APK to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.build.outputs.version_name }}
           files: |
@@ -173,6 +173,6 @@ jobs:
             dist/THIRD_PARTY_NOTICES.md
 
       - name: Delete the Actions copy of the APK
-        uses: geekyeggo/delete-artifact@v5
+        uses: geekyeggo/delete-artifact@f275313e70c08f6120db482d7a6b98377786765b # v5.1.0
         with:
           name: phone-whisper-android-v${{ needs.build.outputs.version_name }}
