@@ -33,8 +33,16 @@ permissions:
   contents: read
 
 jobs:
+  # The wake word's native library, built from source without text-to-speech
+  # (so without espeak-ng) and cached; see sherpa-build.yml.
+  sherpa:
+    uses: ./.github/workflows/sherpa-build.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   build:
     runs-on: ubuntu-latest
+    needs: sherpa
     outputs:
       version_name: ${{ steps.version.outputs.name }}
     env:
@@ -100,18 +108,26 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      # The wake word's native library and model are pinned and checksummed by
-      # the script, and too big to commit. Cached on the script's hash, so a
-      # version bump fetches fresh files.
-      - name: Cache wake word files
+      - name: Download wake word library
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.sherpa.outputs.artifact }}
+          path: ${{ runner.temp }}/sherpa
+
+      # The keyword-spotting model is pinned and checksummed by the script, and
+      # too big to commit. Cached on the script's hash, so a version bump
+      # fetches fresh files.
+      - name: Cache wake word model
         uses: actions/cache@v4
         with:
-          path: |
-            app/src/main/jniLibs
-            app/src/main/assets/wake/model
-          key: wake-word-${{ hashFiles('scripts/fetch_sherpa.sh') }}
+          path: app/src/main/assets/wake/model
+          key: wake-word-model-${{ hashFiles('scripts/fetch_sherpa.sh') }}
 
-      - name: Fetch wake word files
+      # Installs the model and the library downloaded above (SHERPA_LIB), and
+      # refuses a library that contains espeak-ng or is not 16 KB aligned.
+      - name: Install wake word files
+        env:
+          SHERPA_LIB: ${{ runner.temp }}/sherpa/libsherpa-onnx-jni.so
         run: scripts/fetch_sherpa.sh
 
       - name: Test and build APK
@@ -135,6 +151,18 @@ jobs:
           cp "$APK_SOURCE" "dist/voice-relay-v${{ steps.version.outputs.name }}.apk"
           # The license notices travel with the APK on the release page too.
           cp NOTICE THIRD_PARTY_NOTICES.md dist/
+
+      # What ships: the library in the APK must be the self-built one.
+      - name: Check the APK's wake word library
+        run: |
+          APK="dist/voice-relay-v${{ steps.version.outputs.name }}.apk"
+          unzip -l "$APK" 'lib/*'
+          unzip -o -q "$APK" lib/arm64-v8a/libsherpa-onnx-jni.so -d "$RUNNER_TEMP/apk"
+          if grep -a -q -i espeak "$RUNNER_TEMP/apk/lib/arm64-v8a/libsherpa-onnx-jni.so"; then
+            echo "::error::the APK's libsherpa-onnx-jni.so contains espeak-ng"
+            exit 1
+          fi
+          echo "APK $(wc -c < "$APK") bytes, libsherpa-onnx-jni.so $(wc -c < "$RUNNER_TEMP/apk/lib/arm64-v8a/libsherpa-onnx-jni.so") bytes, no espeak-ng" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
