@@ -133,6 +133,8 @@ jobs:
             exit 1
           fi
           cp "$APK_SOURCE" "dist/phone-whisper-android-v${{ steps.version.outputs.name }}.apk"
+          # The license notices travel with the APK on the release page too.
+          cp NOTICE THIRD_PARTY_NOTICES.md dist/
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -160,12 +162,15 @@ jobs:
           path: dist
 
       # The GitHub release already exists (semantic-release wrote it and its
-      # notes), so only the APK is attached here.
+      # notes), so only the APK and the license notices are attached here.
       - name: Attach APK to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.build.outputs.version_name }}
-          files: dist/phone-whisper-android-v${{ needs.build.outputs.version_name }}.apk
+          files: |
+            dist/phone-whisper-android-v${{ needs.build.outputs.version_name }}.apk
+            dist/NOTICE
+            dist/THIRD_PARTY_NOTICES.md
 
       - name: Delete the Actions copy of the APK
         uses: geekyeggo/delete-artifact@v5
