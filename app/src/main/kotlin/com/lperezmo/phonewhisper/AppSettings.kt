@@ -116,7 +116,7 @@ class AppSettings(context: Context) {
         get() = splitList(prefs.getString("vocabulary", "") ?: "")
         set(v) = prefs.edit().putString("vocabulary", v.joinToString("\n")).apply()
 
-    /** ISO-639-1 codes of the languages you dictate in. */
+    /** ISO-639-1 codes of the languages you dictate in. Empty means auto-detect. */
     var languages: List<String>
         get() = splitList(prefs.getString("languages", null) ?: DEFAULT_LANGUAGES).map { it.lowercase() }
         set(v) = prefs.edit().putString("languages", v.joinToString(", ")).apply()
@@ -130,7 +130,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe"
         const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
         const val DEFAULT_CLEANUP_MODEL = "gpt-5.6-luna"
-        const val DEFAULT_LANGUAGES = "en, es"
+        const val DEFAULT_LANGUAGES = ""
 
         fun splitList(raw: String): List<String> =
             raw.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()

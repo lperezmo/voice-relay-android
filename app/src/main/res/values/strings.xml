@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Whisper LP</string>
-    <string name="accessibility_description">Dictation: records audio, transcribes, and inserts text into focused fields.</string>
+    <string name="accessibility_description">Shows the floating dictation button and types your dictated text into the field you are using. It watches which text field is focused so it knows where to type, and reads the text of a field only when you dictate into it, fix its grammar, or undo a change there.</string>
     <string name="fix_grammar">Fix grammar</string>
     <string name="keys_ime_label">Whisper LP arrows</string>
 </resources>

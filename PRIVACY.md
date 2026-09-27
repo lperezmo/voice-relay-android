@@ -35,14 +35,17 @@ allow it, to press play again after Claude is done. It does not read other apps'
 
 ## API keys
 
-Your OpenAI API key is stored on your device in app storage and used only to authenticate
-requests sent directly to OpenAI. There is no relay server.
+Your OpenAI API key is stored on your device, encrypted with a key held in the Android Keystore,
+and used only to authenticate requests sent directly to OpenAI. There is no relay server.
 
 ## Accessibility Service
 
-The app uses Android Accessibility Service only to identify the currently focused text field and
-insert or fix text after you explicitly interact with the floating overlay button. It does not
-monitor browsing, collect screen content for analytics, or perform background automation.
+The app uses Android's Accessibility Service to show its floating button and to put text where you
+are typing. To know where that is, it is told whenever a text field gains focus or its cursor
+moves, in any app, and keeps a reference to the last focused field in memory. It reads a field's
+text only when you dictate into it, fix its grammar (that text is then sent to OpenAI), or undo a
+change there. Nothing it sees is written to storage or to the logs. It does not monitor browsing,
+collect screen content for analytics, or perform background automation.
 
 ## Input Method (the arrows keyboard)
 
@@ -69,3 +72,11 @@ The whole file is about 55 lines and the repository is the authoritative copy:
 
 The app has no backend and collects no accounts, analytics, or recordings. OpenAI processes the
 data you send according to its own terms and privacy policies.
+
+## Contact
+
+Questions about this policy: open an issue at
+[github.com/lperezmo/phone-whisper-android/issues](https://github.com/lperezmo/phone-whisper-android/issues).
+To report a security problem, use
+[private vulnerability reporting](https://github.com/lperezmo/phone-whisper-android/security/advisories/new)
+instead of a public issue (see [SECURITY.md](SECURITY.md)).

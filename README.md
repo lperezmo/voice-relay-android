@@ -9,6 +9,10 @@ Based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper) (Apac
 [NOTICE](NOTICE)). On the phone this build is called **Whisper LP** and has a teal icon, so it is
 easy to tell apart from the original if both are installed.
 
+Whisper LP is an independent project. It is not affiliated with, endorsed by, or sponsored by
+Anthropic or OpenAI. "Claude" and "OpenAI" are trademarks of their owners and are named only to
+describe what the app works with.
+
 A small button floats over every app. Tap it, speak, tap again, and the text appears where you
 are typing, without switching away from your keyboard. Long-press it to fix the grammar of
 text you typed.
@@ -169,7 +173,7 @@ on by itself. `WAKE_OFF` always works.
 | API key | none | Stored encrypted with an Android Keystore key. A dedicated key with a spend cap is a good idea. |
 | Live transcription | off | Streams the audio to the Realtime API (`gpt-live-transcribe`) while you talk, so the transcript is ready about 0.5 s after you stop, however long you spoke. About $0.017/min versus $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
 | Transcription model | `gpt-transcribe` | Picker lists the speech models your key can use, plus **Other** for any model id. |
-| Languages | `en, es` | Sent as hints so mixed-language dictation is recognized. Empty = auto-detect. |
+| Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
 | Vocabulary | empty | Names and terms to spell exactly. Sent as `keywords` to `gpt-transcribe` (a `prompt` for other models) and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes. Called through the Responses API with the lowest reasoning effort for speed. |
@@ -209,9 +213,11 @@ Then open **Whisper LP** and:
 
 ## Why does it need Accessibility?
 
-Only to show the floating button and to put text into the field you are using. It reads the
-screen only at the moment it inserts or fixes text, to find the focused field. It does not run
-background automation and does not send screen content anywhere. It never becomes your typing
+To show the floating button and to put text into the field you are using. To know where that
+is, it watches which text field is focused, in every app, and remembers the last one. It reads a
+field's text only when you dictate into it, fix its grammar, or undo a change there, and only the
+text you ask it to fix is sent anywhere (to OpenAI). It does not store or log what it sees and
+does not run background automation. It never becomes your typing
 keyboard, though the arrow pad does switch keyboards temporarily, which the next section explains.
 
 ## Why does it register a keyboard?
@@ -320,7 +326,7 @@ deletes its settings.
 - Locally, `app/build.gradle.kts` reads the gitignored `signing.properties` written by
   `scripts/make_keystore.py` (keystore at `.signing/release.jks`).
 - In CI, the same values come from repository secrets, pushed with
-  `python scripts/push_signing_secrets.py` (values are never printed).
+  `python scripts/push_signing_secrets.py owner/repo` (values are never printed).
 
 Back up `.signing/release.jks` and `signing.properties`; losing them means reinstalling.
 

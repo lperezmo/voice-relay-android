@@ -39,6 +39,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Settings > About > Open-source licenses. -->
+        <activity
+            android:name=".LicensesActivity"
+            android:exported="false" />
+
         <!-- "Fix grammar" in every app's text-selection menu. -->
         <activity
             android:name=".FixGrammarActivity"
