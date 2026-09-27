@@ -35,8 +35,8 @@ allow it, to press play again after Claude is done. It does not read other apps'
 
 ## API keys
 
-Your OpenAI API key is stored on your device in app storage and used only to authenticate
-requests sent directly to OpenAI. There is no relay server.
+Your OpenAI API key is stored on your device, encrypted with a key held in the Android Keystore,
+and used only to authenticate requests sent directly to OpenAI. There is no relay server.
 
 ## Accessibility Service
 
@@ -72,3 +72,11 @@ The whole file is about 55 lines and the repository is the authoritative copy:
 
 The app has no backend and collects no accounts, analytics, or recordings. OpenAI processes the
 data you send according to its own terms and privacy policies.
+
+## Contact
+
+Questions about this policy: open an issue at
+[github.com/lperezmo/phone-whisper-android/issues](https://github.com/lperezmo/phone-whisper-android/issues).
+To report a security problem, use
+[private vulnerability reporting](https://github.com/lperezmo/phone-whisper-android/security/advisories/new)
+instead of a public issue (see [SECURITY.md](SECURITY.md)).

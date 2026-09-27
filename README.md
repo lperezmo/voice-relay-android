@@ -9,6 +9,10 @@ Based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper) (Apac
 [NOTICE](NOTICE)). On the phone this build is called **Whisper LP** and has a teal icon, so it is
 easy to tell apart from the original if both are installed.
 
+Whisper LP is an independent project. It is not affiliated with, endorsed by, or sponsored by
+Anthropic or OpenAI. "Claude" and "OpenAI" are trademarks of their owners and are named only to
+describe what the app works with.
+
 A small button floats over every app. Tap it, speak, tap again, and the text appears where you
 are typing, without switching away from your keyboard. Long-press it to fix the grammar of
 text you typed.
