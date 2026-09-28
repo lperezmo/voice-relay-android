@@ -159,7 +159,11 @@ for each word is added as a variant (up to 16 lines per phrase), and any phrase 
 the "cloud" and "clod" variants. A word the dictionary lacks is named, and **Advanced** takes the
 phones by hand instead (ARPAbet as in CMUdict, such as `HH EY1 JH AA1 R V AH0 S`, one
 pronunciation per line, at most 16); they are used only while Advanced is open, and changing the
-phrase's words clears them. Every phone is checked against the model before it is saved, and
+phrase's words clears them. **Generate with AI** there asks your cleanup model for 2 to 8 ways to
+say the phrase (Auto, English or Spanish; for Spanish, the native pronunciation and how an English
+speaker says it), approximated with the model's phones. Only the phrase's text is sent, with your
+key; the answer goes through the same checks, fills the field for you to review or edit, and is
+saved only when you tap **Save**. Every phone is checked against the model before it is saved, and
 every pronunciation needs a vowel (a lone "S" or "SH" would fire on almost anything). If a saved
 phrase ever stops fitting the model, the app listens for "hey claude" and says so. Phrases of
 2 to 4 syllables with distinct sounds work best; very short or common ones trigger by accident.
@@ -290,7 +294,7 @@ touched.
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
-| Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand. **Reset to default** puts "hey claude" back. |
+| Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
@@ -418,6 +422,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
+| `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` intents |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |

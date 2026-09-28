@@ -68,6 +68,38 @@ class OpenAiClient(
     }
 
     /**
+     * A JSON answer through the Responses API, shaped by [schema] (strict
+     * structured output). A 400 retries without the reasoning setting, then
+     * without the schema, so an older model still answers; the instructions
+     * ask for the same JSON either way, and the caller checks what comes back.
+     */
+    fun respondJson(
+        input: String,
+        model: String,
+        instructions: String,
+        schemaName: String,
+        schema: JSONObject,
+        reasoningEffort: String? = "low",
+    ): Result {
+        val format = JSONObject()
+            .put("type", "json_schema")
+            .put("name", schemaName)
+            .put("schema", schema)
+            .put("strict", true)
+        val first = postJson("responses", cleanupBody(input, model, instructions, reasoningEffort, format), ::parseResponsesText)
+        var r = first
+        if (r.httpCode == 400 && reasoningEffort != null) {
+            r = postJson("responses", cleanupBody(input, model, instructions, null, format), ::parseResponsesText)
+        }
+        if (r.httpCode == 400) {
+            r = postJson("responses", cleanupBody(input, model, instructions, null), ::parseResponsesText)
+        }
+        // When every attempt fails, the first error names the real cause (a later one may only
+        // be a side effect of what the retry left out).
+        return if (!r.ok && first.httpCode == 400 && first.error != null) r.copy(error = first.error) else r
+    }
+
+    /**
      * Opens (and pools) the TLS connection to the API while the user is still
      * speaking, so the upload starts without a handshake. Unauthenticated HEAD;
      * the response is ignored.
@@ -142,13 +174,20 @@ class OpenAiClient(
             return fields
         }
 
-        fun cleanupBody(text: String, model: String, instructions: String, reasoningEffort: String?): JSONObject =
+        fun cleanupBody(
+            text: String,
+            model: String,
+            instructions: String,
+            reasoningEffort: String?,
+            format: JSONObject? = null,
+        ): JSONObject =
             JSONObject().apply {
                 put("model", model)
                 put("instructions", instructions)
                 put("input", text)
                 put("store", false)
                 if (reasoningEffort != null) put("reasoning", JSONObject().put("effort", reasoningEffort))
+                if (format != null) put("text", JSONObject().put("format", format))
             }
 
         fun parseTranscriptionText(json: String): Result = parse(json) { obj ->
@@ -172,6 +211,7 @@ class OpenAiClient(
                 for (j in 0 until content.length()) {
                     val part = content.getJSONObject(j)
                     if (part.optString("type") == "output_text") return@parse withUsage(part.getString("text"))
+                    if (part.optString("type") == "refusal") return@parse Result(null, "Refused: ${part.optString("refusal")}")
                 }
             }
             null

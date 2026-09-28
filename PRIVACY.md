@@ -27,7 +27,10 @@ notification you can stop it from) and runs a small keyword-spotting model on th
 "hey claude", or the wake phrase you chose. This audio is processed in memory on the device and
 discarded as it goes: it is never recorded to storage, never sent to OpenAI or anywhere else, and
 never logged. A phrase you type is stored in the app's settings and turned into phones on the
-phone with a bundled pronunciation dictionary; it is not sent anywhere. The logs record only the
+phone with a bundled pronunciation dictionary; it is not sent anywhere, unless you tap **Generate
+with AI** in the wake phrase dialog: then the phrase's text (no audio) is sent to OpenAI with your
+key and cleanup model (with `store: false`, like cleanup), which suggests pronunciations; the logs
+note only whether that worked and how many suggestions were kept. Beyond that, the logs record only the
 wake phrase, which keyword fired, and the detection settings. When the keyword is heard, the app
 opens Claude's voice assistant (the Claude app then handles your speech under Anthropic's terms).
 

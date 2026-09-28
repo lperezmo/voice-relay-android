@@ -18,6 +18,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.slider.Slider
@@ -357,9 +358,11 @@ class MainActivity : AppCompatActivity() {
     /**
      * Edits the wake phrase. As you type, it is spelled as phones with the
      * bundled dictionary, off the main thread (a lookup streams through about
-     * 3.5 MB). Words the dictionary lacks can be spelled by hand under Advanced;
-     * those phones count only while Advanced is open, and belong to the phrase
-     * they were typed for: changing the phrase's words clears them. Save keeps
+     * 3.5 MB). Words the dictionary lacks can be spelled by hand under Advanced,
+     * or suggested there by the cleanup model (Generate with AI: only the
+     * phrase's text goes to OpenAI, and the answer is checked and shown for
+     * review); those phones count only while Advanced is open, and belong to
+     * the phrase they were typed for: changing the phrase's words clears them. Save keeps
      * the dialog open until the phrase checks out, saves exactly what was
      * checked, and restarts the listener with it.
      */
@@ -402,6 +405,33 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.MONOSPACE
             filters = arrayOf(android.text.InputFilter.LengthFilter(WakeWord.MAX_PHONES_TEXT))
         }
+        // Generate with AI: the cleanup model suggests phones for the phrase, into the field below.
+        var aiLanguage = WakeWordAi.Language.AUTO
+        val languages = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            WakeWordAi.Language.entries.forEach { lang ->
+                addView(MaterialRadioButton(this@MainActivity).apply {
+                    id = View.generateViewId()
+                    text = lang.label
+                    isChecked = lang == aiLanguage
+                    setOnCheckedChangeListener { _, on -> if (on) aiLanguage = lang }
+                })
+            }
+        }
+        val generateButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            text = "Generate with AI"
+        }
+        val aiRow = vertical(0).apply {
+            setPadding(0, dp(8), 0, 0)
+            addView(languages)
+            addView(generateButton)
+        }
+        val aiStatus = TextView(this).apply {
+            text = "Sends only the phrase's text to OpenAI, with your key and cleanup model. You review the result before saving."
+            textSize = 13f
+            setTextColor(secondary)
+            setPadding(0, dp(4), 0, dp(4))
+        }
         val advanced = vertical(0).apply {
             visibility = if (savedPhones.isEmpty()) View.GONE else View.VISIBLE
             addView(TextView(this@MainActivity).apply {
@@ -412,6 +442,8 @@ class MainActivity : AppCompatActivity() {
                 textSize = 13f
                 setTextColor(secondary)
             })
+            addView(aiRow)
+            addView(aiStatus)
             addView(phonesInput)
         }
         /** The hand phones that count right now: none while Advanced is closed. */
@@ -434,7 +466,7 @@ class MainActivity : AppCompatActivity() {
                     val quoted = r.words.joinToString(", ") { "\"$it\"" }
                     (if (r.words.size == 1) "$quoted is not in the pronunciation dictionary. "
                     else "$quoted are not in the pronunciation dictionary. ") +
-                        "Try another spelling, or enter the phones by hand below."
+                        "Try another spelling, tap Generate with AI, or enter the phones by hand below."
                 }
                 is WakeWord.Result.UnknownPhones -> "Not phones the wake word model knows: ${r.phones.joinToString(" ")}." +
                     (if (r.suggestions.isEmpty()) "" else " Vowels need a stress digit: " +
@@ -489,8 +521,65 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        var open = true
+        generateButton.setOnClickListener {
+            val phrase = WakeWord.tidy(phraseInput.text.toString())
+            val key = secrets.getApiKey()
+            aiStatus.setTextColor(error)
+            when {
+                phrase.isEmpty() -> aiStatus.text = "Type the phrase first."
+                key.isBlank() -> aiStatus.text = "Set your OpenAI API key first."
+                else -> {
+                    val model = settings.cleanupModel
+                    val language = aiLanguage
+                    generateButton.isEnabled = false
+                    aiStatus.setTextColor(secondary)
+                    aiStatus.text = "Asking $model..."
+                    thread {
+                        val r = OpenAiClient(key).respondJson(
+                            phrase, model, WakeWordAi.instructions(tokens, language),
+                            WakeWordAi.SCHEMA_NAME, WakeWordAi.SCHEMA,
+                        )
+                        if (r.ok) usage.recordText(model, r.inputTokens, r.outputTokens)
+                        val parsed = r.text?.let { WakeWordAi.parse(it, tokens) }
+                        // Metadata only, never the phrase.
+                        android.util.Log.i("VoiceRelay", "Wake phrase AI: ${if (r.ok) "ok" else "failed ${r.httpCode}"}, " +
+                            "kept ${parsed?.kept?.size ?: 0}, dropped ${parsed?.dropped?.size ?: 0}")
+                        runOnUiThread {
+                            if (!open) return@runOnUiThread
+                            generateButton.isEnabled = true
+                            val droppedNote = parsed?.dropped?.takeIf { it.isNotEmpty() }
+                                ?.let { "\nLeft out: " + it.joinToString("; ") } ?: ""
+                            when {
+                                !r.ok -> {
+                                    aiStatus.setTextColor(error)
+                                    aiStatus.text = "The request failed: ${r.error ?: "no answer"}"
+                                }
+                                parsed == null || parsed.kept.isEmpty() -> {
+                                    aiStatus.setTextColor(error)
+                                    aiStatus.text = "No usable pronunciations came back. Try again or type them by hand.$droppedNote"
+                                }
+                                WakeWord.tidy(phraseInput.text.toString()) != phrase -> {
+                                    aiStatus.setTextColor(error)
+                                    aiStatus.text = "The phrase changed while waiting. Tap Generate with AI again."
+                                }
+                                else -> {
+                                    phonesInput.setText(parsed.text)
+                                    aiStatus.setTextColor(secondary)
+                                    val notes = parsed.kept.map { it.note }.filter { it.isNotEmpty() }
+                                    aiStatus.text = "${parsed.kept.size} suggested by $model" +
+                                        (if (notes.isEmpty()) "" else ": ${notes.joinToString(", ")}") +
+                                        ". Check them, edit if needed, then Save.$droppedNote"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         val advancedToggle = TextView(this).apply {
-            text = "Advanced: enter phones by hand"
+            text = "Advanced: enter phones by hand or generate them"
             textSize = 14f
             setTextColor(attrColor(com.google.android.material.R.attr.colorPrimary))
             setPadding(0, dp(8), 0, dp(8))
@@ -538,7 +627,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        dialog.setOnDismissListener { handler.removeCallbacks(delayedCheck) }
+        dialog.setOnDismissListener {
+            open = false
+            handler.removeCallbacks(delayedCheck)
+        }
         dialog.show()
         check()
     }
