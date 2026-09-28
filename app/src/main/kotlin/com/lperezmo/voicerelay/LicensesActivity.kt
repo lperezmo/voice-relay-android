@@ -146,6 +146,7 @@ class LicensesActivity : AppCompatActivity() {
             Doc("onnxruntime-ThirdPartyNotices.txt", "ONNX Runtime third-party notices", "Inside the wake word library"),
             Doc("MPL-2.0.txt", "Mozilla Public License 2.0", "Eigen, and the Public Suffix List in OkHttp"),
             Doc("kaldifst-LICENSE.txt", "kaldifst license", "Inside the wake word library"),
+            Doc("cmudict-LICENSE.txt", "CMU Pronouncing Dictionary license", "Spells a typed wake phrase as phones"),
         )
 
         /**

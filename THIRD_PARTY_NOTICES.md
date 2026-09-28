@@ -13,9 +13,10 @@ Contents:
 
 1. [Wake word native library (sherpa-onnx)](#1-wake-word-native-library-sherpa-onnx)
 2. [Wake word model](#2-wake-word-model)
-3. [Java and Kotlin libraries](#3-java-and-kotlin-libraries)
-4. [Upstream project](#4-upstream-project)
-5. [License texts](#5-license-texts)
+3. [Wake word pronunciation dictionary (CMUdict)](#3-wake-word-pronunciation-dictionary-cmudict)
+4. [Java and Kotlin libraries](#4-java-and-kotlin-libraries)
+5. [Upstream project](#5-upstream-project)
+6. [License texts](#6-license-texts)
 
 ## 1. Wake word native library (sherpa-onnx)
 
@@ -186,9 +187,24 @@ files, renamed but otherwise unmodified: the int8 encoder and joiner, the decode
   spotting models is open at https://github.com/k2-fsa/sherpa-onnx/issues/3802. This file will
   be updated if the answer changes anything.
 
-The keyword list, `app/src/main/assets/wake/keywords.txt`, is part of Voice Relay.
+The keyword lists are part of Voice Relay: the default "hey claude" lines in `WakeWord.kt`, and
+the lines the app builds on the phone from a phrase you type (see the next section).
+`app/src/main/assets/wake/empty_keywords.txt` is a blank placeholder.
 
-## 3. Java and Kotlin libraries
+## 3. Wake word pronunciation dictionary (CMUdict)
+
+To turn a wake phrase you type into the model's phones, the app bundles the
+**CMU Pronouncing Dictionary** as `app/src/main/assets/wake/cmudict.txt.gzip`, built by
+`scripts/build_cmudict.py` from `cmudict.dict` at commit `74790861f652` of
+https://github.com/cmusphinx/cmudict. The script drops the `(2)`-style markers on alternate
+pronunciations and the trailing `#` comments, adds a one-line header naming the source, and
+gzips the result; every word and pronunciation is otherwise kept as published.
+
+- Copyright (C) 1993-2015 Carnegie Mellon University. All rights reserved.
+- License: BSD 2-Clause. Its full text, as published with the dictionary, is in
+  [`licenses/cmudict-LICENSE.txt`](licenses/cmudict-LICENSE.txt).
+
+## 4. Java and Kotlin libraries
 
 All of these are licensed under the Apache License, Version 2.0 (full text in
 [LICENSE](LICENSE)). Versions are the ones resolved for the release build.
@@ -207,13 +223,13 @@ All of these are licensed under the Apache License, Version 2.0 (full text in
 OkHttp contains a copy of the Public Suffix List (https://publicsuffix.org/), which is licensed
 under the Mozilla Public License, version 2.0 ([`licenses/MPL-2.0.txt`](licenses/MPL-2.0.txt)).
 
-## 4. Upstream project
+## 5. Upstream project
 
 Voice Relay is a modified version of Phone Whisper by kafkasl
 (https://github.com/kafkasl/phone-whisper), licensed under the Apache License, Version 2.0. See
 [NOTICE](NOTICE).
 
-## 5. License texts
+## 6. License texts
 
 | File | Used by |
 |---|---|
@@ -221,3 +237,4 @@ Voice Relay is a modified version of Phone Whisper by kafkasl
 | [`licenses/onnxruntime-ThirdPartyNotices.txt`](licenses/onnxruntime-ThirdPartyNotices.txt) | ONNX Runtime's third-party notices |
 | [`licenses/MPL-2.0.txt`](licenses/MPL-2.0.txt) | Eigen, the Public Suffix List in OkHttp |
 | [`licenses/kaldifst-LICENSE.txt`](licenses/kaldifst-LICENSE.txt) | kaldifst |
+| [`licenses/cmudict-LICENSE.txt`](licenses/cmudict-LICENSE.txt) | The CMU Pronouncing Dictionary |
