@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: ""
+      retention-days:
+        description: "Days to keep the library artifact"
+        required: false
+        type: number
+        default: 3
     outputs:
       artifact:
         description: "Name of the artifact holding libsherpa-onnx-jni.so"
@@ -90,4 +95,6 @@ jobs:
           if-no-files-found: error
           # Artifacts count against the account's Actions storage quota. The
           # cache above is what keeps the library between runs.
-          retention-days: 3
+          # Release runs pass 30 so a failed job can still be re-run, and delete
+          # the artifact once the APK is on the release.
+          retention-days: ${{ inputs.retention-days || 3 }}

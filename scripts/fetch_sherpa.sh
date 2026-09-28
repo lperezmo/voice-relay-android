@@ -101,8 +101,11 @@ download_library() { # -> path of the downloaded library
   fi
   local repo run_id
   repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+  # Only runs of this repository's own branches: a fork PR runs its own copy of
+  # sherpa-build.yml and could upload anything under the same artifact name.
   run_id="$(gh api "repos/$repo/actions/artifacts?name=$LIB_ARTIFACT&per_page=20" \
-    --jq '[.artifacts[] | select(.expired == false)][0].workflow_run.id // empty')"
+    --jq '[.artifacts[] | select(.expired == false
+             and .workflow_run.head_repository_id == .workflow_run.repository_id)][0].workflow_run.id // empty')"
   if [[ -z "$run_id" ]]; then
     echo "fetch_sherpa.sh: no unexpired CI build named $LIB_ARTIFACT." >&2
     echo "  Start one with: gh workflow run sherpa-build.yml --ref <your branch>" >&2
@@ -124,6 +127,11 @@ elif [[ -f "$LIB_DEST/$LIB" && -f "$LIB_STAMP" && -n "$LIB_ARTIFACT" \
 else
   source_lib="$(download_library)"
   lib_stamp_text="$LIB_ARTIFACT"
+fi
+
+if [[ ! -s "$source_lib" ]]; then
+  echo "fetch_sherpa.sh: $source_lib is missing or empty" >&2
+  exit 1
 fi
 
 # Case-sensitive, and "wespeaker" (speaker embeddings, kept) is not espeak-ng.

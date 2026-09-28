@@ -15,6 +15,7 @@
 set -euo pipefail
 
 LIB="${1:?usage: scripts/verify_sherpa_lib.sh LIB.so}"
+[[ -s "$LIB" ]] || { echo "verify_sherpa_lib.sh: $LIB is missing or empty" >&2; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BINDINGS="$ROOT/app/src/main/kotlin/com/k2fsa/sherpa/onnx"
 
