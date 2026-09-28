@@ -15,22 +15,196 @@ class WakeWordTest {
     /** Gradle runs unit tests from the module directory. */
     private val assets = File("src/main/assets/wake")
 
-    @Test fun `the shipped keywords cover claude and the cloud accent`() {
-        val keywords = WakeWord.parseKeywords(File(assets, "keywords.txt").readText())
-        val byLabel = keywords.associate { it.label to it.phones.joinToString(" ") }
+    /** Every CMUdict phone: 15 vowels with 3 stresses and 24 consonants, as the model's tokens.txt has them. */
+    private val arpabet: Set<String> =
+        "AA AE AH AO AW AY EH ER EY IH IY OW OY UH UW".split(" ").flatMap { v -> listOf("${v}0", "${v}1", "${v}2") }.toSet() +
+            "B CH D DH F G HH JH K L M N NG P R S SH T TH V W Y Z ZH".split(" ")
+
+    private fun dictionary(vararg words: String) =
+        File(assets, "cmudict.txt.gzip").inputStream().use { WakeWord.lookup(it, words.toList()) }
+
+    private fun ready(r: WakeWord.Result) = r as? WakeWord.Result.Ready ?: throw AssertionError("not ready: $r")
+
+    @Test fun `the default keywords cover claude and the cloud and clod accents`() {
+        val byLabel = WakeWord.DEFAULT_KEYWORDS.associate { it.label to it.phones.joinToString(" ") }
         assertEquals("HH EY1 K L AO1 D", byLabel["HEY_CLAUDE"])
         assertEquals("HH EY1 K L AW1 D", byLabel["HEY_CLOUD"])
-        assertEquals(keywords.size, byLabel.size)
+        assertEquals("HH EY1 K L AA1 D", byLabel["HEY_CLOD"])
+        assertEquals(WakeWord.DEFAULT_KEYWORDS.first().label, "HEY_CLAUDE")
     }
 
-    @Test fun `every keyword phone is a model token`() {
+    @Test fun `the dictionary spells the default phrase as the built-in default`() {
+        val r = ready(WakeWord.fromDictionary(WakeWord.DEFAULT_PHRASE, dictionary("hey", "claude"), arpabet))
+        assertEquals(WakeWord.DEFAULT_PHRASE, r.phrase)
+        assertEquals(WakeWord.DEFAULT_KEYWORDS, r.keywords)
+    }
+
+    @Test fun `every default and dictionary phone is a model token`() {
         val tokensFile = File(assets, "model/tokens.txt")
         // The model is fetched, not committed; CI and local builds run scripts/fetch_sherpa.sh first.
         if (!tokensFile.exists()) return
-        val tokens = tokensFile.readLines().map { it.substringBefore(' ') }.toSet()
-        for (k in WakeWord.parseKeywords(File(assets, "keywords.txt").readText())) {
+        val tokens = WakeWord.modelTokens(tokensFile.readText())
+        for (k in WakeWord.DEFAULT_KEYWORDS) {
             for (phone in k.phones) assertTrue("${k.label}: $phone is not a model token", phone in tokens)
         }
+        assertTrue("CMUdict uses a phone the model lacks: ${arpabet - tokens}", tokens.containsAll(arpabet))
+        assertFalse("<blk> is not a phone", "<blk>" in tokens)
+    }
+
+    @Test fun `the spotter's own keywords file is blank, so only the chosen phrase is heard`() {
+        // sherpa-onnx adds each stream's keywords to this file's, and would parse '#' as a threshold.
+        assertTrue(File(assets, "empty_keywords.txt").readText().isBlank())
+        assertFalse(File(assets, "keywords.txt").exists())
+    }
+
+    @Test fun `the dictionary asset is where the app opens it, under a name the build leaves alone`() {
+        assertEquals("wake/cmudict.txt.gzip", WakeWord.DICTIONARY_ASSET)
+        assertTrue(File(assets.parentFile, WakeWord.DICTIONARY_ASSET).isFile)
+        // The Android build un-gzips *.gz assets while packaging, so the APK would have a different file.
+        val gz = assets.parentFile.walk().filter { it.isFile && it.name.endsWith(".gz") }.toList()
+        assertTrue("assets ending in .gz are unpacked by the build: $gz", gz.isEmpty())
+    }
+
+    @Test fun `the shipped dictionary has names and common words, every pronunciation of each`() {
+        val d = dictionary("jarvis", "computer", "hey", "tomato", "notaword")
+        assertEquals(
+            listOf(listOf("JH", "AA1", "R", "V", "AH0", "S"), listOf("JH", "AA1", "R", "V", "IH0", "S")),
+            d["jarvis"],
+        )
+        assertEquals(listOf("K", "AH0", "M", "P", "Y", "UW1", "T", "ER0"), d["computer"]?.first())
+        assertTrue((d["tomato"]?.size ?: 0) >= 2)
+        assertFalse("notaword" in d)
+        for (prons in d.values) for (p in prons.flatten()) assertTrue("$p is not ARPAbet", p in arpabet)
+    }
+
+    // --- Phrase to phones ---
+
+    private val tiny = mapOf(
+        "hey" to listOf(listOf("HH", "EY1")),
+        "jarvis" to listOf(listOf("JH", "AA1", "R", "V", "AH0", "S")),
+        "tomato" to listOf(listOf("T", "AH0", "M", "EY1", "T", "OW2"), listOf("T", "AH0", "M", "AA1", "T", "OW2")),
+        "claude" to listOf(listOf("K", "L", "AO1", "D")),
+        "ok" to listOf(listOf("OW2", "K", "EY1")),
+    )
+
+    @Test fun `typed phrases are tidied into words`() {
+        assertEquals(listOf("hey", "jarvis"), WakeWord.words("  Hey,  JARVIS! "))
+        assertEquals(listOf("o'brien", "hi"), WakeWord.words("O'Brien-hi"))
+        assertEquals(listOf("josé"), WakeWord.words("'José'"))
+        assertEquals("hey jarvis", WakeWord.tidy("hey\tjarvis."))
+        assertTrue(WakeWord.words(" ,.! ").isEmpty())
+    }
+
+    @Test fun `a phrase becomes its phones with a label from its words`() {
+        val r = ready(WakeWord.fromDictionary("Hey Jarvis", tiny, arpabet))
+        assertEquals("hey jarvis", r.phrase)
+        assertEquals(listOf("HH EY1 JH AA1 R V AH0 S @HEY_JARVIS"), r.keywords.map { it.line })
+    }
+
+    @Test fun `every dictionary pronunciation becomes a keyword, the first one first`() {
+        val r = ready(WakeWord.fromDictionary("hey tomato", tiny, arpabet))
+        assertEquals(
+            listOf("HH EY1 T AH0 M EY1 T OW2 @HEY_TOMATO", "HH EY1 T AH0 M AA1 T OW2 @HEY_TOMATO_2"),
+            r.keywords.map { it.line },
+        )
+    }
+
+    @Test fun `claude keeps its accent variants in any phrase`() {
+        val r = ready(WakeWord.fromDictionary("ok claude", tiny, arpabet))
+        assertEquals(listOf("OK_CLAUDE", "OK_CLOUD", "OK_CLOD"), r.keywords.map { it.label })
+    }
+
+    @Test fun `variants combine across words, fewest swaps first, capped`() {
+        val two = listOf(listOf("A1"), listOf("B1"))
+        val choices = List(3) { i -> listOf(WakeWord.Pronunciation("w$i", two[0]), WakeWord.Pronunciation("w$i", listOf("C$i"))) }
+        val keywords = WakeWord.combine(choices)
+        assertEquals(8, keywords.size)
+        assertEquals(listOf("A1", "A1", "A1"), keywords[0].phones)
+        // The next three swap in exactly one alternative.
+        assertTrue(keywords.subList(1, 4).all { k -> k.phones.count { it != "A1" } == 1 })
+        assertEquals(listOf("C0", "C1", "C2"), keywords.last().phones)
+
+        val many = List(6) { i -> List(3) { j -> WakeWord.Pronunciation("w", listOf("P$i$j")) } }
+        val capped = WakeWord.combine(many)
+        assertEquals(WakeWord.MAX_KEYWORDS, capped.size)
+        assertEquals(capped.size, capped.map { it.label }.toSet().size)
+        assertEquals(List(6) { "P${it}0" }, capped.first().phones)
+    }
+
+    @Test fun `identical pronunciations are listed once`() {
+        val same = listOf(listOf("HH", "EY1"), listOf("HH", "EY1"))
+        val r = ready(WakeWord.fromDictionary("hey", mapOf("hey" to same), arpabet))
+        assertEquals(1, r.keywords.size)
+    }
+
+    @Test fun `unknown words are named, in order, once`() {
+        assertEquals(
+            WakeWord.Result.UnknownWords(listOf("jarvys", "zork")),
+            WakeWord.fromDictionary("hey jarvys zork jarvys", tiny, arpabet),
+        )
+        assertEquals(WakeWord.Result.Empty, WakeWord.fromDictionary(" !! ", tiny, arpabet))
+    }
+
+    @Test fun `dictionary phones are checked against the model too`() {
+        val r = WakeWord.fromDictionary("hey", tiny, arpabet - "EY1")
+        assertEquals(listOf("EY1"), (r as WakeWord.Result.UnknownPhones).phones)
+    }
+
+    @Test fun `phones typed by hand are checked against the model`() {
+        val r = ready(WakeWord.fromPhones("Hey Jarvis", "hh ey1 jh aa1 r v ih0 s\nHH EY1 JH AA1 R V AH0 S", arpabet))
+        assertEquals("hey jarvis", r.phrase)
+        assertEquals(
+            listOf("HH EY1 JH AA1 R V IH0 S @HEY_JARVIS", "HH EY1 JH AA1 R V AH0 S @HEY_JARVIS_2"),
+            r.keywords.map { it.line },
+        )
+        assertEquals(2, ready(WakeWord.fromPhones("x", "K L AO1 D / K L AW1 D", arpabet)).keywords.size)
+
+        val bad = WakeWord.fromPhones("hey jarvis", "HH EY JH AA1 R V IS", arpabet) as WakeWord.Result.UnknownPhones
+        assertEquals(listOf("EY", "IS"), bad.phones)
+        assertEquals(mapOf("EY" to "EY1"), bad.suggestions)
+        // Not a phone even though tokens.txt lists it: sherpa-onnx's special tokens are filtered out.
+        val tokens = WakeWord.modelTokens("<blk> 0\n<unk> 2\nHH 3\nEY1 4\n")
+        assertEquals(setOf("HH", "EY1"), tokens)
+    }
+
+    @Test fun `hand phones need a phrase to name them, and some phones`() {
+        assertEquals(WakeWord.Result.Empty, WakeWord.fromPhones("", "HH EY1", arpabet))
+        assertEquals(WakeWord.Result.Empty, WakeWord.fromPhones("hey", " \n / ", arpabet))
+    }
+
+    @Test fun `saved keywords are used only while they fit the model`() {
+        val saved = WakeWord.DEFAULT_KEYWORDS.take(1).map { it.copy(label = "MINE") }
+        val text = saved.joinToString("\n") { it.line }
+        assertEquals(saved, WakeWord.keywordsOrDefault(text, arpabet))
+        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("", arpabet))
+        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("HH EY1 no label", arpabet))
+        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("HH EY9 @X", arpabet))
+    }
+
+    @Test fun `the stream gets every keyword line, slash separated`() {
+        assertEquals(
+            "HH EY1 K L AO1 D @HEY_CLAUDE/HH EY1 K L AW1 D @HEY_CLOUD/HH EY1 K L AA1 D @HEY_CLOD",
+            WakeWord.streamKeywords(WakeWord.DEFAULT_KEYWORDS),
+        )
+    }
+
+    @Test fun `short and long phrases get a caution, 2 to 4 syllables do not`() {
+        fun advice(phrase: String) = WakeWord.advice(ready(WakeWord.fromDictionary(phrase, tiny, arpabet)).keywords)
+        assertEquals(2, WakeWord.syllables(WakeWord.DEFAULT_KEYWORDS.first().phones))
+        assertEquals(null, advice("hey claude"))
+        assertEquals(null, advice("hey jarvis"))
+        assertTrue(advice("hey")!!.startsWith("Only 1 syllable"))
+        assertTrue(advice("hey tomato tomato")!!.startsWith("7 syllables"))
+    }
+
+    @Test fun `lookup reads the gzipped format and skips its header`() {
+        val bytes = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.GZIPOutputStream(out).use {
+                it.write(";;; header hey HH EY1\nhey HH EY1\nhey HH EY2\nhi HH AY1\n".toByteArray())
+            }
+        }.toByteArray()
+        val found = WakeWord.lookup(bytes.inputStream(), listOf("hey", "nope"))
+        assertEquals(mapOf("hey" to listOf(listOf("HH", "EY1"), listOf("HH", "EY2"))), found)
     }
 
     @Test fun `parsing skips comments and drops per-keyword boosts`() {
