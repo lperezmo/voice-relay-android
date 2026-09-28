@@ -2022,7 +2022,7 @@
           <div class="lab">Wake word and extras</div>
           <ul>
             <li><strong>WakeWord, WakeWordService, WakeControlActivity</strong>: the state machine, the microphone service, and the Tasker switch.</li>
-            <li><strong>com.k2fsa.sherpa.onnx</strong>: sherpa-onnx's Kotlin bindings, vendored; the native library and model are fetched and checksummed at build time.</li>
+            <li><strong>com.k2fsa.sherpa.onnx</strong>: sherpa-onnx's Kotlin bindings, vendored; the native library is built from source in CI with only keyword spotting, and the model is fetched and checksummed at build time.</li>
             <li><strong>JoystickView, KeysInputMethodService</strong>: the arrow pad and its keyboard.</li>
             <li><strong>VolumePresets, VolumeController, VolumePillView, VolumeTrackView</strong>: the presets.</li>
             <li><strong>MainActivity, LicensesActivity, AppSettings, SecretStore, Usage</strong>: settings, licenses, storage, the encrypted key, the usage counter.</li>

@@ -331,9 +331,17 @@ bash scripts/fetch_sherpa.sh                             # wake word library and
 ./gradlew testReleaseUnitTest assembleRelease            # gradlew.bat on Windows
 ```
 
-`scripts/fetch_sherpa.sh` downloads the pinned sherpa-onnx Android library and keyword-spotting
-model into gitignored folders, checks their SHA-256, and fails if the library is not 16 KB page
-aligned. The build stops with a pointer to it when the files are missing.
+`scripts/fetch_sherpa.sh` downloads the pinned keyword-spotting model and checks its SHA-256, and
+installs the wake word's native library, both into gitignored folders. The build stops with a
+pointer to it when the files are missing.
+
+The native library is sherpa-onnx built from source by CI (`scripts/build_sherpa.sh`, run by the
+`sherpa-build` workflow) with only keyword spotting's parts, so it contains no GPL code. The script
+downloads the CI build that matches your checkout with the GitHub CLI (`gh`, logged in to an
+account that can read this repository). CI keeps that build for 3 days; if there is none, start
+one with `gh workflow run sherpa-build.yml --ref <branch>` and run the script again when it
+finishes. A fork runs the same workflow in its own Actions. The script refuses a library that
+contains espeak-ng or is not 16 KB page aligned.
 
 Without a signing key the release build is unsigned and cannot be installed. For a quick build
 you can install, use `./gradlew assembleDebug` (signed with your debug key), or create a release
@@ -370,8 +378,8 @@ CI builds and tests an unsigned APK for every pull request (`.github/workflows/a
 Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
 `fix:` commit cuts a version, tags it, and attaches the signed APK, `NOTICE` and
 `THIRD_PARTY_NOTICES.md` to the GitHub release; `chore:`, `docs:`, `ci:` and `refactor:` commits
-do not. Build artifacts are kept 3 days, and a release deletes its own artifact once the APK is
-attached. `versionName` is `0.12.0`, and it is owned by semantic-release, so never edit it by
+do not. Build artifacts are kept 3 days (30 for a release run, so its failed jobs can be re-run),
+and a release deletes its own artifacts once the APK is attached. `versionName` is `0.12.0`, and it is owned by semantic-release, so never edit it by
 hand. `versionCode` is derived from it by `scripts/version_code.sh`.
 
 See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
