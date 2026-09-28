@@ -105,6 +105,12 @@ object WakeWord {
         /** Phones that are not model tokens, each with a suggestion when one is obvious. */
         data class UnknownPhones(val phones: List<String>, val suggestions: Map<String, String>) : Result
 
+        /** Pronunciations without a vowel: nothing to anchor them, so they would fire on any speech. */
+        data class NoVowel(val pronunciations: List<String>) : Result
+
+        /** More hand-entered pronunciations than [MAX_KEYWORDS]. */
+        data class TooMany(val count: Int) : Result
+
         /** No words (or no phones) at all. */
         data object Empty : Result
     }
@@ -112,10 +118,15 @@ object WakeWord {
     /**
      * The words of a typed phrase, lowercased. Letters, digits and apostrophes
      * make up words; anything else (spaces, commas, hyphens) separates them.
-     * "Hey, Jarvis!" -> [hey, jarvis]; "O'Brien" -> [o'brien].
+     * "Hey, Jarvis!" -> [hey, jarvis]; "O'Brien" -> [o'brien]. Keyboards often
+     * type a curly apostrophe (or a modifier letter or accent that looks like
+     * one), which CMUdict spells as a straight one.
      */
     fun words(phrase: String): List<String> =
-        phrase.lowercase().split(Regex("[^\\p{L}\\p{N}']+")).map { it.trim('\'') }.filter { it.isNotEmpty() }
+        phrase.lowercase().replace(Regex("[‘’ʼ`´]"), "'").split(Regex("[^\\p{L}\\p{N}']+")).map { it.trim('\'') }.filter { it.isNotEmpty() }
+
+    /** Most characters the hand-entered phones field takes: [MAX_KEYWORDS] lines of a long phrase. */
+    const val MAX_PHONES_TEXT = 1200
 
     /** "  Hey,  Jarvis! " -> "hey jarvis": how a phrase is stored and shown. */
     fun tidy(phrase: String) = words(phrase).joinToString(" ")
@@ -167,7 +178,7 @@ object WakeWord {
      * Turns hand-entered phones into keywords for [phrase], which names them.
      * One pronunciation per line (or separated by '/' or ','), phones separated
      * by spaces, in CMUdict's ARPAbet with stress digits on vowels: "HH EY1 JH AA1 R V IH0 S".
-     * Case does not matter.
+     * Case does not matter. At most [MAX_KEYWORDS] pronunciations.
      */
     fun fromPhones(phrase: String, phones: String, tokens: Set<String>): Result {
         val words = words(phrase)
@@ -175,18 +186,27 @@ object WakeWord {
             .map { line -> line.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { it.uppercase() } }
             .filter { it.isNotEmpty() }
         if (words.isEmpty() || lines.isEmpty()) return Result.Empty
+        if (lines.size > MAX_KEYWORDS) return Result.TooMany(lines.size)
         val spelling = words.joinToString("_")
         val keywords = labelled(lines.map { listOf(Pronunciation(spelling, it)) })
         return checked(Result.Ready(words.joinToString(" "), keywords), tokens)
     }
 
-    /** Every phone must be a model token: sherpa-onnx refuses the whole list otherwise. */
+    /**
+     * Every phone must be a model token: sherpa-onnx refuses the whole list
+     * otherwise. And every keyword needs a vowel: a lone "S" or "SH" matches a
+     * little of almost any speech and would fire all the time.
+     */
     private fun checked(ready: Result.Ready, tokens: Set<String>): Result {
         val unknown = ready.keywords.flatMap { it.phones }.filter { it !in tokens }.distinct()
-        if (unknown.isEmpty()) return ready
-        // The usual slip: a vowel without its stress digit (EY for EY1).
-        val suggestions = unknown.mapNotNull { p -> listOf("1", "0", "2").map { p + it }.firstOrNull { it in tokens }?.let { p to it } }.toMap()
-        return Result.UnknownPhones(unknown, suggestions)
+        if (unknown.isNotEmpty()) {
+            // The usual slip: a vowel without its stress digit (EY for EY1).
+            val suggestions = unknown.mapNotNull { p -> listOf("1", "0", "2").map { p + it }.firstOrNull { it in tokens }?.let { p to it } }.toMap()
+            return Result.UnknownPhones(unknown, suggestions)
+        }
+        val voiceless = ready.keywords.filter { syllables(it.phones) == 0 }
+        if (voiceless.isNotEmpty()) return Result.NoVowel(voiceless.map { it.phones.joinToString(" ") })
+        return ready
     }
 
     /**
@@ -232,12 +252,31 @@ object WakeWord {
     fun streamKeywords(keywords: List<Keyword>) = keywords.joinToString("/") { it.line }
 
     /**
-     * The saved keywords (lines, as [Keyword.line] writes them), or [DEFAULT_KEYWORDS]
-     * when nothing usable is saved: empty, unreadable, or a phone the model lacks.
+     * What the listener actually uses. [fellBack] is true when a phrase was saved
+     * but its keywords are no longer usable, so the default is heard instead.
      */
-    fun keywordsOrDefault(saved: String, tokens: Set<String>): List<Keyword> {
-        val parsed = parseKeywordsOrEmpty(saved)
-        return parsed.takeIf { it.isNotEmpty() && it.all { k -> k.phones.all { p -> p in tokens } } } ?: DEFAULT_KEYWORDS
+    data class Effective(val phrase: String, val keywords: List<Keyword>, val fellBack: Boolean)
+
+    /**
+     * The saved phrase and keywords (lines, as [Keyword.line] writes them), or
+     * [DEFAULT_PHRASE] and [DEFAULT_KEYWORDS] when nothing usable is saved:
+     * unreadable, a phone the model lacks, a keyword without a vowel, more
+     * than [MAX_KEYWORDS] lines, or no phrase to show.
+     */
+    fun effective(savedPhrase: String, savedKeywords: String, tokens: Set<String>): Effective {
+        if (savedKeywords.isBlank()) return Effective(DEFAULT_PHRASE, DEFAULT_KEYWORDS, fellBack = false)
+        val parsed = parseKeywordsOrEmpty(savedKeywords)
+        val usable = parsed.isNotEmpty() && parsed.size <= MAX_KEYWORDS &&
+            parsed.all { k -> syllables(k.phones) > 0 && k.phones.all { p -> p in tokens } }
+        val phrase = tidy(savedPhrase)
+        return if (usable && phrase.isNotEmpty()) Effective(phrase, parsed, fellBack = false)
+        else Effective(DEFAULT_PHRASE, DEFAULT_KEYWORDS, fellBack = true)
+    }
+
+    /** True when the keywords include the [ACCENT_VARIANTS] ("hey cloud", "hey clod"). */
+    fun hasAccentVariants(keywords: List<Keyword>): Boolean {
+        val accents = ACCENT_VARIANTS.values.flatten().map { it.spelling.uppercase() }.toSet()
+        return keywords.any { k -> k.label.split('_').any { it in accents } }
     }
 
     /** Syllables in a phone sequence: ARPAbet vowels are the phones with a stress digit. */

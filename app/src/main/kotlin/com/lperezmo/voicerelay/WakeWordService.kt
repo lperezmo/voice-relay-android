@@ -94,6 +94,28 @@ class WakeWordService : Service() {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
+        @Volatile private var tokensCache: Set<String>? = null
+
+        /** The model's phones, from tokens.txt (read once). Empty if the model is missing. */
+        fun modelTokens(context: Context): Set<String> = tokensCache ?: try {
+            WakeWord.modelTokens(context.assets.open(WakeWord.TOKENS_ASSET).bufferedReader().use { it.readText() })
+                .also { tokensCache = it }
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Wake word: no tokens.txt: ${e.javaClass.simpleName}")
+            emptySet()
+        }
+
+        /**
+         * The phrase and keywords the listener uses: the saved ones, or the default
+         * when they no longer fit the model (sherpa-onnx refuses a list with an
+         * unknown phone, which would stop the listener). Settings and the
+         * notifications show this, so they never name a phrase that is not heard.
+         */
+        fun effectiveWake(context: Context): WakeWord.Effective {
+            val settings = AppSettings(context)
+            return WakeWord.effective(settings.wakePhrase, settings.wakeKeywords, modelTokens(context))
+        }
+
         /**
          * Restarts listening with the current sensitivity and phrase. The model is
          * reloaded only for a new sensitivity; a new phrase just needs a new stream.
@@ -131,7 +153,7 @@ class WakeWordService : Service() {
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mic)
                 .setContentTitle("Wake word is off")
-                .setContentText("Android stopped it. Tap to listen for ${AppSettings(context).wakePhrase} again.")
+                .setContentText("Android stopped it. Tap to listen for ${effectiveWake(context).phrase} again.")
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build()
@@ -148,36 +170,27 @@ class WakeWordService : Service() {
     private lateinit var settings: AppSettings
     private lateinit var audio: AudioManager
     private var mic: MicThread? = null
-    private var lastMicThread: Thread? = null
+    @Volatile private var lastMicThread: Thread? = null
     @Volatile private var ownSession = -1
     private var foreground = false
     private var callbacksRegistered = false
 
-    /** Only touched on mic threads, one at a time (each is joined before the next starts). */
-    private var spotter: KeywordSpotter? = null
-
-    /** The model's phones, to check the saved keywords against before the spotter sees them. */
-    private val modelTokens: Set<String> by lazy {
-        try {
-            WakeWord.modelTokens(assets.open(WakeWord.TOKENS_ASSET).bufferedReader().use { it.readText() })
-        } catch (e: java.io.IOException) {
-            Log.w(TAG, "Wake word: no tokens.txt: ${e.javaClass.simpleName}")
-            emptySet()
-        }
-    }
-
     /**
-     * What to listen for: the saved phrase's keywords, or the default if they no
-     * longer fit the model. sherpa-onnx rejects a list with an unknown phone,
-     * and that would stop the listener, so they are checked here too.
+     * Built and used only by mic threads, and only while holding [spotterLock].
+     * stopMic() waits for a mic thread only so long; the lock makes the next
+     * thread wait for the last one to finish (a model load can outlast that
+     * wait), so there is never more than one spotter.
      */
+    private var spotter: KeywordSpotter? = null
+    private val spotterLock = Any()
+
+    /** What to listen for; see [effectiveWake]. */
     private fun currentKeywords(): List<WakeWord.Keyword> {
-        val saved = settings.wakeKeywords
-        val keywords = WakeWord.keywordsOrDefault(saved, modelTokens)
-        if (saved.isNotEmpty() && keywords === WakeWord.DEFAULT_KEYWORDS) {
+        val wake = effectiveWake(this)
+        if (wake.fellBack) {
             Log.w(TAG, "Wake word: the saved phrase does not fit the model, using ${WakeWord.DEFAULT_PHRASE}")
         }
-        return keywords
+        return wake.keywords
     }
 
     private val tick = object : Runnable {
@@ -240,7 +253,7 @@ class WakeWordService : Service() {
             registerCallbacks()
             Log.i(
                 TAG,
-                "Wake word: service up, phrase \"${settings.wakePhrase}\", sensitivity ${settings.wakeSensitivity} " +
+                "Wake word: service up, phrase \"${effectiveWake(this).phrase}\", sensitivity ${settings.wakeSensitivity} " +
                     "(threshold %.2f), overlay permission %s, accessibility %s".format(
                         WakeWord.threshold(settings.wakeSensitivity),
                         if (Settings.canDrawOverlays(this)) "yes" else "no",
@@ -289,7 +302,7 @@ class WakeWordService : Service() {
             this, 0, Intent(this, WakeWordService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
         val text = when (controller.state) {
-            WakeWordController.State.LISTENING -> "Listening for ${settings.wakePhrase}. Audio stays on the phone."
+            WakeWordController.State.LISTENING -> "Listening for ${effectiveWake(this).phrase}. Audio stays on the phone."
             WakeWordController.State.WAITING -> "Opening Claude"
             WakeWordController.State.BUSY -> "Paused while the microphone is in use"
             WakeWordController.State.OFF -> "Starting"
@@ -330,11 +343,15 @@ class WakeWordService : Service() {
             foreground = false
         }
         // The spotter is used on the mic thread; free it only once that thread is gone.
-        if (lastMicThread?.isAlive != true) {
-            spotter?.release()
-            spotter = null
-        }
+        // If it is still going, it frees the spotter itself as it ends (see MicThread).
+        if (lastMicThread?.isAlive != true) releaseSpotter()
         stopSelf()
+    }
+
+    /** Frees the model. Mic threads hold [spotterLock] while they use it, so this waits for none of them. */
+    private fun releaseSpotter() = synchronized(spotterLock) {
+        spotter?.release()
+        spotter = null
     }
 
     // --- Controller wiring ---
@@ -523,14 +540,18 @@ class WakeWordService : Service() {
 
         override fun run() {
             try {
-                var kws = spotter
-                if (kws == null || kws.config.keywordsThreshold != threshold) {
-                    kws?.release()
-                    spotter = null
-                    kws = buildSpotter(threshold)
-                    spotter = kws
+                // Waits here while an earlier thread (stopped, but still loading the model) finishes.
+                synchronized(spotterLock) {
+                    if (!running) return
+                    var kws = spotter
+                    if (kws == null || kws.config.keywordsThreshold != threshold) {
+                        kws?.release()
+                        spotter = null
+                        kws = buildSpotter(threshold)
+                        spotter = kws
+                    }
+                    listen(kws)
                 }
-                listen(kws)
             } catch (e: Throwable) {
                 // A missing model or native library must not take the app down with it.
                 Log.e(TAG, "Wake word: listener failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -538,6 +559,8 @@ class WakeWordService : Service() {
                 try { rec.stop() } catch (_: IllegalStateException) {}
                 rec.release()
                 if (running) handler.post { micDied(this) }
+                // The service stopped while this thread was still going, so it left the spotter to us.
+                if (!WakeWordService.running && lastMicThread === this) releaseSpotter()
             }
         }
 

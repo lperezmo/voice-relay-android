@@ -65,6 +65,13 @@ class WakeWordTest {
         assertTrue("assets ending in .gz are unpacked by the build: $gz", gz.isEmpty())
     }
 
+    @Test fun `the shipped dictionary is the text scripts build_cmudict py pins`() {
+        val text = java.util.zip.GZIPInputStream(File(assets, "cmudict.txt.gzip").inputStream()).use { it.readBytes() }
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(text).joinToString("") { "%02x".format(it) }
+        val pinned = Regex("TEXT_SHA256 = \"([0-9a-f]{64})\"").find(File("../scripts/build_cmudict.py").readText())
+        assertEquals(pinned?.groupValues?.get(1), sha)
+    }
+
     @Test fun `the shipped dictionary has names and common words, every pronunciation of each`() {
         val d = dictionary("jarvis", "computer", "hey", "tomato", "notaword")
         assertEquals(
@@ -172,13 +179,57 @@ class WakeWordTest {
         assertEquals(WakeWord.Result.Empty, WakeWord.fromPhones("hey", " \n / ", arpabet))
     }
 
-    @Test fun `saved keywords are used only while they fit the model`() {
+    @Test fun `saved keywords are used only while they fit the model, and the phrase shown follows`() {
         val saved = WakeWord.DEFAULT_KEYWORDS.take(1).map { it.copy(label = "MINE") }
         val text = saved.joinToString("\n") { it.line }
-        assertEquals(saved, WakeWord.keywordsOrDefault(text, arpabet))
-        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("", arpabet))
-        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("HH EY1 no label", arpabet))
-        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.keywordsOrDefault("HH EY9 @X", arpabet))
+        assertEquals(WakeWord.Effective("hey mine", saved, fellBack = false), WakeWord.effective("Hey  mine", text, arpabet))
+
+        val default = WakeWord.Effective(WakeWord.DEFAULT_PHRASE, WakeWord.DEFAULT_KEYWORDS, fellBack = false)
+        assertEquals(default, WakeWord.effective(WakeWord.DEFAULT_PHRASE, "", arpabet))
+
+        // Something was saved but cannot be used: the default is heard, and shown, instead.
+        val fellBack = default.copy(fellBack = true)
+        assertEquals(fellBack, WakeWord.effective("hey jarvis", "HH EY1 no label", arpabet))
+        assertEquals(fellBack, WakeWord.effective("hey jarvis", "HH EY9 @X", arpabet))
+        assertEquals(fellBack, WakeWord.effective("hey jarvis", "S @X", arpabet))
+        assertEquals(fellBack, WakeWord.effective("", text, arpabet))
+        val tooMany = List(WakeWord.MAX_KEYWORDS + 1) { "HH EY1 @X$it" }.joinToString("\n")
+        assertEquals(fellBack, WakeWord.effective("hey", tooMany, arpabet))
+        // The model changed under a saved phrase.
+        assertEquals(fellBack, WakeWord.effective("hey mine", text, arpabet - "AO1"))
+    }
+
+    @Test fun `curly apostrophes read as straight ones`() {
+        assertEquals(listOf("what's", "up"), WakeWord.words("what’s up"))
+        assertEquals(listOf("what's"), WakeWord.words("WHAT‘S"))
+        assertEquals(listOf("o'brien"), WakeWord.words("oʼbrien"))
+        val d = dictionary("what's", "up")
+        val r = ready(WakeWord.fromDictionary("What’s up", d, arpabet))
+        assertEquals("what's up", r.phrase)
+        assertEquals("W AH1 T S AH1 P", r.keywords.first().phones.joinToString(" "))
+    }
+
+    @Test fun `hand phones are capped at the keyword limit`() {
+        val max = List(WakeWord.MAX_KEYWORDS) { "HH EY1" }.joinToString("\n")
+        // Duplicates collapse, but the count that is refused is what was typed.
+        assertEquals(1, ready(WakeWord.fromPhones("hey", max, arpabet)).keywords.size)
+        val over = List(WakeWord.MAX_KEYWORDS + 1) { i -> "HH EY1 ${if (i % 2 == 0) "K" else "L"}" }.joinToString("\n")
+        assertEquals(WakeWord.Result.TooMany(WakeWord.MAX_KEYWORDS + 1), WakeWord.fromPhones("hey", over, arpabet))
+    }
+
+    @Test fun `a pronunciation without a vowel is refused, typed or from the dictionary`() {
+        assertEquals(WakeWord.Result.NoVowel(listOf("S")), WakeWord.fromPhones("ss", "S", arpabet))
+        assertEquals(WakeWord.Result.NoVowel(listOf("SH")), WakeWord.fromPhones("shh", "HH EY1\nSH", arpabet))
+        val shh = mapOf("shh" to listOf(listOf("SH")))
+        assertEquals(WakeWord.Result.NoVowel(listOf("SH")), WakeWord.fromDictionary("shh", shh, arpabet))
+        // One vowel anywhere in the line is enough.
+        ready(WakeWord.fromDictionary("hey shh", tiny + shh, arpabet))
+    }
+
+    @Test fun `accent variants are spotted in any phrase with claude`() {
+        assertTrue(WakeWord.hasAccentVariants(WakeWord.DEFAULT_KEYWORDS))
+        assertTrue(WakeWord.hasAccentVariants(ready(WakeWord.fromDictionary("ok claude", tiny, arpabet)).keywords))
+        assertFalse(WakeWord.hasAccentVariants(ready(WakeWord.fromDictionary("hey jarvis", tiny, arpabet)).keywords))
     }
 
     @Test fun `the stream gets every keyword line, slash separated`() {

@@ -357,16 +357,16 @@ class MainActivity : AppCompatActivity() {
     /**
      * Edits the wake phrase. As you type, it is spelled as phones with the
      * bundled dictionary, off the main thread (a lookup streams through about
-     * 3.5 MB). Words the dictionary lacks can be spelled by hand under Advanced.
-     * Save keeps the dialog open until the phrase checks out, then restarts the
-     * listener with it.
+     * 3.5 MB). Words the dictionary lacks can be spelled by hand under Advanced;
+     * those phones count only while Advanced is open, and belong to the phrase
+     * they were typed for: changing the phrase's words clears them. Save keeps
+     * the dialog open until the phrase checks out, saves exactly what was
+     * checked, and restarts the listener with it.
      */
     private fun promptWakePhrase() {
-        val tokens = try {
-            WakeWord.modelTokens(assets.open(WakeWord.TOKENS_ASSET).bufferedReader().use { it.readText() })
-        } catch (_: java.io.IOException) {
-            emptySet()
-        }
+        val tokens = WakeWordService.modelTokens(this)
+        val current = WakeWordService.effectiveWake(this)
+        val savedPhones = if (current.fellBack) "" else settings.wakePhones
         // Word -> its pronunciations; an empty list means the dictionary lacks it.
         val known = mutableMapOf<String, List<List<String>>>()
         fun resolve(phrase: String, phones: String): WakeWord.Result = synchronized(known) {
@@ -385,7 +385,7 @@ class MainActivity : AppCompatActivity() {
 
         val secondary = attrColor(android.R.attr.textColorSecondary)
         val error = attrColor(com.google.android.material.R.attr.colorError)
-        val phraseInput = editText(WakeWord.DEFAULT_PHRASE, settings.wakePhrase, InputType.TYPE_CLASS_TEXT).apply {
+        val phraseInput = editText(WakeWord.DEFAULT_PHRASE, current.phrase, InputType.TYPE_CLASS_TEXT).apply {
             filters = arrayOf(android.text.InputFilter.LengthFilter(60))
         }
         val result = TextView(this).apply {
@@ -393,51 +393,37 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, dp(8))
         }
         val phonesInput = editText(
-            "HH EY1 JH AA1 R V AH0 S", settings.wakePhones,
+            "HH EY1 JH AA1 R V AH0 S", savedPhones,
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
         ).apply {
             minLines = 2
             gravity = Gravity.TOP or Gravity.START
             typeface = Typeface.MONOSPACE
+            filters = arrayOf(android.text.InputFilter.LengthFilter(WakeWord.MAX_PHONES_TEXT))
         }
         val advanced = vertical(0).apply {
-            visibility = if (settings.wakePhones.isEmpty()) View.GONE else View.VISIBLE
+            visibility = if (savedPhones.isEmpty()) View.GONE else View.VISIBLE
             addView(TextView(this@MainActivity).apply {
                 text = "Spell the phrase as phones, for words the dictionary lacks or to change how it is said: " +
-                    "ARPAbet as in CMUdict, vowels with a stress digit (0, 1 or 2), one pronunciation per line. " +
-                    "Leave empty to use the dictionary."
+                    "ARPAbet as in CMUdict, vowels with a stress digit (0, 1 or 2), one pronunciation per line, " +
+                    "at most ${WakeWord.MAX_KEYWORDS}. Used while this section is open; leave it empty or close it " +
+                    "to use the dictionary."
                 textSize = 13f
                 setTextColor(secondary)
             })
             addView(phonesInput)
         }
-        val advancedToggle = TextView(this).apply {
-            text = "Advanced: enter phones by hand"
-            textSize = 14f
-            setTextColor(attrColor(com.google.android.material.R.attr.colorPrimary))
-            setPadding(0, dp(8), 0, dp(8))
-            setOnClickListener { advanced.visibility = if (advanced.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
-        }
-        val content = vertical(dp(20), dp(8)).apply {
-            addView(TextView(this@MainActivity).apply {
-                text = "2 to 4 syllables with distinct sounds recognize best. Very short or common phrases " +
-                    "trigger by accident. Either way it opens Claude's voice assistant."
-                textSize = 13f
-                setTextColor(secondary)
-            })
-            addView(phraseInput)
-            addView(result)
-            addView(advancedToggle)
-            addView(advanced)
-        }
+        /** The hand phones that count right now: none while Advanced is closed. */
+        fun activePhones() = if (advanced.visibility == View.VISIBLE) phonesInput.text.toString() else ""
 
-        fun show(r: WakeWord.Result) {
+        fun show(r: WakeWord.Result, phones: String) {
             result.setTextColor(if (r is WakeWord.Result.Ready) secondary else error)
             result.text = when (r) {
                 is WakeWord.Result.Ready -> {
                     val others = r.keywords.drop(1)
                     "Phones: ${r.keywords.first().phones.joinToString(" ")}" +
+                        (if (phones.isNotBlank()) " (typed by hand)" else "") +
                         (if (others.isEmpty()) "" else "\nAlso listens for: " +
                             others.take(3).joinToString("; ") { it.phones.joinToString(" ") } +
                             (if (others.size > 3) "; and ${others.size - 3} more" else "")) +
@@ -453,36 +439,78 @@ class MainActivity : AppCompatActivity() {
                 is WakeWord.Result.UnknownPhones -> "Not phones the wake word model knows: ${r.phones.joinToString(" ")}." +
                     (if (r.suggestions.isEmpty()) "" else " Vowels need a stress digit: " +
                         r.suggestions.entries.joinToString(", ") { "${it.value} for ${it.key}" } + ".")
-                WakeWord.Result.Empty -> if (phonesInput.text.isNotBlank()) "Type the phrase too: it names the phones."
+                is WakeWord.Result.NoVowel -> "Each pronunciation needs a vowel (a phone with a stress digit, " +
+                    "such as EY1); without one it would trigger on almost anything: " +
+                    r.pronunciations.joinToString("; ") + "."
+                is WakeWord.Result.TooMany -> "${r.count} pronunciations; at most ${WakeWord.MAX_KEYWORDS}. " +
+                    "Each one adds a way to trigger by accident."
+                WakeWord.Result.Empty -> if (phones.isNotBlank()) "Type the phrase too: it names the phones."
                 else "Type a phrase."
             }
         }
 
         val handler = android.os.Handler(mainLooper)
         var generation = 0
-        fun check(then: ((WakeWord.Result) -> Unit)? = null) {
+        /** Checks the phrase and phones as they are now; [then] gets the result and the phones that were checked. */
+        fun check(then: ((WakeWord.Result, String) -> Unit)? = null) {
             val phrase = phraseInput.text.toString()
-            val phones = phonesInput.text.toString()
+            val phones = activePhones()
             val gen = ++generation
             thread {
                 val r = resolve(phrase, phones)
                 runOnUiThread {
-                    if (gen == generation) show(r)
-                    then?.invoke(r)
+                    if (gen == generation) show(r, phones)
+                    then?.invoke(r, phones)
                 }
             }
         }
         val delayedCheck = Runnable { check() }
-        val watcher = object : android.text.TextWatcher {
+        fun checkSoon() {
+            handler.removeCallbacks(delayedCheck)
+            handler.postDelayed(delayedCheck, 400)
+        }
+
+        // Hand phones belong to the phrase they were typed for.
+        var phonesFor = if (savedPhones.isEmpty()) "" else WakeWord.tidy(current.phrase)
+        phraseInput.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                handler.removeCallbacks(delayedCheck)
-                handler.postDelayed(delayedCheck, 400)
+                if (phonesInput.text.isNotBlank() && WakeWord.tidy(s.toString()) != phonesFor) phonesInput.setText("")
+                checkSoon()
+            }
+        })
+        phonesInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                phonesFor = WakeWord.tidy(phraseInput.text.toString())
+                checkSoon()
+            }
+        })
+
+        val advancedToggle = TextView(this).apply {
+            text = "Advanced: enter phones by hand"
+            textSize = 14f
+            setTextColor(attrColor(com.google.android.material.R.attr.colorPrimary))
+            setPadding(0, dp(8), 0, dp(8))
+            setOnClickListener {
+                advanced.visibility = if (advanced.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                checkSoon()
             }
         }
-        phraseInput.addTextChangedListener(watcher)
-        phonesInput.addTextChangedListener(watcher)
+        val content = vertical(dp(20), dp(8)).apply {
+            addView(TextView(this@MainActivity).apply {
+                text = "2 to 4 syllables with distinct sounds recognize best. Very short or common phrases " +
+                    "trigger by accident. Either way it opens Claude's voice assistant."
+                textSize = 13f
+                setTextColor(secondary)
+            })
+            addView(phraseInput)
+            addView(result)
+            addView(advancedToggle)
+            addView(advanced)
+        }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Wake phrase")
@@ -499,9 +527,9 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 handler.removeCallbacks(delayedCheck)
-                check { r ->
+                check { r, phones ->
                     if (r is WakeWord.Result.Ready && dialog.isShowing) {
-                        settings.setWakePhrase(r, phonesInput.text.toString())
+                        settings.setWakePhrase(r, phones)
                         WakeWordService.reload(this)
                         dialog.dismiss()
                         refresh()
@@ -517,7 +545,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshWakeRows() {
         val on = settings.wakeWordEnabled
-        val phrase = settings.wakePhrase
+        // What the listener really uses: the default if the saved phrase no longer fits the model.
+        val wake = WakeWordService.effectiveWake(this)
+        val phrase = wake.phrase
+        val keywords = wake.keywords
         wakeSwitch.isChecked = on
         wakeContainer.visibility = if (on) View.VISIBLE else View.GONE
         wakeTitle.text = "Wake word: $phrase"
@@ -525,14 +556,15 @@ class MainActivity : AppCompatActivity() {
             !on -> "Off. Say $phrase anywhere to open Claude's voice assistant. " +
                 "Listens on the phone only; no audio leaves it."
             WakeWordService.running -> "On: listening everywhere." +
-                (if (settings.wakeKeywords.isEmpty()) " Hey cloud works too." else "") +
+                (if (WakeWord.hasAccentVariants(keywords)) " Cloud and clod for claude work too." else "") +
                 " A notification shows while it listens."
             else -> "On, but not listening right now. Turn it off and on again to restart."
         }
-        val keywords = WakeWord.parseKeywordsOrEmpty(settings.wakeKeywords).ifEmpty { WakeWord.DEFAULT_KEYWORDS }
-        wakePhraseSub.text = "\"$phrase\": ${keywords.first().phones.joinToString(" ")}" +
+        wakePhraseSub.text = (if (wake.fellBack) "\"${settings.wakePhrase}\" no longer fits the wake word model, " +
+            "so it listens for $phrase. " else "") +
+            "\"$phrase\": ${keywords.first().phones.joinToString(" ")}" +
             (if (keywords.size > 1) " and ${keywords.size - 1} more way${if (keywords.size > 2) "s" else ""} to say it" else "") +
-            (if (settings.wakePhones.isNotEmpty()) ", phones typed by hand" else "") + ". Tap to change."
+            (if (!wake.fellBack && settings.wakePhones.isNotEmpty()) ", phones typed by hand" else "") + ". Tap to change."
         val level = settings.wakeSensitivity
         wakeSensitivitySub.text = "Level $level of ${WakeWord.MAX_SENSITIVITY} (threshold %.2f). ".format(WakeWord.threshold(level)) +
             "Higher catches more, and triggers by mistake more."
