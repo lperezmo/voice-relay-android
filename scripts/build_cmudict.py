@@ -14,8 +14,15 @@ What changes from upstream's cmudict.dict:
     today),
   - a ";;;" header line records the source.
 
-The output is gzipped with a fixed timestamp, so the same input always gives
-the same bytes. About 3.5 MB of text becomes about 0.9 MB. The extension is
+The text is pinned: its SHA-256 (TEXT_SHA256) is checked before anything is
+written, so a rebuild either reproduces the committed dictionary word for word
+or fails. The gzip bytes around it are not pinned. They are written with a
+fixed timestamp and no file name, but the compressed stream depends on the
+zlib that Python links (some builds use zlib-ng), so a rebuild elsewhere can
+give a file with a different checksum and the same content. To check the
+committed file, compare the SHA-256 of its decompressed text with TEXT_SHA256.
+
+About 3.5 MB of text becomes about 0.9 MB. The extension is
 .gzip, not .gz, on purpose: the Android build un-gzips .gz assets while
 packaging, and the app would then not find the file it opens.
 
@@ -33,6 +40,8 @@ from pathlib import Path
 COMMIT = "74790861f652b15e4ac49015a90074ad62a27690"
 DICT_SHA256 = "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22"
 BASE = f"https://raw.githubusercontent.com/cmusphinx/cmudict/{COMMIT}"
+# SHA-256 of the dictionary text this script writes, before gzip.
+TEXT_SHA256 = "a0884381aa019aa3822222aa520e7407718d45f4d892894d3b0f6d7c0ad7c4e1"
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "app" / "src" / "main" / "assets" / "wake" / "cmudict.txt.gzip"
@@ -70,6 +79,11 @@ def main() -> int:
         lines.append(f"{word} {' '.join(phones)}")
 
     text = ("\n".join(lines) + "\n").encode("utf-8")
+    text_sha = hashlib.sha256(text).hexdigest()
+    if text_sha != TEXT_SHA256:
+        print(f"build_cmudict.py: the dictionary text changed\n  expected {TEXT_SHA256}\n  actual   {text_sha}\n"
+              "  If that is intended, update TEXT_SHA256.", file=sys.stderr)
+        return 1
     buf = io.BytesIO()
     with gzip.GzipFile(filename="", fileobj=buf, mode="wb", compresslevel=9, mtime=0) as f:
         f.write(text)

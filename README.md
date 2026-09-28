@@ -145,9 +145,10 @@ it.
 
 ## Wake word
 
-Off by default. Turn on **Wake word: hey claude** and say "hey claude" anywhere, from any app or
-with the screen off, to open Claude's voice assistant (the same overlay as holding the assistant
-key). "Hey cloud" and "hey clod" work too, for accents where Claude comes out that way. It is
+Off by default. Turn on the **Wake word** switch (its title shows the phrase, "hey claude" until
+you change it) and say the phrase anywhere, from any app or with the screen off, to open Claude's
+voice assistant (the same overlay as holding the assistant key). With "claude" in the phrase,
+"cloud" and "clod" work too, for accents where Claude comes out that way. It is
 meant for hands-free use, such as asking Claude to change the music while driving.
 
 **Wake phrase** changes what it listens for. Type a phrase, such as "hey jarvis", and the app
@@ -157,7 +158,10 @@ listener with it; whatever the phrase, it opens Claude. Every pronunciation the 
 for each word is added as a variant (up to 16 lines per phrase), and any phrase with "claude" keeps
 the "cloud" and "clod" variants. A word the dictionary lacks is named, and **Advanced** takes the
 phones by hand instead (ARPAbet as in CMUdict, such as `HH EY1 JH AA1 R V AH0 S`, one
-pronunciation per line). Every phone is checked against the model before it is saved. Phrases of
+pronunciation per line, at most 16); they are used only while Advanced is open, and changing the
+phrase's words clears them. Every phone is checked against the model before it is saved, and
+every pronunciation needs a vowel (a lone "S" or "SH" would fire on almost anything). If a saved
+phrase ever stops fitting the model, the app listens for "hey claude" and says so. Phrases of
 2 to 4 syllables with distinct sounds work best; very short or common ones trigger by accident.
 **Reset to default** goes back to "hey claude".
 
@@ -285,7 +289,7 @@ touched.
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
-| Wake word: hey claude | off | See [Wake word](#wake-word). |
+| Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
