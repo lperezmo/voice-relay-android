@@ -15,9 +15,9 @@ without switching away from your keyboard. Long-press it to fix the grammar of t
 
 It also has a few extras, all off until you turn them on:
 
-- **"Hey claude" wake word.** Say it from anywhere, even with the screen off, and the Claude
-  app's voice assistant opens, so you can talk to Claude hands-free and let it use the phone.
-  The listening runs entirely on the phone.
+- **"Hey claude" wake word**, or a phrase of your own. Say it from anywhere, even with the screen
+  off, and the Claude app's voice assistant opens, so you can talk to Claude hands-free and let it
+  use the phone. The listening runs entirely on the phone.
 - **Fix grammar** in every app's text-selection menu.
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
@@ -143,12 +143,23 @@ text (a web page, a received message) is fixed onto the clipboard. This path doe
 accessibility service at all. It accepts at most 10 requests a minute, because any app can call
 it.
 
-## Wake word: hey claude
+## Wake word
 
 Off by default. Turn on **Wake word: hey claude** and say "hey claude" anywhere, from any app or
 with the screen off, to open Claude's voice assistant (the same overlay as holding the assistant
 key). "Hey cloud" and "hey clod" work too, for accents where Claude comes out that way. It is
 meant for hands-free use, such as asking Claude to change the music while driving.
+
+**Wake phrase** changes what it listens for. Type a phrase, such as "hey jarvis", and the app
+spells it as the model's phones with the bundled
+[CMU Pronouncing Dictionary](https://github.com/cmusphinx/cmudict), shows them, and restarts the
+listener with it; whatever the phrase, it opens Claude. Every pronunciation the dictionary lists
+for each word is added as a variant (up to 16 lines per phrase), and any phrase with "claude" keeps
+the "cloud" and "clod" variants. A word the dictionary lacks is named, and **Advanced** takes the
+phones by hand instead (ARPAbet as in CMUdict, such as `HH EY1 JH AA1 R V AH0 S`, one
+pronunciation per line). Every phone is checked against the model before it is saved. Phrases of
+2 to 4 syllables with distinct sounds work best; very short or common ones trigger by accident.
+**Reset to default** goes back to "hey claude".
 
 How it works:
 
@@ -167,7 +178,7 @@ How it works:
   once Claude is done, unless something is already playing.
 - **Sensitivity** runs from 1 (strict) to 7 (loose); the default 5 is a detection threshold of
   0.20. Raise it if it misses you, lower it if it fires by mistake. Words that sound like the
-  phrase ("hey clown", "okay cloudy") can trigger it at any setting.
+  phrase ("hey clown", "okay cloudy" for "hey claude") can trigger it at any setting.
 - **Display over other apps** is what Android requires before an app may open another app from
   the background. Grant it when asked; Voice Relay draws nothing with it.
 
@@ -274,7 +285,8 @@ touched.
 | Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
-| Wake word: hey claude | off | See [Wake word](#wake-word-hey-claude). |
+| Wake word: hey claude | off | See [Wake word](#wake-word). |
+| Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
@@ -401,10 +413,10 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
-| `WakeWord.kt` | Wake word keywords, sensitivity, and the listen, pause, and resume state machine |
+| `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` intents |
-| `assets/wake/keywords.txt` | The wake phrases, as the model's phones (`HH EY1 K L AO1 D @HEY_CLAUDE`) |
+| `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |
@@ -413,7 +425,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 
 - Dictation needs an internet connection and an OpenAI API key; there is no offline mode.
 - The wake word keeps the microphone open, which costs battery (about a tenth of one CPU core),
-  and can be set off by speech, podcasts, or songs that sound like "hey claude".
+  and can be set off by speech, podcasts, or songs that sound like the wake phrase.
 - Apps with custom text surfaces may not accept inserted text; the clipboard is the fallback.
 - arm64 phones only, because the wake word's native library is built for arm64.
 

@@ -25,8 +25,9 @@ apps" windows.
 - **The API key is encrypted on the phone.** `SecretStore.kt` encrypts it with AES-GCM under a key
   that lives in the Android Keystore and never leaves it. App backup is off.
 - **The wake word stays on the phone.** Its audio is processed in memory by an on-device model and
-  never stored, logged or sent anywhere. When it hears "hey claude" it opens the Claude app's voice
-  assistant, and from then on the Claude app handles your speech.
+  never stored, logged or sent anywhere. When it hears "hey claude" (or the wake phrase you chose)
+  it opens the Claude app's voice assistant, and from then on the Claude app handles your speech.
+  A phrase you type is turned into phones on the phone, with a bundled dictionary.
 - **Logs are metadata only.** Sizes, timings, which method inserted the text, and error messages
   from OpenAI. Never your audio, your transcripts, or the text of any field.
 - **Clipboard copies are marked sensitive**, so they stay out of clipboard previews and keyboard
@@ -50,8 +51,8 @@ apps" windows.
   - **Wake word on and off** (`WakeControlActivity`, for Tasker and adb) can be sent by any app.
     Turning it on only works after you have turned the wake word on once in Voice Relay, which is
     where the microphone permission is granted. The effect is bounded: the phone listens for
-    "hey claude" locally, with its notification showing, and can open the Claude app. Another app
-    could also turn the wake word off.
+    its wake phrase locally, with its notification showing, and can open the Claude app. Another
+    app could also turn the wake word off. The intents cannot change the phrase.
 - **The Claude app.** Once the wake word opens it, what it can do on your phone is up to the
   Claude app and the permissions you gave it, not Voice Relay.
 - **The build.** Official APKs come from this repository's GitHub releases. The wake word's native
