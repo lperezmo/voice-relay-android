@@ -35,7 +35,8 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlin.math.abs
 
 /**
- * Listens for "hey claude" on the phone and opens Claude's voice assistant.
+ * Listens for the wake phrase ("hey claude" unless you chose another) on the
+ * phone and opens Claude's voice assistant.
  *
  * A microphone foreground service: 16 kHz mono PCM goes straight from
  * AudioRecord into a sherpa-onnx keyword spotter. Nothing is stored or sent
@@ -93,7 +94,33 @@ class WakeWordService : Service() {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
-        /** Rebuilds the spotter, for a new sensitivity. No-op when not running. */
+        @Volatile private var tokensCache: Set<String>? = null
+
+        /** The model's phones, from tokens.txt (read once). Empty if the model is missing. */
+        fun modelTokens(context: Context): Set<String> = tokensCache ?: try {
+            WakeWord.modelTokens(context.assets.open(WakeWord.TOKENS_ASSET).bufferedReader().use { it.readText() })
+                .also { tokensCache = it }
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Wake word: no tokens.txt: ${e.javaClass.simpleName}")
+            emptySet()
+        }
+
+        /**
+         * The phrase and keywords the listener uses: the saved ones, or the default
+         * when they no longer fit the model (sherpa-onnx refuses a list with an
+         * unknown phone, which would stop the listener). Settings and the
+         * notifications show this, so they never name a phrase that is not heard.
+         */
+        fun effectiveWake(context: Context): WakeWord.Effective {
+            val settings = AppSettings(context)
+            return WakeWord.effective(settings.wakePhrase, settings.wakeKeywords, modelTokens(context))
+        }
+
+        /**
+         * Restarts listening with the current sensitivity and phrase. The model is
+         * reloaded only for a new sensitivity; a new phrase just needs a new stream.
+         * No-op when not running.
+         */
         fun reload(context: Context) {
             if (!running) return
             try {
@@ -108,7 +135,7 @@ class WakeWordService : Service() {
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 nm.createNotificationChannel(
                     NotificationChannel(CHANNEL_ID, "Wake word", NotificationManager.IMPORTANCE_LOW).apply {
-                        description = "Shown while Voice Relay listens for hey claude"
+                        description = "Shown while Voice Relay listens for the wake word"
                         setShowBadge(false)
                     }
                 )
@@ -126,7 +153,7 @@ class WakeWordService : Service() {
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mic)
                 .setContentTitle("Wake word is off")
-                .setContentText("Android stopped it. Tap to listen for hey claude again.")
+                .setContentText("Android stopped it. Tap to listen for ${effectiveWake(context).phrase} again.")
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build()
@@ -143,14 +170,28 @@ class WakeWordService : Service() {
     private lateinit var settings: AppSettings
     private lateinit var audio: AudioManager
     private var mic: MicThread? = null
-    private var lastMicThread: Thread? = null
+    @Volatile private var lastMicThread: Thread? = null
     @Volatile private var ownSession = -1
     private var foreground = false
     private var callbacksRegistered = false
 
-    /** Only touched on mic threads, one at a time (each is joined before the next starts). */
+    /**
+     * Built and used only by mic threads, and only while holding [spotterLock].
+     * stopMic() waits for a mic thread only so long; the lock makes the next
+     * thread wait for the last one to finish (a model load can outlast that
+     * wait), so there is never more than one spotter.
+     */
     private var spotter: KeywordSpotter? = null
-    @Volatile private var spotterStale = false
+    private val spotterLock = Any()
+
+    /** What to listen for; see [effectiveWake]. */
+    private fun currentKeywords(): List<WakeWord.Keyword> {
+        val wake = effectiveWake(this)
+        if (wake.fellBack) {
+            Log.w(TAG, "Wake word: the saved phrase does not fit the model, using ${WakeWord.DEFAULT_PHRASE}")
+        }
+        return wake.keywords
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -190,11 +231,14 @@ class WakeWordService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RELOAD -> {
-                spotterStale = true
+                // Other states start the mic later, with whatever is current then.
                 if (controller.state == WakeWordController.State.LISTENING) {
                     stopMic()
                     startMic()
                 }
+                // The phrase may have changed: show it.
+                shownState = null
+                updateNotification()
                 return START_STICKY
             }
         }
@@ -209,7 +253,7 @@ class WakeWordService : Service() {
             registerCallbacks()
             Log.i(
                 TAG,
-                "Wake word: service up, sensitivity ${settings.wakeSensitivity} " +
+                "Wake word: service up, phrase \"${effectiveWake(this).phrase}\", sensitivity ${settings.wakeSensitivity} " +
                     "(threshold %.2f), overlay permission %s, accessibility %s".format(
                         WakeWord.threshold(settings.wakeSensitivity),
                         if (Settings.canDrawOverlays(this)) "yes" else "no",
@@ -258,7 +302,7 @@ class WakeWordService : Service() {
             this, 0, Intent(this, WakeWordService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
         val text = when (controller.state) {
-            WakeWordController.State.LISTENING -> "Listening for hey claude. Audio stays on the phone."
+            WakeWordController.State.LISTENING -> "Listening for ${effectiveWake(this).phrase}. Audio stays on the phone."
             WakeWordController.State.WAITING -> "Opening Claude"
             WakeWordController.State.BUSY -> "Paused while the microphone is in use"
             WakeWordController.State.OFF -> "Starting"
@@ -299,11 +343,15 @@ class WakeWordService : Service() {
             foreground = false
         }
         // The spotter is used on the mic thread; free it only once that thread is gone.
-        if (lastMicThread?.isAlive != true) {
-            spotter?.release()
-            spotter = null
-        }
+        // If it is still going, it frees the spotter itself as it ends (see MicThread).
+        if (lastMicThread?.isAlive != true) releaseSpotter()
         stopSelf()
+    }
+
+    /** Frees the model. Mic threads hold [spotterLock] while they use it, so this waits for none of them. */
+    private fun releaseSpotter() = synchronized(spotterLock) {
+        spotter?.release()
+        spotter = null
     }
 
     // --- Controller wiring ---
@@ -431,7 +479,8 @@ class WakeWordService : Service() {
         }
         // Known before recording starts, so our own stream never looks like someone else's.
         ownSession = rec.audioSessionId
-        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity)).also {
+        val keywords = currentKeywords()
+        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords)).also {
             lastMicThread = it
             it.start()
         }
@@ -470,7 +519,8 @@ class WakeWordService : Service() {
                 modelType = "zipformer2",
             ),
             maxActivePaths = 4,
-            keywordsFile = "wake/keywords.txt",
+            // Blank: the phrase's keywords come with each stream (see WakeWord).
+            keywordsFile = WakeWord.EMPTY_KEYWORDS_ASSET,
             keywordsScore = WakeWord.BOOST,
             keywordsThreshold = threshold,
             numTrailingBlanks = WakeWord.TRAILING_BLANKS,
@@ -480,21 +530,28 @@ class WakeWordService : Service() {
         }
     }
 
-    private inner class MicThread(private val rec: AudioRecord, private val threshold: Float) :
-        Thread("VoiceRelay-wake") {
+    /** [keywords] is [WakeWord.streamKeywords] of the phrase to listen for. */
+    private inner class MicThread(
+        private val rec: AudioRecord,
+        private val threshold: Float,
+        private val keywords: String,
+    ) : Thread("VoiceRelay-wake") {
         @Volatile var running = true
 
         override fun run() {
             try {
-                var kws = spotter
-                if (kws == null || spotterStale || kws.config.keywordsThreshold != threshold) {
-                    kws?.release()
-                    spotter = null
-                    kws = buildSpotter(threshold)
-                    spotter = kws
-                    spotterStale = false
+                // Waits here while an earlier thread (stopped, but still loading the model) finishes.
+                synchronized(spotterLock) {
+                    if (!running) return
+                    var kws = spotter
+                    if (kws == null || kws.config.keywordsThreshold != threshold) {
+                        kws?.release()
+                        spotter = null
+                        kws = buildSpotter(threshold)
+                        spotter = kws
+                    }
+                    listen(kws)
                 }
-                listen(kws)
             } catch (e: Throwable) {
                 // A missing model or native library must not take the app down with it.
                 Log.e(TAG, "Wake word: listener failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -502,6 +559,8 @@ class WakeWordService : Service() {
                 try { rec.stop() } catch (_: IllegalStateException) {}
                 rec.release()
                 if (running) handler.post { micDied(this) }
+                // The service stopped while this thread was still going, so it left the spotter to us.
+                if (!WakeWordService.running && lastMicThread === this) releaseSpotter()
             }
         }
 
@@ -511,8 +570,8 @@ class WakeWordService : Service() {
                 Log.w(TAG, "Wake word: the mic did not start")
                 return
             }
-            Log.i(TAG, "Wake word: listening")
-            val stream = kws.createStream()
+            val stream = kws.createStream(keywords)
+            Log.i(TAG, "Wake word: listening for ${keywords.split('/').joinToString(", ") { it.substringAfterLast('@') }}")
             val pcm = ShortArray(CHUNK)
             val samples = FloatArray(CHUNK)
             var silentChunks = 0

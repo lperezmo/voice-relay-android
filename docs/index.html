@@ -1548,7 +1548,7 @@
         <p class="lede">
           Voice Relay puts a small dictation button over every app on an Android phone. Tap it, speak, and the text lands
           where you are typing, transcribed by OpenAI with your own API key. It can also fix the grammar of text you typed,
-          and listen on the phone for "hey claude" to open the Claude app's voice assistant. This page shows how audio
+          and listen on the phone for "hey claude", or a wake phrase you choose, to open the Claude app's voice assistant. This page shows how audio
           becomes text, how the text gets into another app's field, how the wake word decides when to listen, and what
           leaves the phone.
         </p>
@@ -1829,7 +1829,9 @@
         <p class="sec-intro">
           A microphone foreground service feeds 100 ms of 16 kHz audio at a time to a sherpa-onnx keyword spotter. When it
           hears "hey claude" it lets go of the microphone and opens Claude's voice assistant. A small state machine, tested
-          without Android, decides when the microphone is on.
+          without Android, decides when the microphone is on. The phrase is editable: the app spells a typed phrase as the
+          model's phones with a bundled copy of CMUdict, one keyword line per pronunciation, checks every phone against the
+          model's tokens, and hands the lines to the spotter with each new stream, so a new phrase needs no model reload.
         </p>
         <div class="diagram">
           <svg viewBox="0 0 900 330" width="100%" style="min-width: 720px" role="img"
@@ -1850,7 +1852,7 @@
             <line class="edge" x1="140" y1="158" x2="246" y2="158" marker-end="url(#ww-arr)" />
             <text class="e-lab" x="193" y="148" text-anchor="middle">start</text>
 
-            <g data-tip="AudioRecord (voice recognition source) into the keyword spotter. Keywords are CMU phones, so HEY_CLAUDE, HEY_CLOUD and HEY_CLOD are three short lines. Threshold 0.45 minus 0.05 per sensitivity level; the default 5 is 0.20.">
+            <g data-tip="AudioRecord (voice recognition source) into the keyword spotter. Keywords are CMU phones, so the default HEY_CLAUDE, HEY_CLOUD and HEY_CLOD are three short lines; a typed phrase gets one line per CMUdict pronunciation. Threshold 0.45 minus 0.05 per sensitivity level; the default 5 is 0.20.">
               <rect class="n-box n-hot" x="248" y="126" width="196" height="64" rx="9" />
               <text class="n-t" x="346" y="153" text-anchor="middle">LISTENING</text>
               <text class="n-s" x="346" y="171" text-anchor="middle">mic on · spotter running</text>

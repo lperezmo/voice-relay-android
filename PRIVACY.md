@@ -24,9 +24,11 @@ timings only, never your text.
 
 When you turn on the wake word, the app keeps the microphone open in a foreground service (with a
 notification you can stop it from) and runs a small keyword-spotting model on the phone to hear
-"hey claude". This audio is processed in memory on the device and discarded as it goes: it is
-never recorded to storage, never sent to OpenAI or anywhere else, and never logged. The logs
-record only which keyword fired and the detection settings. When the keyword is heard, the app
+"hey claude", or the wake phrase you chose. This audio is processed in memory on the device and
+discarded as it goes: it is never recorded to storage, never sent to OpenAI or anywhere else, and
+never logged. A phrase you type is stored in the app's settings and turned into phones on the
+phone with a bundled pronunciation dictionary; it is not sent anywhere. The logs record only the
+wake phrase, which keyword fired, and the detection settings. When the keyword is heard, the app
 opens Claude's voice assistant (the Claude app then handles your speech under Anthropic's terms).
 
 While it listens, the app reads Android's audio state (whether another app is recording, the

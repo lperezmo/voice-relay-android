@@ -87,7 +87,40 @@ class AppSettings(context: Context) {
         get() = prefs.getString("previous_ime", "") ?: ""
         set(v) = prefs.edit().putString("previous_ime", v).apply()
 
-    /** Listen for "hey claude" and open Claude's voice assistant. */
+    /**
+     * The wake phrase as shown ("hey claude"), tidied by [WakeWord.tidy].
+     * [wakeKeywords] holds what the spotter listens for; [setWakePhrase] keeps the three in step.
+     */
+    val wakePhrase: String
+        get() = prefs.getString("wake_phrase", null) ?: WakeWord.DEFAULT_PHRASE
+
+    /** Phones typed by hand for [wakePhrase], or "" when the dictionary spelled it. */
+    val wakePhones: String
+        get() = prefs.getString("wake_phones", null) ?: ""
+
+    /** The phrase's keyword lines, checked when saved. "" means the built-in default. */
+    val wakeKeywords: String
+        get() = prefs.getString("wake_keywords", null) ?: ""
+
+    /**
+     * Saves a checked phrase. Pass null to go back to [WakeWord.DEFAULT_PHRASE];
+     * a phrase that comes out exactly as the default is stored as the default.
+     */
+    fun setWakePhrase(ready: WakeWord.Result.Ready?, phones: String = "") {
+        prefs.edit().apply {
+            if (ready == null || (ready.keywords == WakeWord.DEFAULT_KEYWORDS && phones.isBlank())) {
+                remove("wake_phrase")
+                remove("wake_phones")
+                remove("wake_keywords")
+            } else {
+                putString("wake_phrase", ready.phrase)
+                putString("wake_phones", phones.trim())
+                putString("wake_keywords", ready.keywords.joinToString("\n") { it.line })
+            }
+        }.apply()
+    }
+
+    /** Listen for the wake phrase and open Claude's voice assistant. */
     var wakeWordEnabled: Boolean
         get() = prefs.getBoolean("wake_word", false)
         set(v) = prefs.edit().putBoolean("wake_word", v).apply()
