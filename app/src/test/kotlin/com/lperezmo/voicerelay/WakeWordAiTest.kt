@@ -65,6 +65,22 @@ class WakeWordAiTest {
         assertTrue(r.toString(), r is WakeWord.Result.Ready)
     }
 
+    @Test fun `instructions leave out the model's pinyin tokens`() {
+        val text = WakeWordAi.instructions(tokens + setOf("a", "e", "ai", "ǎi"), WakeWordAi.Language.AUTO)
+        val list = text.lines().first { it.contains("2 secondary") }.substringAfter("): ").split(" ")
+        assertEquals(tokens.sorted(), list)
+    }
+
+    @Test fun `a suggestion that would not fit the phones field is left out whole`() {
+        val long = List(200) { "N" }.joinToString(" ") + " IY1" // 403 characters
+        val json = (1..4).joinToString(",") { i -> """{"phones":"${"HH ".repeat(i)}$long","note":""}""" }
+        val p = WakeWordAi.parse("""{"pronunciations":[$json]}""", tokens)!!
+        assertEquals(2, p.kept.size)
+        assertTrue(p.text.length <= WakeWord.MAX_PHONES_TEXT)
+        assertTrue(p.dropped.all { it.endsWith("(too long to fit)") })
+        assertEquals(2, p.dropped.size)
+    }
+
     @Test fun `instructions list the model phones and the language hint`() {
         val text = WakeWordAi.instructions(tokens, WakeWordAi.Language.SPANISH)
         assertTrue(text.contains("AA1 AH0 AO1"))

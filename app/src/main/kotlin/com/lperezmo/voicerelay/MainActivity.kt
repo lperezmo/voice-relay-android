@@ -564,7 +564,7 @@ class MainActivity : AppCompatActivity() {
                                     aiStatus.text = "The phrase changed while waiting. Tap Generate with AI again."
                                 }
                                 else -> {
-                                    phonesInput.setText(parsed.kept.joinToString("\n") { it.phones.joinToString(" ") })
+                                    phonesInput.setText(parsed.text)
                                     aiStatus.setTextColor(secondary)
                                     val notes = parsed.kept.map { it.note }.filter { it.isNotEmpty() }
                                     aiStatus.text = "${parsed.kept.size} suggested by $model" +

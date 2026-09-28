@@ -118,6 +118,20 @@ class OpenAiClientTest {
         assertFalse(third.contains("json_schema"))
     }
 
+    @Test fun `respondJson reports the first error when every attempt fails`() {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"Model needs verification"}}"""))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"second"}}"""))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"third"}}"""))
+        val r = client.respondJson("hey", "gpt-5.6-luna", "Say it", "x", WakeWordAi.SCHEMA)
+        assertEquals("Model needs verification", r.error)
+        assertFalse(r.ok)
+    }
+
+    @Test fun `a refusal is an error, not an unknown response`() {
+        val json = """{"output":[{"type":"message","content":[{"type":"refusal","refusal":"No."}]}]}"""
+        assertEquals("Refused: No.", OpenAiClient.parseResponsesText(json).error)
+    }
+
     @Test fun `parses responses output array when output_text is absent`() {
         val json = """{"output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":" Hi. "}]}]}"""
         assertEquals("Hi.", OpenAiClient.parseResponsesText(json).text)

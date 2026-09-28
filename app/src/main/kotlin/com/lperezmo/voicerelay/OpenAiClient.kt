@@ -86,14 +86,17 @@ class OpenAiClient(
             .put("name", schemaName)
             .put("schema", schema)
             .put("strict", true)
-        var r = postJson("responses", cleanupBody(input, model, instructions, reasoningEffort, format), ::parseResponsesText)
+        val first = postJson("responses", cleanupBody(input, model, instructions, reasoningEffort, format), ::parseResponsesText)
+        var r = first
         if (r.httpCode == 400 && reasoningEffort != null) {
             r = postJson("responses", cleanupBody(input, model, instructions, null, format), ::parseResponsesText)
         }
         if (r.httpCode == 400) {
             r = postJson("responses", cleanupBody(input, model, instructions, null), ::parseResponsesText)
         }
-        return r
+        // When every attempt fails, the first error names the real cause (a later one may only
+        // be a side effect of what the retry left out).
+        return if (!r.ok && first.httpCode == 400 && first.error != null) r.copy(error = first.error) else r
     }
 
     /**
@@ -208,6 +211,7 @@ class OpenAiClient(
                 for (j in 0 until content.length()) {
                     val part = content.getJSONObject(j)
                     if (part.optString("type") == "output_text") return@parse withUsage(part.getString("text"))
+                    if (part.optString("type") == "refusal") return@parse Result(null, "Refused: ${part.optString("refusal")}")
                 }
             }
             null
