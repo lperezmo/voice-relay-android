@@ -94,6 +94,30 @@ class OpenAiClientTest {
         assertFalse(server.takeRequest().body.readUtf8().contains("reasoning"))
     }
 
+    @Test fun `respondJson sends a strict schema with low reasoning`() {
+        server.enqueue(MockResponse().setBody("""{"output_text":"{\"pronunciations\":[]}"}"""))
+        val r = client.respondJson("hey", "gpt-5.6-luna", "Say it", WakeWordAi.SCHEMA_NAME, WakeWordAi.SCHEMA)
+        assertEquals("""{"pronunciations":[]}""", r.text)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"type\":\"json_schema\""))
+        assertTrue(body.contains("\"strict\":true"))
+        assertTrue(body.contains("\"effort\":\"low\""))
+    }
+
+    @Test fun `respondJson drops reasoning, then the schema, on 400s`() {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"reasoning not supported"}}"""))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":{"message":"text.format not supported"}}"""))
+        server.enqueue(MockResponse().setBody("""{"output_text":"{}"}"""))
+        assertEquals("{}", client.respondJson("hey", "gpt-4", "Say it", "x", WakeWordAi.SCHEMA).text)
+        assertTrue(server.takeRequest().body.readUtf8().contains("reasoning"))
+        val second = server.takeRequest().body.readUtf8()
+        assertFalse(second.contains("reasoning"))
+        assertTrue(second.contains("json_schema"))
+        val third = server.takeRequest().body.readUtf8()
+        assertFalse(third.contains("reasoning"))
+        assertFalse(third.contains("json_schema"))
+    }
+
     @Test fun `parses responses output array when output_text is absent`() {
         val json = """{"output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":" Hi. "}]}]}"""
         assertEquals("Hi.", OpenAiClient.parseResponsesText(json).text)

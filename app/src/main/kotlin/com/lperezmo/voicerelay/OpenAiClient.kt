@@ -68,6 +68,35 @@ class OpenAiClient(
     }
 
     /**
+     * A JSON answer through the Responses API, shaped by [schema] (strict
+     * structured output). A 400 retries without the reasoning setting, then
+     * without the schema, so an older model still answers; the instructions
+     * ask for the same JSON either way, and the caller checks what comes back.
+     */
+    fun respondJson(
+        input: String,
+        model: String,
+        instructions: String,
+        schemaName: String,
+        schema: JSONObject,
+        reasoningEffort: String? = "low",
+    ): Result {
+        val format = JSONObject()
+            .put("type", "json_schema")
+            .put("name", schemaName)
+            .put("schema", schema)
+            .put("strict", true)
+        var r = postJson("responses", cleanupBody(input, model, instructions, reasoningEffort, format), ::parseResponsesText)
+        if (r.httpCode == 400 && reasoningEffort != null) {
+            r = postJson("responses", cleanupBody(input, model, instructions, null, format), ::parseResponsesText)
+        }
+        if (r.httpCode == 400) {
+            r = postJson("responses", cleanupBody(input, model, instructions, null), ::parseResponsesText)
+        }
+        return r
+    }
+
+    /**
      * Opens (and pools) the TLS connection to the API while the user is still
      * speaking, so the upload starts without a handshake. Unauthenticated HEAD;
      * the response is ignored.
@@ -142,13 +171,20 @@ class OpenAiClient(
             return fields
         }
 
-        fun cleanupBody(text: String, model: String, instructions: String, reasoningEffort: String?): JSONObject =
+        fun cleanupBody(
+            text: String,
+            model: String,
+            instructions: String,
+            reasoningEffort: String?,
+            format: JSONObject? = null,
+        ): JSONObject =
             JSONObject().apply {
                 put("model", model)
                 put("instructions", instructions)
                 put("input", text)
                 put("store", false)
                 if (reasoningEffort != null) put("reasoning", JSONObject().put("effort", reasoningEffort))
+                if (format != null) put("text", JSONObject().put("format", format))
             }
 
         fun parseTranscriptionText(json: String): Result = parse(json) { obj ->
