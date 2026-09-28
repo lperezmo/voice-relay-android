@@ -13,12 +13,13 @@ subsequent changes recorded in the git history.
 
 The wake word uses sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx): its
 Kotlin bindings are vendored under app/src/main/kotlin/com/k2fsa/sherpa/onnx/,
-and its Android native library, which statically links ONNX Runtime
-(https://github.com/microsoft/onnxruntime), and the
-sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20 keyword-spotting model are
-downloaded at build time by scripts/fetch_sherpa.sh and bundled in the APK.
-sherpa-onnx is licensed under the Apache License, Version 2.0; ONNX Runtime
-under the MIT License.
+its Android native library, which statically links ONNX Runtime
+(https://github.com/microsoft/onnxruntime), is built from source with only its
+keyword-spotting parts by scripts/build_sherpa.sh in CI, and the
+sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20 keyword-spotting model is
+downloaded at build time by scripts/fetch_sherpa.sh. Both are bundled in the
+APK. sherpa-onnx is licensed under the Apache License, Version 2.0; ONNX
+Runtime under the MIT License.
 
 THIRD_PARTY_NOTICES.md lists all third-party software included in the app, with
 its license, version and source, and the licenses/ folder holds the full license

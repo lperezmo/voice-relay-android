@@ -144,7 +144,6 @@ class LicensesActivity : AppCompatActivity() {
             Doc("LICENSE", "Apache License 2.0", "Voice Relay, and most of the software it includes"),
             Doc("NOTICE", "NOTICE", "Voice Relay is based on Phone Whisper by kafkasl"),
             Doc("onnxruntime-ThirdPartyNotices.txt", "ONNX Runtime third-party notices", "Inside the wake word library"),
-            Doc("GPL-3.0.txt", "GNU General Public License 3.0", "espeak-ng, inside the wake word library"),
             Doc("MPL-2.0.txt", "Mozilla Public License 2.0", "Eigen, and the Public Suffix List in OkHttp"),
             Doc("kaldifst-LICENSE.txt", "kaldifst license", "Inside the wake word library"),
         )

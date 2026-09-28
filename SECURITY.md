@@ -55,8 +55,10 @@ apps" windows.
 - **The Claude app.** Once the wake word opens it, what it can do on your phone is up to the
   Claude app and the permissions you gave it, not Voice Relay.
 - **The build.** Official APKs come from this repository's GitHub releases. The wake word's native
-  library and model are downloaded by `scripts/fetch_sherpa.sh` from the sherpa-onnx releases and
-  checked against pinned SHA-256 hashes.
+  library is built by this repository's CI from the sherpa-onnx source at a pinned tag and commit
+  (`scripts/build_sherpa.sh`), linking a prebuilt ONNX Runtime checked against a pinned SHA-256
+  hash; the model is downloaded by `scripts/fetch_sherpa.sh` from the sherpa-onnx releases and
+  checked against a pinned SHA-256 hash.
 
 ## Reporting a problem
 
