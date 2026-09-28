@@ -73,7 +73,7 @@
                 android:resource="@xml/method" />
         </service>
 
-        <!-- Wake word: listens for "hey claude" and opens Claude's voice assistant. -->
+        <!-- Wake word: listens for the wake phrase ("hey claude" by default) and opens Claude's voice assistant. -->
         <service
             android:name=".WakeWordService"
             android:exported="false"

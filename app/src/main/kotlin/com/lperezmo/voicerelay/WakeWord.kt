@@ -1,12 +1,27 @@
 package com.lperezmo.voicerelay
 
+import java.io.InputStream
+import java.util.zip.GZIPInputStream
+
 /**
  * The wake word's keywords and tuning. Android-free, so it is unit tested.
  *
- * Keywords live in `assets/wake/keywords.txt`, one per line, written as CMU
- * ARPAbet phones (the model's tokens) followed by `@LABEL`. Spelling them as
- * phones is what lets accent variants in cheaply: "hey claude" (K L AO1 D),
- * "hey cloud" (K L AW1 D) and "hey clod" (K L AA1 D) are three short lines.
+ * A keyword is a line of CMU ARPAbet phones (the model's tokens) followed by
+ * `@LABEL`. Spelling them as phones is what lets accent variants in cheaply:
+ * "hey claude" (K L AO1 D), "hey cloud" (K L AW1 D) and "hey clod" (K L AA1 D)
+ * are three short lines.
+ *
+ * The phrase is yours to choose. A typed phrase becomes phones through the CMU
+ * Pronouncing Dictionary (`assets/wake/cmudict.txt.gzip`, built by
+ * scripts/build_cmudict.py): every pronunciation it lists for each word, in
+ * every combination, is a keyword of its own. Words it lacks can be spelled as
+ * phones by hand. Either way each phone is checked against the model's
+ * tokens.txt before it is saved or used.
+ *
+ * The keywords go to the spotter per stream, not in its keywords file:
+ * sherpa-onnx adds a stream's keywords to the file's, so the file
+ * (`assets/wake/empty_keywords.txt`) is blank and a new phrase only needs a new
+ * stream, not a new model load.
  */
 object WakeWord {
     const val CLAUDE_PACKAGE = "com.anthropic.claude"
@@ -37,9 +52,208 @@ object WakeWord {
         return (45 - 5 * level) / 100f
     }
 
-    data class Keyword(val phones: List<String>, val label: String)
+    data class Keyword(val phones: List<String>, val label: String) {
+        /** The line sherpa-onnx reads: the phones, then `@LABEL`. */
+        val line: String get() = (phones + "@$label").joinToString(" ")
+    }
 
-    /** Parses keywords.txt. Blank lines and lines starting with '#' are skipped. */
+    /** One way to say a word. [spelling] names it in the keyword's label. */
+    data class Pronunciation(val spelling: String, val phones: List<String>)
+
+    /** The phrase the app ships with, and what Reset to default restores. */
+    const val DEFAULT_PHRASE = "hey claude"
+
+    /**
+     * The keywords for [DEFAULT_PHRASE]: CMUdict's "hey claude", plus "cloud"
+     * and "clod" from [ACCENT_VARIANTS]. Built in, so the default never waits on
+     * the dictionary; a test checks that the dictionary gives the same lines.
+     */
+    val DEFAULT_KEYWORDS = listOf(
+        Keyword(listOf("HH", "EY1", "K", "L", "AO1", "D"), "HEY_CLAUDE"),
+        Keyword(listOf("HH", "EY1", "K", "L", "AW1", "D"), "HEY_CLOUD"),
+        Keyword(listOf("HH", "EY1", "K", "L", "AA1", "D"), "HEY_CLOD"),
+    )
+
+    /**
+     * Pronunciations CMUdict does not list but accents produce. "Claude" comes
+     * out as "cloud" or "clod" for many speakers, in any phrase that uses it.
+     */
+    val ACCENT_VARIANTS: Map<String, List<Pronunciation>> = mapOf(
+        "claude" to listOf(
+            Pronunciation("cloud", listOf("K", "L", "AW1", "D")),
+            Pronunciation("clod", listOf("K", "L", "AA1", "D")),
+        ),
+    )
+
+    /** Most keyword lines one phrase turns into. Each costs a little decoding and a little false-trigger risk. */
+    const val MAX_KEYWORDS = 16
+
+    /** Where the spotter's keywords file is, in assets. Deliberately blank; see the class comment. */
+    const val EMPTY_KEYWORDS_ASSET = "wake/empty_keywords.txt"
+    /** Gzipped, and named .gzip because the Android build un-gzips .gz assets while packaging. */
+    const val DICTIONARY_ASSET = "wake/cmudict.txt.gzip"
+    const val TOKENS_ASSET = "wake/model/tokens.txt"
+
+    /** What a typed phrase (and maybe hand-entered phones) came to. */
+    sealed interface Result {
+        /** Usable: [phrase] is the tidied phrase, [keywords] its lines, first the main pronunciation. */
+        data class Ready(val phrase: String, val keywords: List<Keyword>) : Result
+
+        /** Words the dictionary does not have, in phrase order. */
+        data class UnknownWords(val words: List<String>) : Result
+
+        /** Phones that are not model tokens, each with a suggestion when one is obvious. */
+        data class UnknownPhones(val phones: List<String>, val suggestions: Map<String, String>) : Result
+
+        /** No words (or no phones) at all. */
+        data object Empty : Result
+    }
+
+    /**
+     * The words of a typed phrase, lowercased. Letters, digits and apostrophes
+     * make up words; anything else (spaces, commas, hyphens) separates them.
+     * "Hey, Jarvis!" -> [hey, jarvis]; "O'Brien" -> [o'brien].
+     */
+    fun words(phrase: String): List<String> =
+        phrase.lowercase().split(Regex("[^\\p{L}\\p{N}']+")).map { it.trim('\'') }.filter { it.isNotEmpty() }
+
+    /** "  Hey,  Jarvis! " -> "hey jarvis": how a phrase is stored and shown. */
+    fun tidy(phrase: String) = words(phrase).joinToString(" ")
+
+    /** The model's phones: tokens.txt's first column, without `<blk>`, `<unk>` and the like. */
+    fun modelTokens(tokensTxt: String): Set<String> =
+        tokensTxt.lines().map { it.trim().substringBefore(' ') }.filter { it.isNotEmpty() && !it.startsWith("<") }.toSet()
+
+    /**
+     * Looks [words] up in the gzipped dictionary (`word PHONES` lines, a word
+     * once per pronunciation, `;;;` lines are comments). Streams through it
+     * without keeping it in memory. Words it lacks are absent from the result.
+     */
+    fun lookup(gzipped: InputStream, words: Collection<String>): Map<String, List<List<String>>> {
+        val wanted = words.toSet()
+        val found = LinkedHashMap<String, MutableList<List<String>>>()
+        if (wanted.isEmpty()) return found
+        GZIPInputStream(gzipped).bufferedReader(Charsets.UTF_8).useLines { lines ->
+            for (line in lines) {
+                if (line.startsWith(";;;")) continue
+                val space = line.indexOf(' ')
+                if (space <= 0) continue
+                val word = line.substring(0, space)
+                if (word !in wanted) continue
+                val phones = line.substring(space + 1).trim().split(' ').filter { it.isNotEmpty() }
+                if (phones.isNotEmpty()) found.getOrPut(word) { mutableListOf() } += phones
+            }
+        }
+        return found
+    }
+
+    /**
+     * Turns a phrase into keywords with the dictionary: every pronunciation of
+     * every word (plus [ACCENT_VARIANTS]), combined, capped at [MAX_KEYWORDS].
+     * [dictionary] needs only the phrase's words; see [lookup].
+     */
+    fun fromDictionary(phrase: String, dictionary: Map<String, List<List<String>>>, tokens: Set<String>): Result {
+        val words = words(phrase)
+        if (words.isEmpty()) return Result.Empty
+        val missing = words.filter { dictionary[it].isNullOrEmpty() }.distinct()
+        if (missing.isNotEmpty()) return Result.UnknownWords(missing)
+        val choices = words.map { w ->
+            dictionary.getValue(w).map { Pronunciation(w, it) } + ACCENT_VARIANTS[w].orEmpty()
+        }
+        return checked(Result.Ready(words.joinToString(" "), combine(choices)), tokens)
+    }
+
+    /**
+     * Turns hand-entered phones into keywords for [phrase], which names them.
+     * One pronunciation per line (or separated by '/' or ','), phones separated
+     * by spaces, in CMUdict's ARPAbet with stress digits on vowels: "HH EY1 JH AA1 R V IH0 S".
+     * Case does not matter.
+     */
+    fun fromPhones(phrase: String, phones: String, tokens: Set<String>): Result {
+        val words = words(phrase)
+        val lines = phones.split('\n', '/', ',')
+            .map { line -> line.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { it.uppercase() } }
+            .filter { it.isNotEmpty() }
+        if (words.isEmpty() || lines.isEmpty()) return Result.Empty
+        val spelling = words.joinToString("_")
+        val keywords = labelled(lines.map { listOf(Pronunciation(spelling, it)) })
+        return checked(Result.Ready(words.joinToString(" "), keywords), tokens)
+    }
+
+    /** Every phone must be a model token: sherpa-onnx refuses the whole list otherwise. */
+    private fun checked(ready: Result.Ready, tokens: Set<String>): Result {
+        val unknown = ready.keywords.flatMap { it.phones }.filter { it !in tokens }.distinct()
+        if (unknown.isEmpty()) return ready
+        // The usual slip: a vowel without its stress digit (EY for EY1).
+        val suggestions = unknown.mapNotNull { p -> listOf("1", "0", "2").map { p + it }.firstOrNull { it in tokens }?.let { p to it } }.toMap()
+        return Result.UnknownPhones(unknown, suggestions)
+    }
+
+    /**
+     * One keyword per combination of the words' pronunciations: first the one
+     * that takes every word's first pronunciation, then those that swap in one
+     * alternative, then two, and so on, up to [MAX_KEYWORDS]. A phone sequence
+     * that repeats is listed once.
+     */
+    fun combine(choices: List<List<Pronunciation>>): List<Keyword> {
+        val combos = mutableListOf<List<Pronunciation>>()
+        fun pick(i: Int, swapsLeft: Int, picked: List<Pronunciation>) {
+            if (combos.size >= MAX_KEYWORDS * 4) return
+            if (i == choices.size) {
+                if (swapsLeft == 0) combos += picked
+                return
+            }
+            pick(i + 1, swapsLeft, picked + choices[i][0])
+            if (swapsLeft > 0) for (j in 1 until choices[i].size) pick(i + 1, swapsLeft - 1, picked + choices[i][j])
+        }
+        for (swaps in 0..choices.size) {
+            pick(0, swaps, emptyList())
+            if (combos.distinctBy { c -> c.flatMap { it.phones } }.size >= MAX_KEYWORDS) break
+        }
+        return labelled(combos).take(MAX_KEYWORDS)
+    }
+
+    /** Labels from the spellings ("HEY_CLOUD"), numbered when two would clash; duplicates dropped. */
+    private fun labelled(combos: List<List<Pronunciation>>): List<Keyword> {
+        val seen = mutableSetOf<List<String>>()
+        val labels = mutableMapOf<String, Int>()
+        return combos.mapNotNull { combo ->
+            val phones = combo.flatMap { it.phones }
+            if (!seen.add(phones)) return@mapNotNull null
+            val base = combo.joinToString("_") { p -> p.spelling.uppercase().filter { it.isLetterOrDigit() || it == '_' } }
+                .ifEmpty { "WAKE" }
+            val n = (labels[base] ?: 0) + 1
+            labels[base] = n
+            Keyword(phones, if (n == 1) base else "${base}_$n")
+        }
+    }
+
+    /** The keywords as one string for KeywordSpotter.createStream: lines joined by '/'. */
+    fun streamKeywords(keywords: List<Keyword>) = keywords.joinToString("/") { it.line }
+
+    /**
+     * The saved keywords (lines, as [Keyword.line] writes them), or [DEFAULT_KEYWORDS]
+     * when nothing usable is saved: empty, unreadable, or a phone the model lacks.
+     */
+    fun keywordsOrDefault(saved: String, tokens: Set<String>): List<Keyword> {
+        val parsed = parseKeywordsOrEmpty(saved)
+        return parsed.takeIf { it.isNotEmpty() && it.all { k -> k.phones.all { p -> p in tokens } } } ?: DEFAULT_KEYWORDS
+    }
+
+    /** Syllables in a phone sequence: ARPAbet vowels are the phones with a stress digit. */
+    fun syllables(phones: List<String>) = phones.count { it.lastOrNull()?.isDigit() == true }
+
+    /** A caution for a phrase that is short or long enough to work badly, or null. */
+    fun advice(keywords: List<Keyword>): String? {
+        val n = syllables(keywords.firstOrNull()?.phones.orEmpty())
+        return when {
+            n < 2 -> "Only $n syllable${if (n == 1) "" else "s"}: expect it to trigger by accident. 2 to 4 syllables work best."
+            n > 5 -> "$n syllables: long phrases are easy to say slightly wrong and get missed. 2 to 4 work best."
+            else -> null
+        }
+    }
+
+    /** Parses keyword lines. Blank lines and lines starting with '#' are skipped. */
     fun parseKeywords(text: String): List<Keyword> =
         text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.map { line ->
             val parts = line.split(Regex("\\s+"))
@@ -50,7 +264,14 @@ object WakeWord {
             Keyword(phones, label)
         }
 
-    /** "HEY_CLOUD" -> "hey cloud", for logs and the notification. */
+    /** [parseKeywords], or an empty list for text it rejects. */
+    fun parseKeywordsOrEmpty(text: String): List<Keyword> = try {
+        parseKeywords(text)
+    } catch (_: IllegalArgumentException) {
+        emptyList()
+    }
+
+    /** "HEY_CLOUD" -> "hey cloud", for logs. */
     fun spoken(label: String) = label.replace('_', ' ').lowercase()
 }
 

@@ -35,7 +35,8 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlin.math.abs
 
 /**
- * Listens for "hey claude" on the phone and opens Claude's voice assistant.
+ * Listens for the wake phrase ("hey claude" unless you chose another) on the
+ * phone and opens Claude's voice assistant.
  *
  * A microphone foreground service: 16 kHz mono PCM goes straight from
  * AudioRecord into a sherpa-onnx keyword spotter. Nothing is stored or sent
@@ -93,7 +94,11 @@ class WakeWordService : Service() {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
-        /** Rebuilds the spotter, for a new sensitivity. No-op when not running. */
+        /**
+         * Restarts listening with the current sensitivity and phrase. The model is
+         * reloaded only for a new sensitivity; a new phrase just needs a new stream.
+         * No-op when not running.
+         */
         fun reload(context: Context) {
             if (!running) return
             try {
@@ -108,7 +113,7 @@ class WakeWordService : Service() {
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 nm.createNotificationChannel(
                     NotificationChannel(CHANNEL_ID, "Wake word", NotificationManager.IMPORTANCE_LOW).apply {
-                        description = "Shown while Voice Relay listens for hey claude"
+                        description = "Shown while Voice Relay listens for the wake word"
                         setShowBadge(false)
                     }
                 )
@@ -126,7 +131,7 @@ class WakeWordService : Service() {
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mic)
                 .setContentTitle("Wake word is off")
-                .setContentText("Android stopped it. Tap to listen for hey claude again.")
+                .setContentText("Android stopped it. Tap to listen for ${AppSettings(context).wakePhrase} again.")
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build()
@@ -150,7 +155,30 @@ class WakeWordService : Service() {
 
     /** Only touched on mic threads, one at a time (each is joined before the next starts). */
     private var spotter: KeywordSpotter? = null
-    @Volatile private var spotterStale = false
+
+    /** The model's phones, to check the saved keywords against before the spotter sees them. */
+    private val modelTokens: Set<String> by lazy {
+        try {
+            WakeWord.modelTokens(assets.open(WakeWord.TOKENS_ASSET).bufferedReader().use { it.readText() })
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Wake word: no tokens.txt: ${e.javaClass.simpleName}")
+            emptySet()
+        }
+    }
+
+    /**
+     * What to listen for: the saved phrase's keywords, or the default if they no
+     * longer fit the model. sherpa-onnx rejects a list with an unknown phone,
+     * and that would stop the listener, so they are checked here too.
+     */
+    private fun currentKeywords(): List<WakeWord.Keyword> {
+        val saved = settings.wakeKeywords
+        val keywords = WakeWord.keywordsOrDefault(saved, modelTokens)
+        if (saved.isNotEmpty() && keywords === WakeWord.DEFAULT_KEYWORDS) {
+            Log.w(TAG, "Wake word: the saved phrase does not fit the model, using ${WakeWord.DEFAULT_PHRASE}")
+        }
+        return keywords
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -190,11 +218,14 @@ class WakeWordService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RELOAD -> {
-                spotterStale = true
+                // Other states start the mic later, with whatever is current then.
                 if (controller.state == WakeWordController.State.LISTENING) {
                     stopMic()
                     startMic()
                 }
+                // The phrase may have changed: show it.
+                shownState = null
+                updateNotification()
                 return START_STICKY
             }
         }
@@ -209,7 +240,7 @@ class WakeWordService : Service() {
             registerCallbacks()
             Log.i(
                 TAG,
-                "Wake word: service up, sensitivity ${settings.wakeSensitivity} " +
+                "Wake word: service up, phrase \"${settings.wakePhrase}\", sensitivity ${settings.wakeSensitivity} " +
                     "(threshold %.2f), overlay permission %s, accessibility %s".format(
                         WakeWord.threshold(settings.wakeSensitivity),
                         if (Settings.canDrawOverlays(this)) "yes" else "no",
@@ -258,7 +289,7 @@ class WakeWordService : Service() {
             this, 0, Intent(this, WakeWordService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
         val text = when (controller.state) {
-            WakeWordController.State.LISTENING -> "Listening for hey claude. Audio stays on the phone."
+            WakeWordController.State.LISTENING -> "Listening for ${settings.wakePhrase}. Audio stays on the phone."
             WakeWordController.State.WAITING -> "Opening Claude"
             WakeWordController.State.BUSY -> "Paused while the microphone is in use"
             WakeWordController.State.OFF -> "Starting"
@@ -431,7 +462,8 @@ class WakeWordService : Service() {
         }
         // Known before recording starts, so our own stream never looks like someone else's.
         ownSession = rec.audioSessionId
-        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity)).also {
+        val keywords = currentKeywords()
+        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords)).also {
             lastMicThread = it
             it.start()
         }
@@ -470,7 +502,8 @@ class WakeWordService : Service() {
                 modelType = "zipformer2",
             ),
             maxActivePaths = 4,
-            keywordsFile = "wake/keywords.txt",
+            // Blank: the phrase's keywords come with each stream (see WakeWord).
+            keywordsFile = WakeWord.EMPTY_KEYWORDS_ASSET,
             keywordsScore = WakeWord.BOOST,
             keywordsThreshold = threshold,
             numTrailingBlanks = WakeWord.TRAILING_BLANKS,
@@ -480,19 +513,22 @@ class WakeWordService : Service() {
         }
     }
 
-    private inner class MicThread(private val rec: AudioRecord, private val threshold: Float) :
-        Thread("VoiceRelay-wake") {
+    /** [keywords] is [WakeWord.streamKeywords] of the phrase to listen for. */
+    private inner class MicThread(
+        private val rec: AudioRecord,
+        private val threshold: Float,
+        private val keywords: String,
+    ) : Thread("VoiceRelay-wake") {
         @Volatile var running = true
 
         override fun run() {
             try {
                 var kws = spotter
-                if (kws == null || spotterStale || kws.config.keywordsThreshold != threshold) {
+                if (kws == null || kws.config.keywordsThreshold != threshold) {
                     kws?.release()
                     spotter = null
                     kws = buildSpotter(threshold)
                     spotter = kws
-                    spotterStale = false
                 }
                 listen(kws)
             } catch (e: Throwable) {
@@ -511,8 +547,8 @@ class WakeWordService : Service() {
                 Log.w(TAG, "Wake word: the mic did not start")
                 return
             }
-            Log.i(TAG, "Wake word: listening")
-            val stream = kws.createStream()
+            val stream = kws.createStream(keywords)
+            Log.i(TAG, "Wake word: listening for ${keywords.split('/').joinToString(", ") { it.substringAfterLast('@') }}")
             val pcm = ShortArray(CHUNK)
             val samples = FloatArray(CHUNK)
             var silentChunks = 0
