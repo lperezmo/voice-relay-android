@@ -10,6 +10,11 @@ Recorded audio is sent directly from the device to OpenAI's transcription API to
 Dictation has no on-device speech recognition; the optional wake word (below) is the only speech
 processing that happens on the phone.
 
+While a recording is being sent, a copy of it is kept in the app's private storage so a failed
+upload can be retried, even after the app restarts. The copy is deleted as soon as the recording
+is transcribed, or when you discard it (long-press the amber button, then confirm). Only the one
+most recent untranscribed recording is ever kept.
+
 If optional cleanup is enabled, the transcribed text is also sent directly from the device to
 OpenAI to improve punctuation, capitalization, and clarity.
 

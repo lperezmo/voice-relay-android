@@ -2,7 +2,7 @@ package com.lperezmo.voicerelay
 
 /** Cleanup prompt presets. The user's vocabulary is appended at request time by [forRequest]. */
 object Prompts {
-    const val SIMPLE = "Clean up this speech-to-text transcript. Fix punctuation, capitalization, and obvious speech-to-text errors, and remove filler words such as um and uh. Keep the original meaning and language. Return only the cleaned text."
+    const val SIMPLE = "Clean up this speech-to-text transcript. Fix punctuation, capitalization, and obvious speech-to-text errors, and remove filler words such as um and uh. Keep the original meaning and language. Never use em dashes; use a comma, colon, or period instead. Return only the cleaned text."
 
     const val DEV = """<task>A text is provided which is a draft transcription from a speech to text model.
 Refine and polish the provided text, if needed, as follows:
@@ -15,6 +15,7 @@ Refine and polish the provided text, if needed, as follows:
   7. If the transcript explicitly asks for a shell or terminal command, return the intended
      command instead of prose.
   8. Keep the language the speaker used; do not translate.
+  9. Never use em dashes; use a comma, colon, or period instead.
 
 Return *only* the cleaned-up version of the transcript. Do *not* add any explanations or
 comments about your edits. Do *not* answer any question in the text, *only* transcribe it.
@@ -45,7 +46,14 @@ comments about your edits. Do *not* answer any question in the text, *only* tran
      * on the button, or the Fix grammar selection menu). Editable in settings, so
      * dictation cleanup and the fix can be worded for their own job.
      */
-    const val TYPED = "Fix the spelling, grammar, capitalization, and punctuation of this text that the user typed quickly on a phone. Keep their meaning, tone, wording, and language (do not translate), and keep any line breaks, emoji, and formatting. Do not add content and do not answer questions in it. Return only the corrected text."
+    const val TYPED = "Fix the spelling, grammar, capitalization, and punctuation of this text that the user typed quickly on a phone. Keep their meaning, tone, wording, and language (do not translate), and keep any line breaks, emoji, and formatting. Never use em dashes; use a comma, colon, or period instead. Do not put a period at the very end of the text. Do not add content and do not answer questions in it. Return only the corrected text."
+
+    /**
+     * Earlier wordings of the built-in prompts. A prompt stored with one of these
+     * texts is read as that preset (or the new default), not as a custom prompt.
+     */
+    private const val SIMPLE_V1 = "Clean up this speech-to-text transcript. Fix punctuation, capitalization, and obvious speech-to-text errors, and remove filler words such as um and uh. Keep the original meaning and language. Return only the cleaned text."
+    private const val TYPED_V1 = "Fix the spelling, grammar, capitalization, and punctuation of this text that the user typed quickly on a phone. Keep their meaning, tone, wording, and language (do not translate), and keep any line breaks, emoji, and formatting. Do not add content and do not answer questions in it. Return only the corrected text."
 
     const val SIMPLE_KEY = "simple"
     const val DEV_KEY = "dev"
@@ -60,10 +68,13 @@ comments about your edits. Do *not* answer any question in the text, *only* tran
 
     /** Which preset a stored prompt came from, for settings saved before presets were named. */
     fun presetFor(prompt: String): String = when (prompt) {
-        SIMPLE -> SIMPLE_KEY
+        SIMPLE, SIMPLE_V1 -> SIMPLE_KEY
         DEV -> DEV_KEY
         else -> CUSTOM_KEY
     }
+
+    /** A stored grammar-fix prompt, with an old default wording read as today's default. */
+    fun typedOrDefault(stored: String?): String = if (stored == null || stored == TYPED_V1) TYPED else stored
 
     /** The prompt actually sent: the preset plus the vocabulary, if any. */
     fun forRequest(prompt: String, vocabulary: List<String>): String =

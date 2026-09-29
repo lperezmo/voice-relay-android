@@ -849,7 +849,7 @@ class MainActivity : AppCompatActivity() {
                 refresh()
             }
             .setNeutralButton("Use default") { _, _ ->
-                settings.fixPrompt = Prompts.TYPED
+                settings.resetFixPrompt()
                 refresh()
             }
             .setNegativeButton("Cancel", null)
