@@ -32,6 +32,27 @@ class PromptsTest {
         assertEquals(Prompts.SIMPLE, Prompts.resolve(Prompts.SIMPLE_KEY, Prompts.DEV))
     }
 
+    @Test fun `built-in prompts ask for no em dashes, and the fix for no final period`() {
+        for (prompt in listOf(Prompts.SIMPLE, Prompts.DEV, Prompts.TYPED)) {
+            assertTrue(prompt.contains("Never use em dashes"))
+            assertTrue(!prompt.contains('—'))
+        }
+        assertTrue(Prompts.TYPED.contains("Do not put a period at the very end"))
+    }
+
+    @Test fun `a fix prompt stored with the old default wording reads as the new default`() {
+        val old = Prompts.TYPED.replace(" Never use em dashes; use a comma, colon, or period instead." +
+            " Do not put a period at the very end of the text.", "")
+        assertEquals(Prompts.TYPED, Prompts.typedOrDefault(old))
+        assertEquals(Prompts.TYPED, Prompts.typedOrDefault(null))
+        assertEquals(mine, Prompts.typedOrDefault(mine))
+    }
+
+    @Test fun `a cleanup prompt stored with the old simple wording stays simple`() {
+        val old = Prompts.SIMPLE.replace(" Never use em dashes; use a comma, colon, or period instead.", "")
+        assertEquals(Prompts.SIMPLE_KEY, Prompts.presetFor(old))
+    }
+
     @Test fun `vocabulary is appended once, to whichever prompt is sent`() {
         val withTerms = Prompts.forRequest(mine, listOf("Pendleton", "Luna"))
         assertTrue(withTerms.startsWith(mine))

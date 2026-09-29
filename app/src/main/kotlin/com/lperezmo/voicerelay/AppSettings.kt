@@ -50,8 +50,11 @@ class AppSettings(context: Context) {
 
     /** The grammar-fix prompt, for text you typed rather than dictated. */
     var fixPrompt: String
-        get() = prefs.getString("fix_prompt", null) ?: Prompts.TYPED
+        get() = Prompts.typedOrDefault(prefs.getString("fix_prompt", null))
         set(v) = prefs.edit().putString("fix_prompt", v).apply()
+
+    /** Back to the built-in fix prompt, so a later change to its wording applies too. */
+    fun resetFixPrompt() = prefs.edit().remove("fix_prompt").apply()
 
     /** The floating arrow pad, for apps that want arrow keys (remote desktop, terminals). */
     var joystickEnabled: Boolean
@@ -162,7 +165,7 @@ class AppSettings(context: Context) {
     companion object {
         const val DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe"
         const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
-        const val DEFAULT_CLEANUP_MODEL = "gpt-5.6-luna"
+        const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
         const val DEFAULT_LANGUAGES = ""
 
         fun splitList(raw: String): List<String> =

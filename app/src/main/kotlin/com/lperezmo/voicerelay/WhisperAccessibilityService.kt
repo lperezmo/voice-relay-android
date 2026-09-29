@@ -41,8 +41,12 @@ import kotlin.math.abs
  *
  *   IDLE --tap--> RECORDING --tap--> WORKING --text--> IDLE
  *                                        \--network error--> RETRY
- *   RETRY --tap--> WORKING (same audio)   RETRY --long-press--> IDLE (audio discarded)
+ *   RETRY --tap--> WORKING (same audio)   RETRY --long-press, then tap "Discard"--> IDLE
  *   IDLE --long-press--> WORKING (grammar fix of the selection or focused field) --> IDLE
+ *
+ * A recording is saved to disk ([PendingRecording]) before it is uploaded and
+ * removed once it is transcribed, so a failed one comes back in RETRY even after
+ * the service restarts (an app update, a crash, a reboot).
  *
  * While the phone is locked, recordings are capped by [LockScreenLimits]. After
  * text lands in a field, the feedback bubble offers undo for a few seconds.
@@ -69,6 +73,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MIN_CLIP_SECONDS = 0.3
         private const val MAX_SECONDS = 600
         private const val UNDO_WINDOW_MS = 5000L
+        private const val CONFIRM_WINDOW_MS = 5000L
+        private const val BADGE_DP = 20
         private const val DRAFT_INTERVAL_MS = 250L
         /** Quiet time on the pad before your own keyboard comes back. */
         private const val AUTO_RETURN_MS = 4000L
@@ -89,13 +95,17 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val COLOR_BUSY = 0xDD6B6B6B.toInt()
         private const val COLOR_RETRY = 0xDDD97706.toInt()
         private const val COLOR_FEEDBACK_BG = 0xEE1C1C1E.toInt()
+        private const val COLOR_CONFIRM_BG = 0xEE991B1B.toInt()
         private const val COLOR_RING = 0xFFE8EAED.toInt()
     }
 
     private enum class State { IDLE, RECORDING, WORKING, RETRY }
 
-    /** How the feedback bubble is drawn: a notice that can wrap, or a tappable chip. */
-    private enum class Fb { NOTICE, ACTION }
+    /**
+     * How the feedback bubble is drawn: a notice that can wrap, a tappable undo
+     * chip, or a red box that confirms something destructive when tapped.
+     */
+    private enum class Fb { NOTICE, ACTION, CONFIRM }
 
     private var state = State.IDLE
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -111,6 +121,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
+    /** The on-disk copy of [pendingAudio], and of the recording being uploaded. */
+    private lateinit var pending: PendingRecording
 
     private lateinit var settings: AppSettings
     private lateinit var secrets: SecretStore
@@ -134,6 +146,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var overlayView: FrameLayout? = null
     private var button: ImageView? = null
     private var spinner: ProgressBar? = null
+    private var retryBadge: ImageView? = null
     private var feedbackView: TextView? = null
     private var joystickView: JoystickView? = null
     private var joystickParams: WindowManager.LayoutParams? = null
@@ -183,6 +196,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         secrets = SecretStore(this)
         injector = TextInjector(this)
         usage = UsageStore(this)
+        pending = PendingRecording(java.io.File(filesDir, "pending"))
         ContextCompat.registerReceiver(
             this, screenReceiver,
             IntentFilter().apply {
@@ -194,6 +208,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         volume = VolumeController(this)
         volume.resumeDndTimer()
         showOverlay()
+        restorePendingRecording()
         refreshJoystick()
         refreshVolumePill()
         // If a crash or an update left the arrows keyboard selected, undo that now.
@@ -553,13 +568,38 @@ class WhisperAccessibilityService : AccessibilityService() {
         when (state) {
             State.IDLE -> fixFocusedText()
             State.RETRY -> {
-                pendingAudio = null
-                pendingDraft = null
-                setState(State.IDLE)
-                showFeedback("Recording discarded")
+                val length = pendingAudio?.let { " ${clock(it.seconds)}" } ?: ""
+                showFeedback("Discard the$length recording? Tap here to discard it", CONFIRM_WINDOW_MS, Fb.CONFIRM) {
+                    if (state == State.RETRY) discardPending()
+                }
             }
             else -> {}
         }
+    }
+
+    private fun discardPending() {
+        pendingAudio = null
+        pendingDraft = null
+        scope.launch(Dispatchers.IO) { pending.clear() }
+        setState(State.IDLE)
+        showFeedback("Recording discarded")
+    }
+
+    /** A recording that never got transcribed before the service stopped goes back to RETRY. */
+    private fun restorePendingRecording() {
+        scope.launch {
+            val audio = withContext(Dispatchers.IO) { pending.load() } ?: return@launch
+            if (state != State.IDLE) return@launch
+            Log.i(TAG, "Restored a pending %.1f s recording".format(audio.seconds))
+            pendingAudio = audio
+            setState(State.RETRY)
+            showFeedback("A ${clock(audio.seconds)} recording was not transcribed\nTap to retry, hold to discard", 6000)
+        }
+    }
+
+    private fun clock(seconds: Double): String {
+        val s = seconds.toInt()
+        return "%d:%02d".format(s / 60, s % 60)
     }
 
     private fun startRecording() {
@@ -690,7 +730,13 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
         val pipeline = buildPipeline(client, transcriber)
         work = scope.launch {
-            val outcome = withContext(Dispatchers.IO) { pipeline.run(audio) }
+            val outcome = withContext(Dispatchers.IO) {
+                // Saved before the upload, so a crash mid-upload cannot lose it either.
+                // Live mode keeps the raw audio in memory and saves it only on failure.
+                if (session == null && audio !== pendingAudio) savePending(audio)
+                pipeline.run(audio)
+            }
+            if (outcome !is DictationPipeline.Outcome.Failed) withContext(Dispatchers.IO) { pending.clear() }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
                     pendingAudio = null
@@ -707,14 +753,25 @@ class WhisperAccessibilityService : AccessibilityService() {
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     Log.w(TAG, "Transcription failed: ${outcome.error}")
-                    pendingAudio = if (pcm == null) audio
+                    val kept = if (pcm == null) audio
                         else uploaded ?: withContext(Dispatchers.Default) { encode(pcm, audio.seconds) }
+                    if (pcm != null) withContext(Dispatchers.IO) { savePending(kept) }
+                    pendingAudio = kept
                     pendingDraft = draft
                     setState(State.RETRY)
-                    val kept = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
-                    showFeedback("Failed: ${outcome.error.take(80)}$kept\nTap to retry, hold to discard", 6000)
+                    val typed = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
+                    showFeedback("Failed: ${outcome.error.take(80)}$typed\nRecording saved. Tap to retry, hold to discard", 6000)
                 }
             }
+        }
+    }
+
+    /** A full disk must not stop the upload; the recording is still held in memory. */
+    private fun savePending(audio: OpenAiClient.Audio) {
+        try {
+            pending.save(audio)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not save the recording for retry: ${e.message}")
         }
     }
 
@@ -834,6 +891,8 @@ class WhisperAccessibilityService : AccessibilityService() {
                 State.RETRY -> COLOR_RETRY
             }
         )
+        retryBadge?.visibility = if (new == State.RETRY) View.VISIBLE else View.GONE
+        button?.contentDescription = if (new == State.RETRY) "Retry transcription" else "Dictate"
         if (new == State.RECORDING) startPulse()
     }
 
@@ -860,9 +919,20 @@ class WhisperAccessibilityService : AccessibilityService() {
             contentDescription = "Dictate"
         }
 
+        // Sits over the lower right of the mic while a failed recording waits.
+        val badge = ImageView(this).apply {
+            setImageResource(R.drawable.ic_retry_badge)
+            translationX = buttonSize * 0.22f
+            translationY = buttonSize * 0.2f
+            visibility = View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val badgeSize = (BADGE_DP * dp).toInt()
+
         val overlay = FrameLayout(this).apply {
             addView(ring, FrameLayout.LayoutParams(ringSize, ringSize, Gravity.CENTER))
             addView(img, FrameLayout.LayoutParams(buttonSize, buttonSize, Gravity.CENTER))
+            addView(badge, FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.CENTER))
         }
 
         val params = WindowManager.LayoutParams(
@@ -947,6 +1017,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         overlayView = overlay
         button = img
         spinner = ring
+        retryBadge = badge
         layoutParams = params
         feedbackLayoutParams = feedbackParams
     }
@@ -973,6 +1044,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         feedbackView?.let { wm.removeView(it); feedbackView = null }
         button = null
         spinner = null
+        retryBadge = null
         layoutParams = null
         feedbackLayoutParams = null
     }
@@ -1019,7 +1091,10 @@ class WhisperAccessibilityService : AccessibilityService() {
         val start = ((if (action) 14 else 12) * dp).toInt()
         val end = ((if (action) 12 else 12) * dp).toInt()
         view.setPadding(start, v, end, v)
-        view.background = pill(COLOR_FEEDBACK_BG, if (action) FB_CHIP_RADIUS_DP else FB_RADIUS_DP)
+        view.background = pill(
+            if (style == Fb.CONFIRM) COLOR_CONFIRM_BG else COLOR_FEEDBACK_BG,
+            if (action) FB_CHIP_RADIUS_DP else FB_RADIUS_DP,
+        )
         view.maxLines = if (action) 1 else Int.MAX_VALUE
         view.setCompoundDrawablesRelativeWithIntrinsicBounds(
             null, null, if (action) undoArrow() else null, null
@@ -1050,7 +1125,11 @@ class WhisperAccessibilityService : AccessibilityService() {
 
         view.text = text
         applyFeedbackStyle(view, style)
-        view.contentDescription = if (style == Fb.ACTION) "$text, tap to undo" else null
+        view.contentDescription = when (style) {
+            Fb.ACTION -> "$text, tap to undo"
+            Fb.CONFIRM -> "$text, tap to confirm"
+            Fb.NOTICE -> null
+        }
         setFeedbackTouchable(feedbackParams, onClick != null)
         view.setOnClickListener(onClick?.let { action ->
             View.OnClickListener {

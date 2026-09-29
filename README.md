@@ -104,8 +104,8 @@ and [SECURITY.md](SECURITY.md).
 | **Tap** (idle) | Start recording. The button turns red and pulses. |
 | **Tap** (recording) | Stop. The audio is transcribed, cleaned up, and inserted at the cursor. |
 | **Long-press** (idle) | Fix the grammar of the selected text, or the whole focused field when nothing is selected. |
-| **Tap** (amber, after a failure) | Retry the same recording. Nothing is lost on a network error. |
-| **Long-press** (amber) | Discard the failed recording. |
+| **Tap** (amber with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |
+| **Long-press** (amber) | Asks to discard the failed recording; tap the red bubble to confirm. |
 | **Drag** | Move the button; it snaps to the nearest edge. |
 | **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |
 
@@ -290,7 +290,7 @@ touched.
 | Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
 | Vocabulary | empty | Names and terms to spell exactly. Sent to the transcription model and added to the cleanup and grammar-fix instructions. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
-| Cleanup model | `gpt-5.6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
+| Cleanup model | `gpt-6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
@@ -330,8 +330,8 @@ vulnerabilities privately, as SECURITY.md describes.
   extra-keys row to switch to its text input box and dictate there.
 - **The button turns amber with "Failed: ...".** The message is OpenAI's. An invalid or revoked
   key needs replacing under **API key**; a quota or billing message means the OpenAI account is
-  out of credit or over its limit. The recording is kept: tap the button to retry, or hold to
-  discard it.
+  out of credit or over its limit. The recording is saved: tap the button to retry, or hold and
+  confirm to discard it.
 - **The wake word does not open Claude.** Allow **Display over other apps** (the row under the
   wake word switch), and install the Claude app. Check that the "listening" notification shows.
 - **The wake word fires by mistake, or misses you.** Lower or raise **Sensitivity**.

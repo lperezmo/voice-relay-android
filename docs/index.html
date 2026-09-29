@@ -1689,14 +1689,14 @@
             </g>
           </svg>
           <p class="caption">
-            A failed request keeps the audio: the button turns amber, a tap sends the same recording again, and a long-press
-            discards it.
+            A failed request keeps the audio, on disk, so it survives a restart: the button turns amber with a warning badge,
+            a tap sends the same recording again, and a long-press asks to discard it.
           </p>
         </div>
 
         <div class="diagram" style="margin-top: 18px">
           <svg viewBox="0 0 900 310" width="100%" style="min-width: 720px" role="img"
-            aria-label="The button's states: idle, recording, working and retry. Tap moves from idle to recording and from recording to working; working returns to idle when the text is placed, or goes to retry on an error; retry goes back to working on a tap, or to idle on a long-press.">
+            aria-label="The button's states: idle, recording, working and retry. Tap moves from idle to recording and from recording to working; working returns to idle when the text is placed, or goes to retry on an error; retry goes back to working on a tap, or to idle on a long-press and a confirming tap.">
             <defs>
               <marker id="bs-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M0 0 L10 5 L0 10 z" fill="var(--gray-500)" />
@@ -1731,7 +1731,7 @@
             <line class="edge warn" x1="678" y1="120" x2="736" y2="120" marker-end="url(#bs-arr-warn)" />
             <text class="e-lab warn" x="707" y="110" text-anchor="middle">error</text>
 
-            <g data-tip="The recording is kept in memory until it is sent or discarded.">
+            <g data-tip="The recording is kept in app-private storage until it is transcribed or discarded, so it survives an app restart.">
               <rect class="n-box" x="738" y="92" width="142" height="56" rx="9" />
               <text class="n-t" x="809" y="116" text-anchor="middle">RETRY</text>
               <text class="n-s" x="809" y="134" text-anchor="middle">amber, audio kept</text>
@@ -1987,7 +1987,7 @@
               <li><strong>Live transcription</strong> off: streams while you talk instead of uploading after.</li>
               <li><strong>Languages</strong> empty, which auto-detects; codes such as <code>en, es</code> are sent as hints.</li>
               <li><strong>Vocabulary</strong>: names and terms to spell exactly.</li>
-              <li><strong>Clean up transcript</strong> on, with <code>gpt-5.6-luna</code> and a Simple, Dev or Custom prompt.</li>
+              <li><strong>Clean up transcript</strong> on, with <code>gpt-6-luna</code> and a Simple, Dev or Custom prompt.</li>
               <li><strong>Grammar fix prompt</strong>: its own prompt, since that text was typed, not dictated.</li>
             </ul>
           </div>

@@ -21,6 +21,7 @@ object Pricing {
 
     /** USD per 1M tokens, input to output (short-context rates). */
     private val textPerMillion = mapOf(
+        "gpt-6-luna" to (0.10 to 0.50),
         "gpt-5.6-luna" to (0.20 to 1.20),
         "gpt-5.6-terra" to (2.00 to 12.00),
         "gpt-5.6-sol" to (4.00 to 20.00),
