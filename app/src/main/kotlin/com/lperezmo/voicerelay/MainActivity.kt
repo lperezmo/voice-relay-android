@@ -46,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var autoSwitchSub: TextView
     private lateinit var volumeSwitch: MaterialSwitch
     private lateinit var volumeSub: TextView
+    private lateinit var glyphSwitch: MaterialSwitch
+    private lateinit var glyphSub: TextView
     private lateinit var dndAccessSub: TextView
     private lateinit var exactTimerSub: TextView
     private lateinit var cleanupContainer: LinearLayout
@@ -248,6 +250,17 @@ class MainActivity : AppCompatActivity() {
         }
         exactTimerSub = exactRow.findViewWithTag("subtitle")
         root.addView(exactRow)
+
+        // --- Glyph ---
+        root.addView(sectionHeader("Glyph"))
+        glyphSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val glyphRow = settingsRow("Show the Glyph pill", "", glyphSwitch) {
+            settings.glyphPillEnabled = !settings.glyphPillEnabled
+            WhisperAccessibilityService.instance?.refreshGlyphPill()
+            refresh()
+        }
+        glyphSub = glyphRow.findViewWithTag("subtitle")
+        root.addView(glyphRow)
 
         // --- Grammar fix (its own prompt: this text was typed, not dictated) ---
         root.addView(sectionHeader("Grammar fix"))
@@ -709,6 +722,13 @@ class MainActivity : AppCompatActivity() {
         volumeSub.text = if (settings.volumePillEnabled)
             "Tap the pill above the mic, then draw a V on the track: dip down, slide to a preset, rise to apply."
         else "Off. Four one-gesture volume presets: Silent + DND for an hour, Mute, Medium, Loud."
+        val glyphInstalled = GlyphPillView.glyphInstalled(this)
+        glyphSwitch.isChecked = settings.glyphPillEnabled
+        glyphSub.text = when {
+            !glyphInstalled -> "Glyph is not installed, so the pill is hidden."
+            settings.glyphPillEnabled -> "Tap the pill below the mic, or pull it down, to open Glyph's canvas and draw a shape."
+            else -> "Off. A pill below the mic that opens Glyph's shape canvas."
+        }
         val volume = VolumeController(this)
         dndAccessSub.text = if (volume.hasDndAccess) "Granted"
         else "Needed for the presets. Tap, then allow Voice Relay."

@@ -22,6 +22,7 @@ It also has a few extras, all off until you turn them on:
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
 - **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
+- **Glyph pill**: opens the shape canvas of Glyph (a separate shape-launcher app) from below the mic, when Glyph is installed.
 
 There is no server in between and no account to create: the app talks straight to OpenAI with
 your key. Dictation needs an internet connection; the wake word does not.
@@ -280,6 +281,17 @@ The presets need **Do Not Disturb access**. The **End the DND hour on time** row
 alarms; without it Android may end the hour up to 10 minutes late. Alarm and call volume are never
 touched.
 
+## Glyph pill
+
+When Glyph (a separate shape-launcher app) is installed, a small **GLYPH** pill rides under the
+dictate button, mirroring the volume pill above it. Tap it, or press it and pull down, and Glyph's
+see-through canvas opens over the current app (the pull fires as soon as the finger has moved about
+12dp down). Lift, then draw your shape on the canvas. The pill sparkles gold when it fires.
+
+It opens Glyph with the `com.lperezmo.glyph.OPEN_CANVAS` intent, so it needs a Glyph build that
+has it; with no Glyph, or an older one, the pill stays hidden. Turn it off with **Show the Glyph
+pill**. A swipe down on the mic itself is not a trigger, because any drag there moves the button.
+
 ## Settings
 
 | Setting | Default | Notes |
@@ -300,6 +312,7 @@ touched.
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
+| Show the Glyph pill | on | Hidden anyway while Glyph is not installed. See [Glyph pill](#glyph-pill). |
 
 The **Usage** section counts dictations, minutes of audio, cleanup and grammar-fix calls, and an
 estimated cost for this month and since the last reset (tap it to reset). **About > Open-source
@@ -421,6 +434,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
+| `GlyphPillView.kt`, `GlyphGesture.kt` | The Glyph pill below the button, its tap and pull-down, and the sparkle |
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |

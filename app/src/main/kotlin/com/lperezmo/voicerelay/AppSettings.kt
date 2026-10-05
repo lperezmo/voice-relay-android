@@ -80,6 +80,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("volume_pill", false)
         set(v) = prefs.edit().putBoolean("volume_pill", v).apply()
 
+    /** The Glyph pill below the dictate button. Shown only while Glyph is installed. */
+    var glyphPillEnabled: Boolean
+        get() = prefs.getBoolean("glyph_pill", true)
+        set(v) = prefs.edit().putBoolean("glyph_pill", v).apply()
+
     /** When the Silent + DND hour ends, in epoch ms. 0 means no hour is running. */
     var dndUntil: Long
         get() = prefs.getLong("dnd_until", 0L)
