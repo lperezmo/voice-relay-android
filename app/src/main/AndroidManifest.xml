@@ -19,6 +19,8 @@
         <intent>
             <action android:name="android.intent.action.VOICE_ASSIST" />
         </intent>
+        <!-- Glyph pill: is Glyph installed, and does it answer OPEN_CANVAS. -->
+        <package android:name="com.lperezmo.glyph" />
     </queries>
 
     <application

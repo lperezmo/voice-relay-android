@@ -80,7 +80,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val AUTO_RETURN_MS = 4000L
         private const val KEY_RETRIES = 8
         private const val KEY_RETRY_MS = 60L
-        /** Space between the pill and the dictate button, and between the track and the pill. */
+        /** Space between each pill (volume above, Glyph below) and the dictate button, and between the track and the volume pill. */
         private const val PILL_GAP_DP = 6
         private const val TRACK_GAP_DP = 12
         /** An open track closes itself after this long untouched, so it cannot linger under a pocket. */
@@ -163,6 +163,14 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var trackView: VolumeTrackView? = null
     private var trackParams: WindowManager.LayoutParams? = null
     private val closeTrack = Runnable { hideTrack() }
+    private var glyphView: GlyphPillView? = null
+    private var glyphParams: WindowManager.LayoutParams? = null
+    /** Glyph installed, updated or removed: show or hide its pill to match. */
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.data?.schemeSpecificPart == GlyphPillView.GLYPH_PACKAGE) refreshGlyphPill()
+        }
+    }
     /** A tap on the pill closes an open track through its outside touch first; this keeps it from reopening. */
     private var trackClosedOutsideAt = 0L
     private val refreshPill = Runnable { pillView?.update(volume.current()) }
@@ -211,6 +219,17 @@ class WhisperAccessibilityService : AccessibilityService() {
         restorePendingRecording()
         refreshJoystick()
         refreshVolumePill()
+        refreshGlyphPill()
+        ContextCompat.registerReceiver(
+            this, packageReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addDataScheme("package")
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         // If a crash or an update left the arrows keyboard selected, undo that now.
         restorePreviousKeyboard()
         // Android rebinds this service after a reboot or an app update, which is the
@@ -528,6 +547,59 @@ class WhisperAccessibilityService : AccessibilityService() {
         params.y = (pillTop - (TRACK_GAP_DP * dp).toInt() - params.height).coerceAtLeast(margin)
     }
 
+    // --- Glyph pill ---
+
+    /** Shows the Glyph pill when the setting is on and Glyph is installed, else hides it. Safe to call at any time. */
+    fun refreshGlyphPill() {
+        if (settings.glyphPillEnabled && GlyphPillView.glyphInstalled(this)) showGlyphPill() else hideGlyphPill()
+    }
+
+    private fun showGlyphPill() {
+        if (glyphView != null) return
+        val bubble = layoutParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            (GlyphPillView.W_DP * dp).toInt(), (GlyphPillView.H_DP * dp).toInt(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        positionGlyphPill(params, bubble)
+        val view = GlyphPillView(this).apply { onFire = { openGlyph() } }
+        wm.addView(view, params)
+        glyphView = view
+        glyphParams = params
+    }
+
+    private fun hideGlyphPill() {
+        val view = glyphView ?: return
+        (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
+        glyphView = null
+        glyphParams = null
+    }
+
+    /** Opens Glyph's canvas in its own task, over whatever is on screen. */
+    private fun openGlyph() {
+        hideTrack()
+        try {
+            startActivity(GlyphPillView.openCanvasIntent())
+            glyphView?.sparkle()
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.w(TAG, "Glyph canvas not found", e)
+            showFeedback("Glyph is not installed")
+            refreshGlyphPill()
+        }
+    }
+
+    /** Centered under the button, [PILL_GAP_DP] below it; the touch area reaches up to just short of it. */
+    private fun positionGlyphPill(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
+        val ring = (RING_DP * dp).toInt()
+        val buttonBottom = bubble.y + (ring + (BTN_DP * dp).toInt()) / 2
+        val pillTop = buttonBottom + (PILL_GAP_DP * dp).toInt()
+        params.x = bubble.x + (ring - params.width) / 2
+        params.y = (pillTop - (GlyphPillView.TOP_PAD_DP * dp).toInt()).coerceAtMost(maxOf(0, screenH - params.height))
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || !::injector.isInitialized) return
         injector.onEvent(event)
@@ -542,6 +614,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         instance = null
         try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
+        try { unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
         recorder?.stop()
         live?.cancel()
         scope.cancel()
@@ -549,6 +622,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         restorePreviousKeyboard()
         hideJoystick()
         hideVolumePill()
+        hideGlyphPill()
         removeOverlay()
         super.onDestroy()
     }
@@ -1022,7 +1096,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         feedbackLayoutParams = feedbackParams
     }
 
-    /** Keeps the feedback bubble and the volume pill and track next to the button as it moves. */
+    /** Keeps the feedback bubble, the volume pill and track, and the Glyph pill next to the button as it moves. */
     private fun followBubble(wm: WindowManager, bubble: WindowManager.LayoutParams) {
         feedbackLayoutParams?.let {
             positionFeedback(it, bubble)
@@ -1035,6 +1109,10 @@ class WhisperAccessibilityService : AccessibilityService() {
         trackParams?.let {
             positionTrack(it, bubble)
             wm.updateViewLayout(trackView, it)
+        }
+        glyphParams?.let {
+            positionGlyphPill(it, bubble)
+            wm.updateViewLayout(glyphView, it)
         }
     }
 
