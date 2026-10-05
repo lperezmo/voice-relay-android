@@ -165,7 +165,7 @@ class GlyphPillView(context: Context) : View(context) {
         private const val TAP_SLOP_DP = 10f
         private const val SPARKLE_MS = 520L
         private const val SPECKS = 12
-        private const val LABEL = "GLYPH"
+        private const val LABEL = "Glyph"
 
         private const val COLOR_FILL = 0xB81C1C1E.toInt()
         private const val COLOR_EDGE = 0x29FFFFFF

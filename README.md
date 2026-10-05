@@ -283,7 +283,7 @@ touched.
 
 ## Glyph pill
 
-When Glyph (a separate shape-launcher app) is installed, a small **GLYPH** pill rides under the
+When Glyph (a separate shape-launcher app) is installed, a small **Glyph** pill (a gold star and "Glyph") rides under the
 dictate button, mirroring the volume pill above it. Tap it, or press it and pull down, and Glyph's
 see-through canvas opens over the current app (the pull fires as soon as the finger has moved about
 12dp down). Lift, then draw your shape on the canvas. The pill sparkles gold when it fires.
