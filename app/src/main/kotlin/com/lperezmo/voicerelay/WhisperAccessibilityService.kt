@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -20,6 +21,7 @@ import android.view.MotionEvent
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
@@ -440,6 +442,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         wm.addView(view, params)
         pillView = view
         pillParams = params
+        settleBubble()
+        raiseBubble()
         ContextCompat.registerReceiver(
             this, volumeReceiver,
             IntentFilter().apply {
@@ -569,6 +573,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         wm.addView(view, params)
         glyphView = view
         glyphParams = params
+        settleBubble()
+        raiseBubble()
     }
 
     private fun hideGlyphPill() {
@@ -1038,8 +1044,9 @@ class WhisperAccessibilityService : AccessibilityService() {
                     if (abs(ev.rawX - touchX) + abs(ev.rawY - touchY) >= TAP_THRESHOLD_DP * dp) {
                         handler.removeCallbacks(longPress)
                     }
-                    params.x = startX + (ev.rawX - touchX).toInt()
-                    params.y = startY + (ev.rawY - touchY).toInt()
+                    val bounds = bubbleBounds()
+                    params.x = bounds.clampX(startX + (ev.rawX - touchX).toInt())
+                    params.y = bounds.clampY(startY + (ev.rawY - touchY).toInt())
                     wm.updateViewLayout(v, params)
                     followBubble(wm, params)
                     true
@@ -1050,10 +1057,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                     if (moved < TAP_THRESHOLD_DP * dp) {
                         if (!longPressed) onTap()
                     } else {
-                        params.x = if (params.x + ringSize / 2 > screenW / 2)
-                            screenW - ringSize - margin else margin
-                        wm.updateViewLayout(v, params)
-                        followBubble(wm, params)
+                        settleBubble()
                     }
                     true
                 }
@@ -1094,6 +1098,67 @@ class WhisperAccessibilityService : AccessibilityService() {
         retryBadge = badge
         layoutParams = params
         feedbackLayoutParams = feedbackParams
+    }
+
+    /** Rotation or a resize: put the button back against a side and inside the new screen. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        handler.post { settleBubble() }
+    }
+
+    /**
+     * The safe area, less the room the pills above and below the button need, so
+     * none of them can be pushed against an edge and onto the button.
+     */
+    private fun bubbleBounds(): BubbleBounds {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        // Whole screen if the metrics are unavailable: a drag must never crash the service.
+        val safe = runCatching {
+            val metrics = wm.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            android.graphics.Rect(
+                insets.left, insets.top,
+                minOf(screenW, metrics.bounds.width() - insets.right),
+                minOf(screenH, metrics.bounds.height() - insets.bottom),
+            )
+        }.getOrElse { android.graphics.Rect(0, 0, screenW, screenH) }
+        val ring = (RING_DP * dp).toInt()
+        val inset = (ring - (BTN_DP * dp).toInt()) / 2
+        val above = if (pillView == null) 0
+            else ((VolumePillView.H_DP - VolumePillView.BOTTOM_PAD_DP + PILL_GAP_DP) * dp).toInt() - inset
+        val below = if (glyphView == null) 0
+            else ((GlyphPillView.H_DP - GlyphPillView.TOP_PAD_DP + PILL_GAP_DP) * dp).toInt() - inset
+        return BubbleBounds(
+            left = safe.left, top = safe.top, right = safe.right, bottom = safe.bottom,
+            ring = ring, above = maxOf(0, above), below = maxOf(0, below),
+        )
+    }
+
+    /** Against the nearer side and inside [bubbleBounds], with everything riding along. */
+    private fun settleBubble() {
+        val view = overlayView ?: return
+        val params = layoutParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val bounds = bubbleBounds()
+        params.x = bounds.snapX(params.x, (MARGIN_DP * dp).toInt())
+        params.y = bounds.clampY(params.y)
+        wm.updateViewLayout(view, params)
+        followBubble(wm, params)
+    }
+
+    /**
+     * Re-adds the button so it is the top window of the stack. Windows added later
+     * draw over earlier ones, so without this a pill added after the button would
+     * take its touches wherever the two meet.
+     */
+    private fun raiseBubble() {
+        val view = overlayView ?: return
+        val params = layoutParams ?: return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        wm.removeViewImmediate(view)
+        wm.addView(view, params)
     }
 
     /** Keeps the feedback bubble, the volume pill and track, and the Glyph pill next to the button as it moves. */
