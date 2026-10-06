@@ -50,18 +50,23 @@ jobs:
       IS_RELEASE: ${{ inputs.publish == true }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          # v6 defaults to a closed-source caching provider that is only a free
+          # preview for private repositories; basic is the MIT-licensed one
+          # built on actions/cache.
+          cache-provider: basic
 
       - name: Read versionName
         id: version
@@ -110,7 +115,7 @@ jobs:
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - name: Download wake word library
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sherpa.outputs.artifact }}
           path: ${{ runner.temp }}/sherpa
@@ -119,7 +124,7 @@ jobs:
       # too big to commit. Cached on the script's hash, so a version bump
       # fetches fresh files.
       - name: Cache wake word model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: app/src/main/assets/wake/model
           key: wake-word-model-${{ hashFiles('scripts/fetch_sherpa.sh') }}
@@ -166,7 +171,7 @@ jobs:
           echo "APK $(wc -c < "$APK") bytes, libsherpa-onnx-jni.so $(wc -c < "$RUNNER_TEMP/apk/lib/arm64-v8a/libsherpa-onnx-jni.so") bytes, no espeak-ng" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: voice-relay-v${{ steps.version.outputs.name }}
           path: dist/*
@@ -185,7 +190,7 @@ jobs:
       actions: write # delete the artifact once it is attached to the release
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: voice-relay-v${{ needs.build.outputs.version_name }}
           path: dist
@@ -193,7 +198,7 @@ jobs:
       # The GitHub release already exists (semantic-release wrote it and its
       # notes), so only the APK and the license notices are attached here.
       - name: Attach APK to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: v${{ needs.build.outputs.version_name }}
           files: |
@@ -202,7 +207,7 @@ jobs:
             dist/THIRD_PARTY_NOTICES.md
 
       - name: Delete the Actions copies of the APK and the wake word library
-        uses: geekyeggo/delete-artifact@f275313e70c08f6120db482d7a6b98377786765b # v5.1.0
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
         with:
           name: |
             voice-relay-v${{ needs.build.outputs.version_name }}
