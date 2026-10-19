@@ -412,7 +412,7 @@ Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a
 `fix:` commit cuts a version, tags it, and attaches the signed APK, `NOTICE` and
 `THIRD_PARTY_NOTICES.md` to the GitHub release; `chore:`, `docs:`, `ci:` and `refactor:` commits
 do not. Build artifacts are kept 3 days (30 for a release run, so its failed jobs can be re-run),
-and a release deletes its own artifacts once the APK is attached. `versionName` is `0.16.1`, and it is owned by semantic-release, so never edit it by
+and a release deletes its own artifacts once the APK is attached. `versionName` is `0.17.0`, and it is owned by semantic-release, so never edit it by
 hand. `versionCode` is derived from it by `scripts/version_code.sh`.
 
 See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
