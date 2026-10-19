@@ -10,7 +10,7 @@
 ![Android 11+](https://img.shields.io/badge/Android-11%2B-3ddc84)
 
 **Dictate into any app on your Android phone, using your own OpenAI API key.** A small button
-floats over every app. Tap it, speak, tap again, and the text appears where you are typing,
+floats over every app. Double-tap it, speak, tap again, and the text appears where you are typing,
 without switching away from your keyboard. Long-press it to fix the grammar of text you typed.
 
 It also has a few extras, all off until you turn them on:
@@ -102,7 +102,7 @@ and [SECURITY.md](SECURITY.md).
 
 | Gesture on the floating button | What happens |
 |---|---|
-| **Tap** (idle) | Start recording. The button turns red and pulses. |
+| **Double-tap** (idle) | Start recording. The button turns red and pulses. A single tap does nothing, so a stray finger cannot start one. |
 | **Tap** (recording) | Stop. The audio is transcribed, cleaned up, and inserted at the cursor. |
 | **Long-press** (idle) | Fix the grammar of the selected text, or the whole focused field when nothing is selected. |
 | **Tap** (amber with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |

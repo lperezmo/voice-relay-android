@@ -110,6 +110,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private enum class Fb { NOTICE, ACTION, CONFIRM }
 
     private var state = State.IDLE
+    /** When the last tap on the idle button lifted, for pairing two taps into a start. */
+    private var lastIdleTapAt = 0L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var work: Job? = null
     private var recorder: Recorder? = null
@@ -635,9 +637,18 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     // --- State machine ---
 
-    private fun onTap() {
+    /**
+     * Starting a recording takes a double tap, so a stray finger brushing the
+     * button does nothing. Stopping, retrying and the long-press stay one touch.
+     */
+    private fun onTap(downAt: Long, upAt: Long) {
         when (state) {
-            State.IDLE -> startRecording()
+            State.IDLE -> if (downAt - lastIdleTapAt <= ViewConfiguration.getDoubleTapTimeout()) {
+                lastIdleTapAt = 0L
+                startRecording()
+            } else {
+                lastIdleTapAt = upAt
+            }
             State.RECORDING -> stopAndProcess()
             State.WORKING -> {}
             State.RETRY -> pendingAudio?.let { process(it, draft = pendingDraft) } ?: setState(State.IDLE)
@@ -1055,7 +1066,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                     handler.removeCallbacks(longPress)
                     val moved = abs(ev.rawX - touchX) + abs(ev.rawY - touchY)
                     if (moved < TAP_THRESHOLD_DP * dp) {
-                        if (!longPressed) onTap()
+                        if (!longPressed) onTap(ev.downTime, ev.eventTime)
                     } else {
                         settleBubble()
                     }
