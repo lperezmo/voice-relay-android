@@ -40,13 +40,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Set up Node 22
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install semantic-release
-        run: npm install --no-audit --no-fund
+        run: bun install --frozen-lockfile
 
       # Writes the version into app/build.gradle.kts and README.md
       # (scripts/set_version.sh), commits it with CHANGELOG.md, tags
@@ -57,7 +55,7 @@ jobs:
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: bunx --bun semantic-release
 
       - name: Summarize
         env:
