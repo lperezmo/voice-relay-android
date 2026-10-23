@@ -5,6 +5,11 @@ on:
   # is actually published, calls this workflow (workflow_call) for the tag.
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE"
+      - "NOTICE"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -31,6 +36,12 @@ on:
 
 permissions:
   contents: read
+
+# A new push to a pull request makes the in-flight build obsolete, so cancel it.
+# Every other run (dispatch, workflow_call from release.yml) gets its own group.
+concurrency:
+  group: android-build-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # The wake word's native library, built from source without text-to-speech
