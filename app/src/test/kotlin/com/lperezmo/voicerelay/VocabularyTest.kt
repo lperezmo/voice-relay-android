@@ -36,6 +36,13 @@ class VocabularyTest {
         )
     }
 
+    @Test fun `numbered markers go but a term that only starts with a digit or dash stays`() {
+        assertEquals(
+            listOf("Aptean", "M2M", "18650", "-v", "3D"),
+            Vocabulary.fromPaste("1. Aptean\n2) M2M\n18650\n-v\n3D"),
+        )
+    }
+
     @Test fun `the examples paste back as themselves`() {
         assertEquals(Vocabulary.EXAMPLES.lines(), Vocabulary.fromPaste(Vocabulary.EXAMPLES))
     }

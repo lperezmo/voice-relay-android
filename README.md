@@ -305,7 +305,7 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Vocabulary | empty | Names and terms to spell exactly, one per line or comma-separated; a whole list can be pasted in. Put the ones you say most first: the transcription model gets the first ones that fit about 800 characters (its hint is short), and the cleanup and grammar-fix instructions get all of them, with an instruction never to swap one for a word that sounds like it ("bun", not "bon"). |
 | Cleanup service | OpenAI | **Claude, by Anthropic** sends cleanup and grammar fixes to Claude instead. Speech to text always stays on OpenAI. See [Claude for cleanup](#claude-for-cleanup). |
 | Anthropic API key | none | Shown when Claude is the cleanup service. Stored encrypted like the OpenAI key. |
-| Cleanup model | `gpt-6-luna`, or `claude-opus-5-5` for Claude | Also used for grammar fixes, with the lowest reasoning effort for speed. The picker lists the models the selected service's key can use. |
+| Cleanup model | `gpt-6-luna`, or `claude-sonnet-5-5` for Claude | Also used for grammar fixes, with the lowest reasoning effort for speed. The picker lists the models the selected service's key can use. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
@@ -325,8 +325,8 @@ OpenAI always does the speech to text. To have Claude do the cleanup and the gra
 1. Get an API key from the [Claude Console](https://platform.claude.com/).
 2. In **Cleanup**, tap **Cleanup service** and choose **Claude, by Anthropic**. Paste the key when
    it asks (or tap **Anthropic API key** later).
-3. Optionally tap **Cleanup model** to pick another Claude model. `claude-haiku-5-5` is the fastest
-   and cheapest; the default is `claude-opus-5-5`.
+3. Optionally tap **Cleanup model** to switch between Haiku 5.5 (fastest and cheapest), Sonnet 5.5
+   (the default) and Opus 5.5 (most careful, costs the most), or pick any other Claude model your key can use.
 
 The same prompts and vocabulary are used. If the Claude call fails, is refused, or no Anthropic
 key is set, dictation inserts the raw transcript with a note, as it does when OpenAI cleanup fails;

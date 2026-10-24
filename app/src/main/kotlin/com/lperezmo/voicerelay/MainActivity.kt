@@ -727,7 +727,7 @@ class MainActivity : AppCompatActivity() {
             anthropicKey.length > 12 -> "${anthropicKey.take(7)}...${anthropicKey.takeLast(4)}"
             else -> "Set"
         }
-        cleanupModelSub.text = settings.activeCleanupModel
+        cleanupModelSub.text = if (claude) AnthropicClient.displayName(settings.claudeModel) else settings.cleanupModel
         cleanupSwitch.isChecked = settings.cleanupEnabled
         cleanupSwitchSub.text = "Fixes grammar and punctuation. Sends the transcript text to ${if (claude) "Anthropic" else "OpenAI"}."
         cleanupContainer.visibility = if (settings.cleanupEnabled) View.VISIBLE else View.GONE
@@ -831,7 +831,7 @@ class MainActivity : AppCompatActivity() {
                 "Stored encrypted on this device. Leave empty and save to remove the stored key.")
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
-                secrets.setAnthropicKey(input.text.toString().trim())
+                secrets.setAnthropicKey(input.text.toString().filterNot { it.isWhitespace() })
                 refresh()
                 refreshModelCache(silent = true, claude = true)
             }
@@ -856,14 +856,33 @@ class MainActivity : AppCompatActivity() {
 
     private fun pickCleanupModel() {
         if (settings.claudeCleanup) {
-            pickModel("Claude model", AppSettings.DEFAULT_CLAUDE_MODEL, AnthropicClient::cleanupModels, claude = true) {
-                settings.claudeModel = it
-            }
+            pickClaudeModel()
         } else {
             pickModel("Cleanup model", AppSettings.DEFAULT_CLEANUP_MODEL, OpenAiClient::cleanupModels) {
                 settings.cleanupModel = it
             }
         }
+    }
+
+    /** Haiku, Sonnet or Opus in one tap; the last row lists every Claude model the key can use. */
+    private fun pickClaudeModel() {
+        val tiers = AnthropicClient.TIERS
+        val labels = tiers.map { it.label } + "Another Claude model..."
+        AlertDialog.Builder(this)
+            .setTitle("Claude model")
+            .setSingleChoiceItems(labels.toTypedArray(), tiers.indexOfFirst { it.id == settings.claudeModel }) { dialog, which ->
+                dialog.dismiss()
+                if (which < tiers.size) {
+                    settings.claudeModel = tiers[which].id
+                    refresh()
+                } else {
+                    pickModel("Claude model", AppSettings.DEFAULT_CLAUDE_MODEL, AnthropicClient::cleanupModels, claude = true) {
+                        settings.claudeModel = it
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun promptLanguages() {

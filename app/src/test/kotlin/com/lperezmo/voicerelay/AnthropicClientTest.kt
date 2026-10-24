@@ -112,4 +112,20 @@ class AnthropicClientTest {
         assertTrue(req.path!!.startsWith("/v1/models"))
         assertEquals("sk-ant-test", req.getHeader("x-api-key"))
     }
+
+    @Test fun `the picker offers Haiku Sonnet and Opus with Sonnet as the default`() {
+        assertEquals(listOf("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"), AnthropicClient.TIERS.map { it.id })
+        assertEquals("claude-sonnet-5-5", AppSettings.DEFAULT_CLAUDE_MODEL)
+        assertEquals("Sonnet 5.5 (claude-sonnet-5-5)", AnthropicClient.displayName("claude-sonnet-5-5"))
+        assertEquals("claude-fable-5-1", AnthropicClient.displayName("claude-fable-5-1"))
+    }
+
+    @Test fun `a key with a stray line break fails the call instead of throwing`() {
+        val broken = AnthropicClient("sk-ant-te\nst", server.url("/v1").toString().trimEnd('/'), OkHttpClient())
+        val result = broken.cleanup("text", "claude-haiku-5-5", "Fix it")
+        assertNull(result.text)
+        assertTrue(result.error!!.contains("Anthropic API key"))
+        assertNull(broken.listModels())
+        assertEquals(0, server.requestCount)
+    }
 }

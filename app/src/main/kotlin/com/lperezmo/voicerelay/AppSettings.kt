@@ -200,7 +200,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe"
         const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
-        const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+        const val DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
         const val DEFAULT_LANGUAGES = ""
 
         const val SERVICE_OPENAI = "openai"

@@ -24,9 +24,12 @@ object Vocabulary {
 
     /**
      * A pasted list, one term per line or comma-separated. List markers ("- ",
-     * "* ", bullets) are dropped, so a list copied from a note or a Markdown file
-     * pastes as is. Duplicates keep their first position.
+     * "* ", bullets, "1. ", "2) ") are dropped, so a list copied from a note or a
+     * Markdown file pastes as is. Duplicates keep their first position.
      */
     fun fromPaste(raw: String): List<String> =
-        AppSettings.splitList(raw.lines().joinToString("\n") { it.trim().removePrefix("- ").removePrefix("* ").removePrefix("• ") })
+        AppSettings.splitList(raw.lines().joinToString("\n") { it.trim().replace(LIST_MARKER, "") })
+
+    /** A marker needs the space after it, so a term such as "18650" or "-v" is kept whole. */
+    private val LIST_MARKER = Regex("""^(?:[-*•]|\d+[.)])\s+""")
 }

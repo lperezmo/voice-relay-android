@@ -37,23 +37,24 @@ class AnthropicClient(
     }
 
     /** Model ids visible to this key, sorted. */
-    fun listModels(): List<String>? {
+    fun listModels(): List<String>? = try {
         val request = Request.Builder().url("$baseUrl/models?limit=100").headers().build()
-        return try {
-            http.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                OpenAiClient.parseModelIds(resp.body?.string().orEmpty())
-            }
-        } catch (_: IOException) {
-            null
+        http.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            OpenAiClient.parseModelIds(resp.body?.string().orEmpty())
         }
+    } catch (_: IOException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
     }
 
     private fun post(json: JSONObject, fallback: Boolean): OpenAiClient.Result {
         val body = json.toString().toRequestBody("application/json".toMediaType())
-        val builder = Request.Builder().url("$baseUrl/messages").headers().post(body)
-        if (fallback) builder.header("anthropic-beta", FALLBACK_BETA)
         return try {
+            // Inside the try: OkHttp rejects a header value with a stray character, such as a pasted line break.
+            val builder = Request.Builder().url("$baseUrl/messages").headers().post(body)
+            if (fallback) builder.header("anthropic-beta", FALLBACK_BETA)
             http.newCall(builder.build()).execute().use { resp ->
                 val raw = resp.body?.string().orEmpty()
                 val parsed = parseMessageText(raw)
@@ -65,6 +66,8 @@ class AnthropicClient(
             }
         } catch (e: IOException) {
             OpenAiClient.Result(null, e.message ?: "Network error")
+        } catch (_: IllegalArgumentException) {
+            OpenAiClient.Result(null, "The Anthropic API key has a character it cannot have")
         }
     }
 
@@ -130,5 +133,19 @@ class AnthropicClient(
 
         /** Claude models worth offering for cleanup. */
         fun cleanupModels(ids: List<String>): List<String> = ids.filter { it.startsWith("claude-") }
+
+        /** The models the picker offers first, cheapest first. Any other Claude model can still be picked. */
+        val TIERS = listOf(
+            Tier("claude-haiku-5-5", "Haiku 5.5", "fastest and cheapest"),
+            Tier("claude-sonnet-5-5", "Sonnet 5.5", "the default"),
+            Tier("claude-opus-5-5", "Opus 5.5", "most careful, costs the most"),
+        )
+
+        /** "Sonnet 5.5 (claude-sonnet-5-5)" for a listed tier, else the id itself. */
+        fun displayName(model: String): String = TIERS.firstOrNull { it.id == model }?.let { "${it.name} ($model)" } ?: model
+    }
+
+    data class Tier(val id: String, val name: String, val note: String) {
+        val label: String get() = "$name: $note"
     }
 }
