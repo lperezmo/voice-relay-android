@@ -180,7 +180,7 @@ class LiveTranscription(
         fun sessionUpdate(model: String, vocabulary: List<String>, languages: List<String>): JSONObject {
             val transcription = JSONObject().put("model", model)
             // Keywords must be single-line; the API rejects line breaks and angle brackets.
-            val keywords = vocabulary.map { it.replace(Regex("[\\r\\n<>]"), " ").trim() }.filter { it.isNotEmpty() }
+            val keywords = Vocabulary.forTranscription(vocabulary).map { it.replace(Regex("[\\r\\n<>]"), " ").trim() }.filter { it.isNotEmpty() }
             if (keywords.isNotEmpty()) transcription.put("keywords", JSONArray(keywords))
             if (languages.isNotEmpty()) transcription.put("languages", JSONArray(languages))
             if (model.startsWith("gpt-live-transcribe")) transcription.put("delay", "minimal")

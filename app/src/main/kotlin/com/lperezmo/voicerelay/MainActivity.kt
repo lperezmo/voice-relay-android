@@ -37,6 +37,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var languagesSub: TextView
     private lateinit var vocabularySub: TextView
     private lateinit var cleanupSwitch: MaterialSwitch
+    private lateinit var cleanupSwitchSub: TextView
+    private lateinit var cleanupServiceSub: TextView
+    private lateinit var anthropicKeyRow: LinearLayout
+    private lateinit var anthropicKeySub: TextView
     private lateinit var cleanupModelSub: TextView
     private lateinit var promptRowSub: TextView
     private lateinit var fixPromptSub: TextView
@@ -183,23 +187,30 @@ class MainActivity : AppCompatActivity() {
         vocabularySub.ellipsize = TextUtils.TruncateAt.END
         root.addView(vocabRow)
 
-        // --- Cleanup ---
+        // --- Cleanup (and the grammar fix: both use the service and model chosen here) ---
         root.addView(sectionHeader("Cleanup"))
 
+        val serviceRow = settingsRow("Cleanup service", "") { pickCleanupService() }
+        cleanupServiceSub = serviceRow.findViewWithTag("subtitle")
+        root.addView(serviceRow)
+
+        anthropicKeyRow = settingsRow("Anthropic API key", "") { promptAnthropicKey() }
+        anthropicKeySub = anthropicKeyRow.findViewWithTag("subtitle")
+        root.addView(anthropicKeyRow)
+
+        val cleanupModelRow = settingsRow("Cleanup model", "") { pickCleanupModel() }
+        cleanupModelSub = cleanupModelRow.findViewWithTag("subtitle")
+        root.addView(cleanupModelRow)
+
         cleanupSwitch = MaterialSwitch(this).apply { isClickable = false }
-        root.addView(settingsRow("Clean up transcript", "Fixes grammar and punctuation. Sends the transcript text to OpenAI.", cleanupSwitch) {
+        val cleanupRow = settingsRow("Clean up transcript", "", cleanupSwitch) {
             settings.cleanupEnabled = !settings.cleanupEnabled
             refresh()
-        })
+        }
+        cleanupSwitchSub = cleanupRow.findViewWithTag("subtitle")
+        root.addView(cleanupRow)
 
         cleanupContainer = vertical(0)
-        val cleanupModelRow = settingsRow("Cleanup model", "") {
-            pickModel("Cleanup model", AppSettings.DEFAULT_CLEANUP_MODEL, OpenAiClient::cleanupModels) {
-                settings.cleanupModel = it
-            }
-        }
-        cleanupModelSub = cleanupModelRow.findViewWithTag("subtitle")
-        cleanupContainer.addView(cleanupModelRow)
         for (preset in promptPresets()) cleanupContainer.addView(buildPromptRow(preset))
         val promptRow = settingsRow("Edit custom prompt", "") { promptCustomPrompt() }
         promptRowSub = promptRow.findViewWithTag("subtitle")
@@ -704,10 +715,22 @@ class MainActivity : AppCompatActivity() {
             "${settings.transcriptionModel} (fallback and retries)"
         } else settings.transcriptionModel
         languagesSub.text = settings.languages.joinToString(", ").ifEmpty { "Auto-detect" }
-        vocabularySub.text = settings.vocabulary.joinToString(", ").ifEmpty { "Names and terms to spell exactly. Tap to add." }
+        vocabularySub.text = vocabularySummary()
+        val claude = settings.claudeCleanup
+        val anthropicKey = secrets.getAnthropicKey()
+        cleanupServiceSub.text = if (claude) {
+            "Claude, by Anthropic, for cleanup and the grammar fix. Speech to text stays on OpenAI."
+        } else "OpenAI. Tap to use Claude, by Anthropic, for cleanup and the grammar fix instead."
+        anthropicKeyRow.visibility = if (claude) View.VISIBLE else View.GONE
+        anthropicKeySub.text = when {
+            anthropicKey.isBlank() -> "Tap to set. Until then, dictation inserts the raw transcript."
+            anthropicKey.length > 12 -> "${anthropicKey.take(7)}...${anthropicKey.takeLast(4)}"
+            else -> "Set"
+        }
+        cleanupModelSub.text = if (claude) AnthropicClient.displayName(settings.claudeModel) else settings.cleanupModel
         cleanupSwitch.isChecked = settings.cleanupEnabled
+        cleanupSwitchSub.text = "Fixes grammar and punctuation. Sends the transcript text to ${if (claude) "Anthropic" else "OpenAI"}."
         cleanupContainer.visibility = if (settings.cleanupEnabled) View.VISIBLE else View.GONE
-        cleanupModelSub.text = settings.cleanupModel
         promptRowSub.text = settings.customPrompt
         fixPromptSub.text = settings.fixPrompt
         joystickSwitch.isChecked = settings.joystickEnabled
@@ -743,6 +766,8 @@ class MainActivity : AppCompatActivity() {
 
         val ready = audio && acc && apiKey.isNotBlank()
         statusSubtitle.text = when {
+            ready && settings.claudeCleanup && settings.cleanupEnabled && anthropicKey.isBlank() ->
+                "Ready. Set your Anthropic API key below for Claude cleanup; until then the raw transcript is inserted."
             ready -> "Ready. Tap the overlay button to dictate."
             apiKey.isBlank() -> "Set your OpenAI API key to start"
             else -> "Setup required"
@@ -766,7 +791,8 @@ class MainActivity : AppCompatActivity() {
                     "To know where to type, it watches which text field is focused, in every app. " +
                     "It reads a field's text only when you dictate into it, fix its grammar, or undo " +
                     "a change there. It does not record or store screen content.\n\n" +
-                    "Your audio, and the text you ask it to fix, go only to OpenAI, using your own API key."
+                    "Your audio goes only to OpenAI. The text it cleans up or fixes goes to OpenAI too, or to " +
+                    "Anthropic if you choose Claude for cleanup. Both use your own API keys."
             )
             .setPositiveButton("Open settings") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             .setNegativeButton("Not now", null)
@@ -797,6 +823,68 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun promptAnthropicKey() {
+        val input = editText("sk-ant-...", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        AlertDialog.Builder(this)
+            .setTitle("Anthropic API key")
+            .setMessage("Used only for Claude cleanup and the grammar fix; speech to text still uses your OpenAI key. " +
+                "Stored encrypted on this device. Leave empty and save to remove the stored key.")
+            .setView(padded(input))
+            .setPositiveButton("Save") { _, _ ->
+                secrets.setAnthropicKey(input.text.toString().filterNot { it.isWhitespace() })
+                refresh()
+                refreshModelCache(silent = true, claude = true)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** OpenAI or Claude for cleanup and the grammar fix. Choosing Claude with no key asks for one. */
+    private fun pickCleanupService() {
+        val services = listOf(AppSettings.SERVICE_OPENAI, AppSettings.SERVICE_CLAUDE)
+        AlertDialog.Builder(this)
+            .setTitle("Cleanup service")
+            .setSingleChoiceItems(arrayOf("OpenAI", "Claude, by Anthropic"), services.indexOf(settings.cleanupService)) { dialog, which ->
+                dialog.dismiss()
+                settings.cleanupService = services[which]
+                refresh()
+                if (settings.claudeCleanup && secrets.getAnthropicKey().isBlank()) promptAnthropicKey()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun pickCleanupModel() {
+        if (settings.claudeCleanup) {
+            pickClaudeModel()
+        } else {
+            pickModel("Cleanup model", AppSettings.DEFAULT_CLEANUP_MODEL, OpenAiClient::cleanupModels) {
+                settings.cleanupModel = it
+            }
+        }
+    }
+
+    /** Haiku, Sonnet or Opus in one tap; the last row lists every Claude model the key can use. */
+    private fun pickClaudeModel() {
+        val tiers = AnthropicClient.TIERS
+        val labels = tiers.map { it.label } + "Another Claude model..."
+        AlertDialog.Builder(this)
+            .setTitle("Claude model")
+            .setSingleChoiceItems(labels.toTypedArray(), tiers.indexOfFirst { it.id == settings.claudeModel }) { dialog, which ->
+                dialog.dismiss()
+                if (which < tiers.size) {
+                    settings.claudeModel = tiers[which].id
+                    refresh()
+                } else {
+                    pickModel("Claude model", AppSettings.DEFAULT_CLAUDE_MODEL, AnthropicClient::cleanupModels, claude = true) {
+                        settings.claudeModel = it
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun promptLanguages() {
         val input = editText("en, es", settings.languages.joinToString(", "), InputType.TYPE_CLASS_TEXT)
         AlertDialog.Builder(this)
@@ -811,22 +899,41 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * The vocabulary editor. A whole list can be pasted in: one term per line or
+     * comma-separated, list markers dropped. The hint shows a few examples.
+     */
     private fun promptVocabulary() {
-        val input = editText("One term per line", settings.vocabulary.joinToString("\n"),
+        val input = editText(Vocabulary.EXAMPLES, settings.vocabulary.joinToString("\n"),
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
-            minLines = 4
+            minLines = 5
+            maxLines = 12
+            isVerticalScrollBarEnabled = true
             gravity = Gravity.TOP or Gravity.START
         }
         AlertDialog.Builder(this)
             .setTitle("Vocabulary")
-            .setMessage("Names, products, and jargon to spell exactly. Sent with every transcription and cleanup request.")
+            .setMessage(
+                "Names, products, and jargon to spell exactly, one per line or comma-separated. You can paste a whole list. " +
+                    "Put the terms you say most at the top: transcription reads the first ones that fit " +
+                    "(about ${Vocabulary.TRANSCRIPTION_CHARS} characters), and cleanup gets all of them, with an instruction " +
+                    "never to swap one for a word that sounds like it."
+            )
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
-                settings.vocabulary = AppSettings.splitList(input.text.toString())
+                settings.vocabulary = Vocabulary.fromPaste(input.text.toString())
                 refresh()
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun vocabularySummary(): String {
+        val terms = settings.vocabulary
+        if (terms.isEmpty()) return "Names and terms to spell exactly. Tap to add, or paste a list."
+        val heard = Vocabulary.forTranscription(terms).size
+        val count = if (heard < terms.size) "${terms.size} terms, the first $heard steer transcription: " else ""
+        return count + terms.joinToString(", ")
     }
 
     /** Edits your own cleanup prompt. Saving selects Custom; the presets are left alone. */
@@ -880,7 +987,13 @@ class MainActivity : AppCompatActivity() {
      * Model picker filled from the key's own /v1/models list (cached), so only
      * models that exist for this key are offered. "Other" accepts any slug.
      */
-    private fun pickModel(title: String, default: String, filter: (List<String>) -> List<String>, onPick: (String) -> Unit) {
+    private fun pickModel(
+        title: String,
+        default: String,
+        filter: (List<String>) -> List<String>,
+        claude: Boolean = false,
+        onPick: (String) -> Unit,
+    ) {
         fun show(ids: List<String>) {
             val options = (listOf(default) + filter(ids)).distinct() + OTHER
             AlertDialog.Builder(this)
@@ -891,12 +1004,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 .show()
         }
-        val cached = settings.cachedModelIds
+        val cached = if (claude) settings.cachedClaudeModelIds else settings.cachedModelIds
         if (cached.isNotEmpty()) {
             show(cached)
-            refreshModelCache(silent = true)
+            refreshModelCache(silent = true, claude = claude)
         } else {
-            refreshModelCache(silent = false) { show(it) }
+            refreshModelCache(silent = false, claude = claude) { show(it) }
         }
     }
 
@@ -910,19 +1023,23 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun refreshModelCache(silent: Boolean, then: ((List<String>) -> Unit)? = null) {
-        val key = secrets.getApiKey()
+    /** Fetches the model list for OpenAI, or for Anthropic when [claude], into its cache. */
+    private fun refreshModelCache(silent: Boolean, claude: Boolean = false, then: ((List<String>) -> Unit)? = null) {
+        val key = if (claude) secrets.getAnthropicKey() else secrets.getApiKey()
         if (key.isBlank()) {
-            if (!silent) toast("Set your API key first")
+            if (!silent) toast(if (claude) "Set your Anthropic API key first" else "Set your API key first")
             then?.invoke(emptyList())
             return
         }
         if (!silent) toast("Loading models...")
         thread {
-            val ids = OpenAiClient(key).listModels()
+            val ids = if (claude) AnthropicClient(key).listModels() else OpenAiClient(key).listModels()
             runOnUiThread {
-                if (ids != null) settings.cachedModelIds = ids
-                else if (!silent) toast("Could not load models; showing defaults")
+                when {
+                    ids != null && claude -> settings.cachedClaudeModelIds = ids
+                    ids != null -> settings.cachedModelIds = ids
+                    !silent -> toast("Could not load models; showing defaults")
+                }
                 then?.invoke(ids ?: emptyList())
             }
         }

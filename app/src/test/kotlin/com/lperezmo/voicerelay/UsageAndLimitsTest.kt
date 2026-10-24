@@ -46,6 +46,15 @@ class UsageAndLimitsTest {
     }
 
     @Test
+    fun `Claude cleanup models are priced too`() {
+        // 1000 in at $4/M + 100 out at $20/M
+        assertEquals(0.006, Pricing.text("claude-opus-5-5", 1000, 100)!!, 1e-12)
+        // 1000 in at $0.10/M + 100 out at $0.50/M
+        assertEquals(0.00015, Pricing.text("claude-haiku-5-5", 1000, 100)!!, 1e-12)
+        assertNull(Pricing.text("claude-unknown-9", 1000, 100))
+    }
+
+    @Test
     fun `totals add up and flag unpriced calls`() {
         val t = UsageTotals()
             .plusTranscription(90.0, Pricing.transcription("gpt-transcribe", 90.0))

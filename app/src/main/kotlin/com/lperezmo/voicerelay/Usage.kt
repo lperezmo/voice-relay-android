@@ -5,7 +5,7 @@ import java.time.YearMonth
 import kotlin.math.roundToLong
 
 /**
- * OpenAI list prices used for the in-app cost estimate. Prices change, and a
+ * OpenAI and Anthropic list prices used for the in-app cost estimate. Prices change, and a
  * model missing from these tables is counted but not priced, so the estimate
  * says so instead of guessing.
  */
@@ -28,6 +28,14 @@ object Pricing {
         "gpt-5-mini" to (0.25 to 2.00),
         "gpt-5-nano" to (0.05 to 0.40),
         "gpt-4.1-mini" to (0.40 to 1.60),
+        // Claude, when it is the cleanup service (prompts under 100K tokens for Haiku 5.5).
+        "claude-fable-5-1" to (10.00 to 50.00),
+        "claude-opus-5-5" to (4.00 to 20.00),
+        "claude-opus-5" to (5.00 to 25.00),
+        "claude-sonnet-5-5" to (2.00 to 10.00),
+        "claude-sonnet-5" to (2.00 to 10.00),
+        "claude-haiku-5-5" to (0.10 to 0.50),
+        "claude-haiku-4-5" to (1.00 to 5.00),
     )
 
     /** Dated snapshots (gpt-4o-transcribe-2025-...) are priced like their base model. */
@@ -85,9 +93,9 @@ data class UsageTotals(
 }
 
 /**
- * Counts what this phone sends to OpenAI: this month and since the last reset.
- * Stored locally only; it is an estimate, and the OpenAI usage dashboard is the
- * bill of record.
+ * Counts what this phone sends to OpenAI and, for Claude cleanup, Anthropic:
+ * this month and since the last reset. Stored locally only; it is an estimate,
+ * and each service's usage page is the bill of record.
  */
 class UsageStore(context: Context, private val month: () -> String = { YearMonth.now().toString() }) {
     private val prefs = context.getSharedPreferences("usage", Context.MODE_PRIVATE)

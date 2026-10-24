@@ -11,17 +11,29 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Stores the OpenAI API key encrypted with an AES-GCM key that lives in the
- * Android Keystore and never leaves it. The ciphertext sits in the app's
- * SharedPreferences; without the Keystore key it is useless, so a copied prefs
- * file (backup, run-as on a debuggable build) does not expose the API key.
+ * Stores the OpenAI API key, and the optional Anthropic API key, encrypted with
+ * an AES-GCM key that lives in the Android Keystore and never leaves it. The
+ * ciphertext sits in the app's SharedPreferences; without the Keystore key it is
+ * useless, so a copied prefs file (backup, run-as on a debuggable build) does
+ * not expose either key.
  */
 class SecretStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun getApiKey(): String {
         migratePlaintextKey()
-        val stored = prefs.getString(KEY_CIPHERTEXT, null) ?: return ""
+        return decrypt(KEY_CIPHERTEXT)
+    }
+
+    fun setApiKey(value: String) = encrypt(KEY_CIPHERTEXT, value, alsoRemove = LEGACY_PLAINTEXT)
+
+    /** For Claude cleanup only; speech to text always uses the OpenAI key. */
+    fun getAnthropicKey(): String = decrypt(ANTHROPIC_CIPHERTEXT)
+
+    fun setAnthropicKey(value: String) = encrypt(ANTHROPIC_CIPHERTEXT, value)
+
+    private fun decrypt(name: String): String {
+        val stored = prefs.getString(name, null) ?: return ""
         return try {
             val bytes = Base64.decode(stored, Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -33,18 +45,18 @@ class SecretStore(context: Context) {
         }
     }
 
-    fun setApiKey(value: String) {
+    /** A blank [value] removes the stored key. [alsoRemove] is cleared either way. */
+    private fun encrypt(name: String, value: String, alsoRemove: String? = null) {
+        val edit = prefs.edit()
+        if (alsoRemove != null) edit.remove(alsoRemove)
         if (value.isBlank()) {
-            prefs.edit().remove(KEY_CIPHERTEXT).remove(LEGACY_PLAINTEXT).apply()
+            edit.remove(name).apply()
             return
         }
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val payload = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        prefs.edit()
-            .putString(KEY_CIPHERTEXT, Base64.encodeToString(payload, Base64.NO_WRAP))
-            .remove(LEGACY_PLAINTEXT)
-            .apply()
+        edit.putString(name, Base64.encodeToString(payload, Base64.NO_WRAP)).apply()
     }
 
     /** Upstream stored the key in plain text under "api_key"; move it once. */
@@ -70,6 +82,7 @@ class SecretStore(context: Context) {
     private companion object {
         const val PREFS = "voicerelay"
         const val KEY_CIPHERTEXT = "api_key_enc"
+        const val ANTHROPIC_CIPHERTEXT = "anthropic_key_enc"
         const val LEGACY_PLAINTEXT = "api_key"
         const val ALIAS = "voicerelay_api_key"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"

@@ -16,14 +16,18 @@ is transcribed, or when you discard it (long-press the amber button, then confir
 most recent untranscribed recording is ever kept.
 
 If optional cleanup is enabled, the transcribed text is also sent directly from the device to
-OpenAI to improve punctuation, capitalization, and clarity.
+OpenAI to improve punctuation, capitalization, and clarity. If you choose **Claude, by Anthropic**
+as the cleanup service, it is sent to Anthropic instead, with your own Anthropic API key; the audio
+still goes only to OpenAI.
 
 When you use the grammar fix (long-press on the floating button, or **Fix grammar** in the
 text-selection menu), the selected text, or the focused field's text when nothing is selected,
-is sent directly from the device to OpenAI and the corrected text is returned.
+is sent directly from the device to OpenAI, or to Anthropic when Claude is the cleanup service,
+and the corrected text is returned.
 
-Cleanup and grammar-fix requests are sent with `store: false`. The app's logs contain sizes and
-timings only, never your text.
+OpenAI cleanup and grammar-fix requests are sent with `store: false`. Requests to Anthropic are
+handled under your agreement with Anthropic. The app's logs contain sizes and timings only, never
+your text.
 
 ## Wake word (optional, off by default)
 
@@ -53,7 +57,8 @@ and used only to authenticate requests sent directly to OpenAI. There is no rela
 The app uses Android's Accessibility Service to show its floating button and to put text where you
 are typing. To know where that is, it is told whenever a text field gains focus or its cursor
 moves, in any app, and keeps a reference to the last focused field in memory. It reads a field's
-text only when you dictate into it, fix its grammar (that text is then sent to OpenAI), or undo a
+text only when you dictate into it, fix its grammar (that text is then sent to OpenAI, or to Anthropic when Claude is the cleanup
+service), or undo a
 change there. Nothing it sees is written to storage or to the logs. It does not monitor browsing,
 collect screen content for analytics, or perform background automation.
 

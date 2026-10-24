@@ -56,7 +56,9 @@ class PromptsTest {
     @Test fun `vocabulary is appended once, to whichever prompt is sent`() {
         val withTerms = Prompts.forRequest(mine, listOf("Pendleton", "Luna"))
         assertTrue(withTerms.startsWith(mine))
-        assertTrue(withTerms.endsWith("spell them exactly like this: Pendleton, Luna."))
+        assertTrue(withTerms.endsWith("write the term: Pendleton, Luna."))
+        assertTrue(withTerms.contains("never replace one with a common word that sounds like it"))
+        assertEquals(1, Regex("These terms may appear").findAll(withTerms).count())
         assertEquals(Prompts.TYPED, Prompts.forRequest(Prompts.TYPED, emptyList()))
     }
 }
