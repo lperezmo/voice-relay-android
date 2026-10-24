@@ -2,7 +2,7 @@ package com.lperezmo.voicerelay
 
 import android.content.Context
 
-/** Typed access to user settings. The API key lives in [SecretStore], not here. */
+/** Typed access to user settings. The API keys live in [SecretStore], not here. */
 class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("voicerelay", Context.MODE_PRIVATE)
 
@@ -23,9 +23,29 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("use_post_processing", true)
         set(v) = prefs.edit().putBoolean("use_post_processing", v).apply()
 
+    /** The OpenAI model for cleanup and the grammar fix, and for the wake word's Generate with AI. */
     var cleanupModel: String
         get() = prefs.getString("cleanup_model", null) ?: DEFAULT_CLEANUP_MODEL
         set(v) = prefs.edit().putString("cleanup_model", v).apply()
+
+    /**
+     * Who rewrites text after transcription, for dictation cleanup and the grammar
+     * fix: [SERVICE_OPENAI] (the default) or [SERVICE_CLAUDE]. Speech to text is
+     * always OpenAI.
+     */
+    var cleanupService: String
+        get() = if (prefs.getString("cleanup_service", null) == SERVICE_CLAUDE) SERVICE_CLAUDE else SERVICE_OPENAI
+        set(v) = prefs.edit().putString("cleanup_service", v).apply()
+
+    val claudeCleanup: Boolean get() = cleanupService == SERVICE_CLAUDE
+
+    /** The Claude model used when [cleanupService] is Claude. */
+    var claudeModel: String
+        get() = prefs.getString("claude_model", null) ?: DEFAULT_CLAUDE_MODEL
+        set(v) = prefs.edit().putString("claude_model", v).apply()
+
+    /** The model the next cleanup or grammar fix goes to, for whichever service is selected. */
+    val activeCleanupModel: String get() = if (claudeCleanup) claudeModel else cleanupModel
 
     /**
      * Which cleanup prompt is in use: [Prompts.SIMPLE_KEY], [Prompts.DEV_KEY] or
@@ -152,7 +172,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("wake_resume_media", true)
         set(v) = prefs.edit().putBoolean("wake_resume_media", v).apply()
 
-    /** Terms to spell exactly: names, products, jargon. Stored one per line. */
+    /**
+     * Terms to spell exactly: names, products, jargon. Stored one per line, most
+     * used first: transcription gets the first ones ([Vocabulary.forTranscription]),
+     * cleanup gets them all.
+     */
     var vocabulary: List<String>
         get() = splitList(prefs.getString("vocabulary", "") ?: "")
         set(v) = prefs.edit().putString("vocabulary", v.joinToString("\n")).apply()
@@ -167,11 +191,20 @@ class AppSettings(context: Context) {
         get() = splitList(prefs.getString("cached_model_ids", "") ?: "")
         set(v) = prefs.edit().putString("cached_model_ids", v.joinToString("\n")).apply()
 
+    /** The same, from Anthropic's /v1/models, for the Claude model picker. */
+    var cachedClaudeModelIds: List<String>
+        get() = splitList(prefs.getString("cached_claude_model_ids", "") ?: "")
+        set(v) = prefs.edit().putString("cached_claude_model_ids", v.joinToString("\n")).apply()
+
     companion object {
         const val DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe"
         const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
+        const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
         const val DEFAULT_LANGUAGES = ""
+
+        const val SERVICE_OPENAI = "openai"
+        const val SERVICE_CLAUDE = "claude"
 
         fun splitList(raw: String): List<String> =
             raw.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()

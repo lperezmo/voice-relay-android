@@ -819,7 +819,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                 encode(pcm, clip.seconds).also { uploaded = it }.let { standard.transcribe(it) }
             }
         }
-        val pipeline = buildPipeline(client, transcriber)
+        val pipeline = buildPipeline(transcriber)
         work = scope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 // Saved before the upload, so a crash mid-upload cannot lose it either.
@@ -878,14 +878,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun buildPipeline(client: OpenAiClient, transcriber: DictationPipeline.Transcriber): DictationPipeline {
-        val cleaner = if (settings.cleanupEnabled) {
-            val model = settings.cleanupModel
-            val instructions = Prompts.forRequest(settings.cleanupPrompt, settings.vocabulary)
-            DictationPipeline.Cleaner { text ->
-                client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
-            }
-        } else null
+    private fun buildPipeline(transcriber: DictationPipeline.Transcriber): DictationPipeline {
+        val cleaner = if (settings.cleanupEnabled) TextService(settings, secrets, usage).cleaner(settings.cleanupPrompt) else null
         return DictationPipeline(
             transcriber = transcriber,
             cleaner = cleaner,
@@ -895,13 +889,13 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     /**
      * Grammar fix for typed text: the selection in the focused field, or the
-     * whole field when nothing is selected. Uses the cleanup model with the
-     * typed-text prompt, regardless of whether dictation cleanup is on.
+     * whole field when nothing is selected. Uses the cleanup service and model
+     * with the typed-text prompt, regardless of whether dictation cleanup is on.
      */
     private fun fixFocusedText() {
-        val apiKey = secrets.getApiKey()
-        if (apiKey.isBlank()) {
-            showFeedback("Set your OpenAI API key in Voice Relay", 3000)
+        val service = TextService(settings, secrets, usage)
+        service.missingKey()?.let {
+            showFeedback(it, 3000)
             return
         }
         val range = injector.readFocusedRange()
@@ -911,17 +905,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
         overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         setState(State.WORKING)
-        val client = OpenAiClient(apiKey)
-        val model = settings.cleanupModel
-        val instructions = Prompts.forRequest(settings.fixPrompt, settings.vocabulary)
+        val cleaner = service.cleaner(settings.fixPrompt)
         val original = range.target
         work = scope.launch {
             val started = System.currentTimeMillis()
-            val outcome = withContext(Dispatchers.IO) {
-                DictationPipeline.fixTyped(original) { text ->
-                    client.cleanup(text, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
-                }
-            }
+            val outcome = withContext(Dispatchers.IO) { DictationPipeline.fixTyped(original, cleaner) }
             Log.i(TAG, "Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
             setState(State.IDLE)
             when (outcome) {

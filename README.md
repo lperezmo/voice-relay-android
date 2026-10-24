@@ -19,6 +19,8 @@ It also has a few extras, all off until you turn them on:
   off, and the Claude app's voice assistant opens, so you can talk to Claude hands-free and let it
   use the phone. The listening runs entirely on the phone.
 - **Fix grammar** in every app's text-selection menu.
+- **Claude for cleanup**: OpenAI stays the speech to text, and Claude (with your own Anthropic
+  key) cleans up the transcript and fixes grammar instead of OpenAI's text model.
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
 - **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
@@ -300,9 +302,11 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Live transcription | off | Streams the audio to OpenAI's Realtime API (`gpt-live-transcribe`) while you talk, so the text is ready about 0.5 s after you stop, however long you spoke. About $0.017/min instead of $0.0045/min. If the stream fails, the same recording goes through the standard upload. |
 | Transcription model | `gpt-transcribe` | The picker lists the speech models your key can use, plus **Other** for any model id. |
 | Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
-| Vocabulary | empty | Names and terms to spell exactly. Sent to the transcription model and added to the cleanup and grammar-fix instructions. |
+| Vocabulary | empty | Names and terms to spell exactly, one per line or comma-separated; a whole list can be pasted in. Put the ones you say most first: the transcription model gets the first ones that fit about 800 characters (its hint is short), and the cleanup and grammar-fix instructions get all of them, with an instruction never to swap one for a word that sounds like it ("bun", not "bon"). |
+| Cleanup service | OpenAI | **Claude, by Anthropic** sends cleanup and grammar fixes to Claude instead. Speech to text always stays on OpenAI. See [Claude for cleanup](#claude-for-cleanup). |
+| Anthropic API key | none | Shown when Claude is the cleanup service. Stored encrypted like the OpenAI key. |
+| Cleanup model | `gpt-6-luna`, or `claude-opus-5-5` for Claude | Also used for grammar fixes, with the lowest reasoning effort for speed. The picker lists the models the selected service's key can use. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
-| Cleanup model | `gpt-6-luna` | Also used for grammar fixes, with the lowest reasoning effort for speed. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
 | Grammar fix prompt | built-in | Used by the long-press fix and the **Fix grammar** selection menu. "Use default" puts the built-in one back. |
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
@@ -314,6 +318,20 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed. See [Glyph pill](#glyph-pill). |
 
+### Claude for cleanup
+
+OpenAI always does the speech to text. To have Claude do the cleanup and the grammar fix instead:
+
+1. Get an API key from the [Claude Console](https://platform.claude.com/).
+2. In **Cleanup**, tap **Cleanup service** and choose **Claude, by Anthropic**. Paste the key when
+   it asks (or tap **Anthropic API key** later).
+3. Optionally tap **Cleanup model** to pick another Claude model. `claude-haiku-5-5` is the fastest
+   and cheapest; the default is `claude-opus-5-5`.
+
+The same prompts and vocabulary are used. If the Claude call fails, is refused, or no Anthropic
+key is set, dictation inserts the raw transcript with a note, as it does when OpenAI cleanup fails;
+the transcript is not sent to OpenAI's text model instead. Switch back to **OpenAI** at any time.
+
 The **Usage** section counts dictations, minutes of audio, cleanup and grammar-fix calls, and an
 estimated cost for this month and since the last reset (tap it to reset). **About > Open-source
 licenses** shows the app's license and the notices for the software it includes.
@@ -321,10 +339,11 @@ licenses** shows the app's license and the notices for the software it includes.
 ## Privacy and security
 
 - **Dictation:** your recording goes directly from the phone to OpenAI for transcription, and
-  the transcript to OpenAI for cleanup (if on).
-- **Grammar fix:** the selected text, or the focused field's text, goes to OpenAI.
-- **No backend.** Requests go straight to OpenAI with your key, with `store: false` on cleanup
-  and grammar-fix requests. No analytics, no accounts.
+  the transcript to OpenAI for cleanup (if on), or to Anthropic when Claude is the cleanup service.
+- **Grammar fix:** the selected text, or the focused field's text, goes to OpenAI, or to Anthropic
+  when Claude is the cleanup service.
+- **No backend.** Requests go straight to OpenAI (and Anthropic, if you chose Claude) with your
+  keys, with `store: false` on OpenAI cleanup and grammar-fix requests. No analytics, no accounts.
 - **The wake word and the arrows keyboard send nothing anywhere.**
 - **Logs** contain sizes, timings and error messages only, never your audio or text.
 
@@ -428,6 +447,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `LiveTranscription.kt` | Live mode: Realtime API WebSocket stream, 16 to 24 kHz resampling |
 | `DictationPipeline.kt` | Transcribe, clean up, plausibility guard, grammar fix; timing log |
 | `OpenAiClient.kt` | Transcription, Responses API cleanup, model list, connection prewarm |
+| `AnthropicClient.kt`, `TextService.kt` | Claude cleanup through the Messages API; which service and key cleanup and the grammar fix use |
+| `Vocabulary.kt` | The vocabulary list: what transcription gets, pasting a list |
 | `TextInjector.kt` | Find the field, insert at the cursor, replace a range, undo, clipboard fallback |
 | `FixGrammarActivity.kt`, `RateLimiter.kt` | **Fix grammar** in the text-selection menu (`ACTION_PROCESS_TEXT`), at most 10 a minute |
 | `JoystickView.kt` | The arrow pad: drag to move, one arrow per push of the knob, double-tap for Enter |
@@ -442,7 +463,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |
-| `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API key, cleanup prompts |
+| `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API keys, cleanup prompts |
 
 ## Known limitations
 

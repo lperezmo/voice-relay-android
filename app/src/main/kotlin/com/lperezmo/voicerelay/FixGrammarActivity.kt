@@ -32,10 +32,12 @@ class FixGrammarActivity : AppCompatActivity() {
 
         val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
         val readOnly = intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
-        val apiKey = SecretStore(this).getApiKey()
+        val settings = AppSettings(this)
+        val service = TextService(settings, SecretStore(this), UsageStore(this))
+        val missingKey = service.missingKey()
         when {
             text.isNullOrBlank() -> return finishWith("Nothing selected")
-            apiKey.isBlank() -> return finishWith("Set your OpenAI API key in Voice Relay")
+            missingKey != null -> return finishWith(missingKey)
             !limiter.tryAcquire(android.os.SystemClock.elapsedRealtime()) -> {
                 Log.w("VoiceRelay", "Selection fix: refused, more than $MAX_PER_MINUTE requests in a minute")
                 return finishWith("Too many grammar fixes in a minute. Try again shortly.")
@@ -55,18 +57,10 @@ class FixGrammarActivity : AppCompatActivity() {
             })
         })
 
-        val settings = AppSettings(this)
-        val client = OpenAiClient(apiKey)
-        val model = settings.cleanupModel
-        val instructions = Prompts.forRequest(settings.fixPrompt, settings.vocabulary)
-        val usage = UsageStore(this)
+        val cleaner = service.cleaner(settings.fixPrompt)
         lifecycleScope.launch {
             val started = System.currentTimeMillis()
-            val outcome = withContext(Dispatchers.IO) {
-                DictationPipeline.fixTyped(text!!) { input ->
-                    client.cleanup(input, model, instructions).also { if (it.ok) usage.recordText(model, it.inputTokens, it.outputTokens) }
-                }
-            }
+            val outcome = withContext(Dispatchers.IO) { DictationPipeline.fixTyped(text!!, cleaner) }
             // Metadata only, never the text.
             Log.i("VoiceRelay", "Selection fix: ${text.length} chars, ${System.currentTimeMillis() - started} ms, " +
                 "readOnly=$readOnly, " + when (outcome) {
@@ -105,7 +99,7 @@ class FixGrammarActivity : AppCompatActivity() {
     companion object {
         /**
          * This activity is exported (every app's selection menu has to reach it), so
-         * any installed app can send it text and spend the user's OpenAI key. Cap the
+         * any installed app can send it text and spend the user's API key. Cap the
          * rate well above what a person selecting text would ever do.
          */
         const val MAX_PER_MINUTE = 10

@@ -37,7 +37,7 @@ class DictationPipeline(
         val cleaned = cleaner.cleanup(raw)
         log("$timing, cleanup ${clock() - t1} ms${if (cleaned.ok) "" else " (failed)"}")
         return when {
-            !cleaned.ok -> Outcome.Text(raw, "Cleanup failed, inserted raw text")
+            !cleaned.ok -> Outcome.Text(raw, "Cleanup failed (${cleaned.error?.take(60) ?: "empty response"}), inserted raw text")
             !plausibleCleanup(raw, cleaned.text!!) -> Outcome.Text(raw, "Cleanup changed too much, inserted raw text")
             else -> Outcome.Text(cleaned.text)
         }

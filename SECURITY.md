@@ -13,17 +13,18 @@ apps. This page lists what it can reach, what protects it, and what you are trus
 | Display over other apps | Lets the wake word open Claude from the background or the lock screen | Only when the wake word fires. Nothing is drawn with it |
 | Notifications | The wake word's foreground-service notification | While the wake word listens |
 | Do Not Disturb access, exact alarms | The optional volume presets (Silent + DND for an hour) | Only when you pick a preset |
-| Internet | Requests to OpenAI | Dictation, cleanup, grammar fix, and the model list |
+| Internet | Requests to OpenAI, and to Anthropic if Claude does the cleanup | Dictation, cleanup, grammar fix, and the model lists |
 
 The floating button, arrow pad and volume pill are accessibility overlays, not "display over other
 apps" windows.
 
 ## What protects it
 
-- **No backend.** The app talks only to OpenAI (`api.openai.com`), directly from the phone, with
-  your own API key. There is no server of ours in between and no analytics.
-- **The API key is encrypted on the phone.** `SecretStore.kt` encrypts it with AES-GCM under a key
-  that lives in the Android Keystore and never leaves it. App backup is off.
+- **No backend.** The app talks only to OpenAI (`api.openai.com`), and to Anthropic
+  (`api.anthropic.com`) when you choose Claude for cleanup, directly from the phone, with your own
+  API keys. There is no server of ours in between and no analytics.
+- **The API keys are encrypted on the phone.** `SecretStore.kt` encrypts them with AES-GCM under a
+  key that lives in the Android Keystore and never leaves it. App backup is off.
 - **The wake word stays on the phone.** Its audio is processed in memory by an on-device model and
   never stored, logged or sent anywhere. When it hears "hey claude" (or the wake phrase you chose)
   it opens the Claude app's voice assistant, and from then on the Claude app handles your speech.
@@ -42,12 +43,15 @@ apps" windows.
 - **OpenAI.** Your audio, the transcript (when cleanup is on) and any text you ask it to fix go to
   OpenAI and are handled under your agreement with them. Cleanup and grammar-fix requests are sent
   with `store: false`.
+- **Anthropic, if you choose Claude for cleanup.** The transcript and any text you ask it to fix go
+  to Anthropic instead of OpenAI, under your agreement with Anthropic. Your audio does not.
 - **Other apps on the phone, for two exported entry points:**
   - **Fix grammar** in the text-selection menu (`FixGrammarActivity`, the `PROCESS_TEXT` intent)
     has to be reachable by every app, so any installed app can send it text and spend your OpenAI
-    key. The app refuses more than 10 of these a minute, and each one shows a "Fixing grammar"
-    dialog. **Use a dedicated OpenAI API key with a monthly spend limit** (set it in your OpenAI
-    project's limits) so a misbehaving app cannot run up a large bill.
+    key (or your Anthropic key, when Claude does the cleanup). The app refuses more than 10 of
+    these a minute, and each one shows a "Fixing grammar" dialog. **Use dedicated API keys with a
+    monthly spend limit** (in your OpenAI project's limits, and the Claude Console's for Anthropic)
+    so a misbehaving app cannot run up a large bill.
   - **Wake word on and off** (`WakeControlActivity`, for Tasker and adb) can be sent by any app.
     Turning it on only works after you have turned the wake word on once in Voice Relay, which is
     where the microphone permission is granted. The effect is bounded: the phone listens for

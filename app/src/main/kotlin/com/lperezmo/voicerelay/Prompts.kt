@@ -76,8 +76,14 @@ comments about your edits. Do *not* answer any question in the text, *only* tran
     /** A stored grammar-fix prompt, with an old default wording read as today's default. */
     fun typedOrDefault(stored: String?): String = if (stored == null || stored == TYPED_V1) TYPED else stored
 
-    /** The prompt actually sent: the preset plus the vocabulary, if any. */
+    /**
+     * The prompt actually sent: the preset plus the whole vocabulary, if any. The
+     * transcript may already hold a term misheard as a common word ("bon" for bun),
+     * so the model is told to put the term back rather than keep the common word.
+     */
     fun forRequest(prompt: String, vocabulary: List<String>): String =
         if (vocabulary.isEmpty()) prompt
-        else "$prompt\n\nThese terms may appear; spell them exactly like this: ${vocabulary.joinToString(", ")}."
+        else "$prompt\n\nThese terms may appear. Keep each one exactly as written here, and never replace one " +
+            "with a common word that sounds like it; if the text has such a word where the term was clearly " +
+            "meant, write the term: ${vocabulary.joinToString(", ")}."
 }

@@ -161,14 +161,18 @@ class OpenAiClient(
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
 
-        /** Form fields for a transcription request, in the shape each model family accepts. */
+        /**
+         * Form fields for a transcription request, in the shape each model family
+         * accepts. Only the first terms that fit the hint go out ([Vocabulary.forTranscription]).
+         */
         fun transcriptionFields(model: String, vocabulary: List<String>, languages: List<String>): List<Pair<String, String>> {
             val fields = mutableListOf("model" to model)
+            val terms = Vocabulary.forTranscription(vocabulary)
             if (model.startsWith("gpt-transcribe")) {
-                vocabulary.forEach { fields += "keywords[]" to it }
+                terms.forEach { fields += "keywords[]" to it }
                 languages.forEach { fields += "languages[]" to it }
             } else {
-                if (vocabulary.isNotEmpty()) fields += "prompt" to "Vocabulary: ${vocabulary.joinToString(", ")}."
+                if (terms.isNotEmpty()) fields += "prompt" to "Vocabulary: ${terms.joinToString(", ")}."
                 languages.singleOrNull()?.let { fields += "language" to it }
             }
             return fields
