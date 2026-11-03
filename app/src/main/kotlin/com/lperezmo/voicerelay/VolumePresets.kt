@@ -20,9 +20,9 @@ enum class VolumePreset(
     val dnd: Boolean,
 ) {
     DND("DND", "Silent + DND", 0xFF8B80F0.toInt(), intArrayOf(0, 0, 0, 0), Ringer.SILENT, dnd = true),
-    MUTE("MUTE", "Mute", 0xFFA3A3AB.toInt(), intArrayOf(0, 0, 0, 0), Ringer.VIBRATE, dnd = false),
-    MEDIUM("MED", "Medium", 0xFF3FB68B.toInt(), intArrayOf(40, 40, 40, 5), Ringer.NORMAL, dnd = false),
-    LOUD("LOUD", "Loud", 0xFFF2994A.toInt(), intArrayOf(100, 100, 100, 20), Ringer.NORMAL, dnd = false);
+    MUTE("Mute", "Mute", 0xFFA3A3AB.toInt(), intArrayOf(0, 0, 0, 0), Ringer.VIBRATE, dnd = false),
+    MEDIUM("Med", "Medium", 0xFF3FB68B.toInt(), intArrayOf(40, 40, 40, 5), Ringer.NORMAL, dnd = false),
+    LOUD("Loud", "Loud", 0xFFF2994A.toInt(), intArrayOf(100, 100, 100, 20), Ringer.NORMAL, dnd = false);
 
     enum class Ringer { NORMAL, VIBRATE, SILENT }
 }
@@ -31,12 +31,12 @@ enum class VolumePreset(
 enum class PillState(val short: String, val label: String, val color: Int, val preset: VolumePreset?) {
     DND("DND", "Silent + DND", VolumePreset.DND.color, VolumePreset.DND),
     /** The DND hour ran out: DND is off and the volumes stayed at 0. */
-    SILENT("SIL", "Silent, DND ended", 0xFF5E5A86.toInt(), null),
-    MUTE("MUTE", "Mute", VolumePreset.MUTE.color, VolumePreset.MUTE),
-    MEDIUM("MED", "Medium", VolumePreset.MEDIUM.color, VolumePreset.MEDIUM),
-    LOUD("LOUD", "Loud", VolumePreset.LOUD.color, VolumePreset.LOUD),
+    SILENT("Sil", "Silent, DND ended", 0xFF5E5A86.toInt(), null),
+    MUTE("Mute", "Mute", VolumePreset.MUTE.color, VolumePreset.MUTE),
+    MEDIUM("Med", "Medium", VolumePreset.MEDIUM.color, VolumePreset.MEDIUM),
+    LOUD("Loud", "Loud", VolumePreset.LOUD.color, VolumePreset.LOUD),
     /** A volume was changed by hand, so no preset matches. */
-    CUSTOM("CUST", "Custom", 0xFF6B6E75.toInt(), null),
+    CUSTOM("Cust", "Custom", 0xFF6B6E75.toInt(), null),
 }
 
 /** Preset arithmetic, kept free of Android so it can be unit tested. */

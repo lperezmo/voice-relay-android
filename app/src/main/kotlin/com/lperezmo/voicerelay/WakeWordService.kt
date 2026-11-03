@@ -440,6 +440,7 @@ class WakeWordService : Service() {
         try {
             ctx.startActivity(Intent(intent).setPackage(WakeWord.CLAUDE_PACKAGE))
             Log.i(TAG, "Wake word: opened Claude")
+            WhisperAccessibilityService.instance?.tapClaudeVoiceMode()
         } catch (_: ActivityNotFoundException) {
             try {
                 ctx.startActivity(intent)

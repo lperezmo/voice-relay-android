@@ -2,6 +2,8 @@ package com.lperezmo.voicerelay
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -16,7 +18,10 @@ import android.widget.Toast
  * foreground, and a resumed activity is what makes it so. It also shows over
  * the lock screen, so a Tasker profile works while the phone is locked.
  *
- * Exported, so any app can send these three actions. What that allows is
+ * CLAUDE_VOICE opens Claude's assistant straight into voice mode, the same
+ * way the wake word does, for a Tasker gesture or button.
+ *
+ * Exported, so any app can send these four actions. What that allows is
  * bounded: turning on only works after you turned the wake word on once in
  * Voice Relay (which is where the microphone permission is granted), and the
  * only effect is listening on the phone and opening Claude's assistant.
@@ -28,6 +33,10 @@ class WakeControlActivity : Activity() {
         const val ACTION_WAKE_ON = "com.lperezmo.voicerelay.WAKE_ON"
         const val ACTION_WAKE_OFF = "com.lperezmo.voicerelay.WAKE_OFF"
         const val ACTION_WAKE_TOGGLE = "com.lperezmo.voicerelay.WAKE_TOGGLE"
+        const val ACTION_CLAUDE_VOICE = "com.lperezmo.voicerelay.CLAUDE_VOICE"
+        const val ACTION_BUTTONS_HIDE = "com.lperezmo.voicerelay.BUTTONS_HIDE"
+        const val ACTION_BUTTONS_SHOW = "com.lperezmo.voicerelay.BUTTONS_SHOW"
+        const val ACTION_BUTTONS_TOGGLE = "com.lperezmo.voicerelay.BUTTONS_TOGGLE"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +56,10 @@ class WakeControlActivity : Activity() {
             ACTION_WAKE_ON -> on(settings)
             ACTION_WAKE_OFF -> off(settings)
             ACTION_WAKE_TOGGLE -> if (settings.wakeWordEnabled) off(settings) else on(settings)
+            ACTION_CLAUDE_VOICE -> claudeVoice()
+            ACTION_BUTTONS_HIDE -> buttons { true }
+            ACTION_BUTTONS_SHOW -> buttons { false }
+            ACTION_BUTTONS_TOGGLE -> buttons { !it }
             else -> Log.w(TAG, "Wake word: unknown control action")
         }
     }
@@ -70,6 +83,31 @@ class WakeControlActivity : Activity() {
         settings.wakeWordEnabled = false
         WakeWordService.stop(this)
         Log.i(TAG, "Wake word: turned off by control intent")
+    }
+
+    private fun claudeVoice() {
+        val intent = Intent(WakeWord.ACTION_VOICE_ASSIST)
+            .setPackage(WakeWord.CLAUDE_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+            Log.i(TAG, "Wake word: opened Claude from a control intent")
+            WhisperAccessibilityService.instance?.tapClaudeVoiceMode()
+        } catch (_: ActivityNotFoundException) {
+            Log.w(TAG, "Wake word: CLAUDE_VOICE ignored, Claude is not installed")
+            toast("Install the Claude app first")
+        }
+    }
+
+    /** Hides or shows the floating buttons; [hide] gets whether they are hidden now. */
+    private fun buttons(hide: (Boolean) -> Boolean) {
+        val service = WhisperAccessibilityService.instance
+        if (service == null) {
+            Log.w(TAG, "Buttons: control intent ignored, the accessibility service is off")
+            toast("Turn on Voice Relay in Accessibility settings first")
+            return
+        }
+        service.setButtonsHidden(hide(service.buttonsHidden))
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
