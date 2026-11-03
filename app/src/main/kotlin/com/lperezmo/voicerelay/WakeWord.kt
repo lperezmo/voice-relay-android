@@ -29,6 +29,19 @@ object WakeWord {
     /** Opens the voice assistant; the constant is hidden in the SDK's Intent class. */
     const val ACTION_VOICE_ASSIST = "android.intent.action.VOICE_ASSIST"
 
+    /**
+     * Claude's assistant overlay opens in text chat since its 2026-10-29 update, so after
+     * the wake word opens it the accessibility service taps the button announced with this
+     * label to start voice. Matched whole and case-blind, never by screen position.
+     */
+    const val VOICE_MODE_LABEL = "Voice Mode"
+
+    /** How long to wait for Claude's overlay to show the Voice Mode button. */
+    const val VOICE_MODE_WAIT_MS = 2_500L
+
+    fun isVoiceModeLabel(label: CharSequence?): Boolean =
+        label != null && label.toString().trim().equals(VOICE_MODE_LABEL, ignoreCase = true)
+
     /** Per-keyword boost for the decoder. 1.5 is the sherpa-onnx default. */
     const val BOOST = 1.5f
 

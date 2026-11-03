@@ -92,10 +92,29 @@
             <intent-filter>
                 <action android:name="com.lperezmo.voicerelay.WAKE_ON" />
                 <action android:name="com.lperezmo.voicerelay.WAKE_OFF" />
+                <action android:name="com.lperezmo.voicerelay.CLAUDE_VOICE" />
                 <action android:name="com.lperezmo.voicerelay.WAKE_TOGGLE" />
+                <action android:name="com.lperezmo.voicerelay.BUTTONS_HIDE" />
+                <action android:name="com.lperezmo.voicerelay.BUTTONS_SHOW" />
+                <action android:name="com.lperezmo.voicerelay.BUTTONS_TOGGLE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Quick Settings tile: hide or show every floating button, e.g. to record the screen. -->
+        <service
+            android:name=".ButtonsTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_mic"
+            android:label="@string/buttons_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
 
         <receiver
             android:name=".DndExpiryReceiver"

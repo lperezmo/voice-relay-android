@@ -3,5 +3,9 @@
     <string name="app_name">Voice Relay</string>
     <string name="accessibility_description">Shows the floating dictation button and types your dictated text into the field you are using. It watches which text field is focused so it knows where to type, and reads the text of a field only when you dictate into it, fix its grammar, or undo a change there.</string>
     <string name="fix_grammar">Fix grammar</string>
+    <string name="buttons_tile_label">Voice Relay buttons</string>
+    <string name="buttons_tile_shown">Showing</string>
+    <string name="buttons_tile_hidden">Hidden</string>
+    <string name="buttons_tile_service_off">Service off, tap to fix</string>
     <string name="keys_ime_label">Voice Relay arrows</string>
 </resources>

@@ -180,7 +180,9 @@ How it works:
   listens, with a **Stop** button.
 - When it hears the phrase it lets go of the microphone and opens Claude with
   `android.intent.action.VOICE_ASSIST` (falling back to your default assistant if Claude is not
-  installed).
+  installed). Claude's overlay opens in text chat since its 2026-10-29 update, so the
+  accessibility service then taps its **Voice Mode** button (found by its label, for up to
+  2.5 seconds); if the button never shows, Claude stays in text chat.
 - It stays quiet while anything else uses the microphone: Claude's whole conversation, phone
   calls, and the dictate button. It starts listening again 1 second after the microphone is
   free, and never sooner than 4 seconds after a detection.
@@ -205,7 +207,7 @@ finishes at once, including over the lock screen):
 
 | Field | Value |
 |---|---|
-| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, or `com.lperezmo.voicerelay.WAKE_TOGGLE` |
+| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, `com.lperezmo.voicerelay.WAKE_TOGGLE`, `com.lperezmo.voicerelay.CLAUDE_VOICE` (opens Claude straight into voice mode, as the wake word does), or `BUTTONS_HIDE` / `BUTTONS_SHOW` / `BUTTONS_TOGGLE` (same prefix; hides or shows every floating button) |
 | Package | `com.lperezmo.voicerelay` |
 | Class | `com.lperezmo.voicerelay.WakeControlActivity` |
 | Target | Activity |
@@ -219,6 +221,14 @@ adb shell am start -a com.lperezmo.voicerelay.WAKE_ON -n com.lperezmo.voicerelay
 `WAKE_ON` only works after the wake word has been turned on once in the app, which is where its
 permissions are granted; before that it is ignored, so another app cannot switch the microphone
 on by itself. `WAKE_OFF` always works.
+
+### Hiding the buttons for a screen recording
+
+Add the **Voice Relay buttons** tile to Quick Settings. Tapping it hides the dictate button and
+every pill at once, and tapping again brings them back. A recording in progress is finished
+first. Hiding is not saved, so the buttons come back if the service restarts. If the service is
+off (a force stop turns it off), the tile reads **Service off, tap to fix** and opens
+Accessibility settings.
 
 ## The arrow pad
 
@@ -266,17 +276,17 @@ button, showing which preset is on. Tap it to open a four-stop track:
 | Stop | System, notifications, ringtone | Media | Ringer | Do Not Disturb |
 |---|---|---|---|---|
 | **DND** | 0 | 0 | Silent, no vibration | On for 1 hour (alarms still ring) |
-| **MUTE** | 0 | 0 | Vibrate | Off |
-| **MED** | 40% | 5% | Normal | Off |
-| **LOUD** | 100% | 20% | Normal | Off |
+| **Mute** | 0 | 0 | Vibrate | Off |
+| **Med** | 40% | 5% | Normal | Off |
+| **Loud** | 100% | 20% | Normal | Off |
 
 A preset is picked with a V drawn in one stroke: press, dip down about 20dp to unlock (the edge
 lights up in the target's color), slide sideways to a stop, then come back up about 16dp to apply
 it. Releasing while still low cancels, and taps on the track do nothing. The track closes itself
 6 seconds after it was last touched, on a tap outside, and when the screen turns off.
 
-When the DND hour ends, only DND turns off; the volumes stay at 0 and the pill reads **SIL**. It
-reads **CUST** when a volume was changed by hand and no preset matches. Percentages are rounded
+When the DND hour ends, only DND turns off; the volumes stay at 0 and the pill reads **Sil**. It
+reads **Cust** when a volume was changed by hand and no preset matches. Percentages are rounded
 to the stream's steps (15 on a Galaxy S25), and anything above 0% gets at least one step.
 
 The presets need **Do Not Disturb access**. The **End the DND hour on time** row allows exact
@@ -459,7 +469,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
-| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` intents |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` intents |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |

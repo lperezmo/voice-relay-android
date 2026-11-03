@@ -398,4 +398,14 @@ class WakeWordTest {
         c.onKeyword(3_000, false, true)
         assertTrue(c.stop().isEmpty())
     }
+
+    // --- Claude voice mode button ---
+
+    @Test fun `the voice mode label matches whole and case blind only`() {
+        assertTrue(WakeWord.isVoiceModeLabel("Voice Mode"))
+        assertTrue(WakeWord.isVoiceModeLabel(" voice mode "))
+        assertFalse(WakeWord.isVoiceModeLabel("Exit Voice Mode"))
+        assertFalse(WakeWord.isVoiceModeLabel("Start speech input"))
+        assertFalse(WakeWord.isVoiceModeLabel(null))
+    }
 }

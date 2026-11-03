@@ -14,6 +14,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -24,6 +25,7 @@ import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
@@ -224,6 +226,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         refreshJoystick()
         refreshVolumePill()
         refreshGlyphPill()
+        ButtonsTileService.requestUpdate(this)
         ContextCompat.registerReceiver(
             this, packageReceiver,
             IntentFilter().apply {
@@ -244,11 +247,43 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
+    // --- Hide all buttons (screen recording) ---
+
+    /**
+     * True while every floating button is hidden, from the Quick Settings tile or a
+     * Tasker intent. Not saved: a restart of the service brings the buttons back.
+     */
+    var buttonsHidden = false
+        private set
+
+    /** Hides or shows the bubble and every pill at once. A running recording is finished first. */
+    fun setButtonsHidden(hide: Boolean) {
+        if (hide == buttonsHidden) return
+        if (hide && state == State.RECORDING) stopAndProcess()
+        buttonsHidden = hide
+        if (hide) {
+            handler.removeCallbacks(hideFeedback)
+            feedbackView?.visibility = View.GONE
+            hideTrack()
+            hideJoystick()
+            hideVolumePill()
+            hideGlyphPill()
+            overlayView?.visibility = View.GONE
+        } else {
+            overlayView?.visibility = View.VISIBLE
+            refreshJoystick()
+            refreshVolumePill()
+            refreshGlyphPill()
+        }
+        Log.i(TAG, if (hide) "Buttons: hidden" else "Buttons: shown")
+        ButtonsTileService.requestUpdate(this)
+    }
+
     // --- Arrow joystick ---
 
     /** Shows or hides the arrow pad to match the setting. Safe to call at any time. */
     fun refreshJoystick() {
-        if (settings.joystickEnabled) showJoystick() else hideJoystick()
+        if (settings.joystickEnabled && !buttonsHidden) showJoystick() else hideJoystick()
     }
 
     private fun showJoystick() {
@@ -418,7 +453,7 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     /** Shows or hides the volume pill to match the setting. Safe to call at any time. */
     fun refreshVolumePill() {
-        if (settings.volumePillEnabled) showVolumePill() else hideVolumePill()
+        if (settings.volumePillEnabled && !buttonsHidden) showVolumePill() else hideVolumePill()
     }
 
     private fun showVolumePill() {
@@ -557,7 +592,7 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     /** Shows the Glyph pill when the setting is on and Glyph is installed, else hides it. Safe to call at any time. */
     fun refreshGlyphPill() {
-        if (settings.glyphPillEnabled && GlyphPillView.glyphInstalled(this)) showGlyphPill() else hideGlyphPill()
+        if (settings.glyphPillEnabled && !buttonsHidden && GlyphPillView.glyphInstalled(this)) showGlyphPill() else hideGlyphPill()
     }
 
     private fun showGlyphPill() {
@@ -608,6 +643,61 @@ class WhisperAccessibilityService : AccessibilityService() {
         params.y = (pillTop - (GlyphPillView.TOP_PAD_DP * dp).toInt()).coerceAtMost(maxOf(0, screenH - params.height))
     }
 
+    /**
+     * After the wake word opens Claude: polls Claude's window for its Voice Mode button and
+     * taps it, for up to [WakeWord.VOICE_MODE_WAIT_MS]. Claude's overlay opens in text chat
+     * since its 2026-10-29 update. If the button never shows, Claude stays in text chat.
+     */
+    fun tapClaudeVoiceMode() {
+        val deadline = SystemClock.uptimeMillis() + WakeWord.VOICE_MODE_WAIT_MS
+        handler.postDelayed({ tryVoiceMode(deadline) }, 200)
+    }
+
+    private fun tryVoiceMode(deadline: Long) {
+        val button = findVoiceModeButton()
+        if (button != null) {
+            val tapped = clickSelfOrParent(button)
+            Log.i(TAG, if (tapped) "Wake word: started Claude voice mode" else "Wake word: Voice Mode button would not click")
+            return
+        }
+        if (SystemClock.uptimeMillis() >= deadline) {
+            Log.w(TAG, "Wake word: Claude opened but no Voice Mode button showed; it stays in text chat")
+            return
+        }
+        handler.postDelayed({ tryVoiceMode(deadline) }, 150)
+    }
+
+    private fun findVoiceModeButton(): AccessibilityNodeInfo? {
+        val roots = windows.mapNotNull { it.root }.filter { it.packageName == WakeWord.CLAUDE_PACKAGE }
+            .ifEmpty { listOfNotNull(rootInActiveWindow?.takeIf { it.packageName == WakeWord.CLAUDE_PACKAGE }) }
+        // A walk rather than findAccessibilityNodeInfosByText, which misses Compose content
+        // descriptions (Claude's screens are Compose).
+        for (root in roots) findLabelled(root, 0)?.let { return it }
+        return null
+    }
+
+    private fun findLabelled(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+        if (WakeWord.isVoiceModeLabel(node.contentDescription) || WakeWord.isVoiceModeLabel(node.text)) return node
+        if (depth >= 40) return null
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findLabelled(child, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    /** The labelled node is often an icon inside the clickable button, so walk up to it. */
+    private fun clickSelfOrParent(node: AccessibilityNodeInfo): Boolean {
+        var n: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (n != null && depth < 4) {
+            if (n.isClickable && n.isEnabled) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            n = n.parent
+            depth++
+        }
+        return false
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || !::injector.isInitialized) return
         injector.onEvent(event)
@@ -632,6 +722,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         hideVolumePill()
         hideGlyphPill()
         removeOverlay()
+        ButtonsTileService.requestUpdate(this)
         super.onDestroy()
     }
 
@@ -1260,6 +1351,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         style: Fb = Fb.NOTICE,
         onClick: (() -> Unit)? = null,
     ) {
+        if (buttonsHidden) return
         val view = feedbackView ?: return
         val bubbleParams = layoutParams ?: return
         val feedbackParams = feedbackLayoutParams ?: return
