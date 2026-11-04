@@ -30,6 +30,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var secrets: SecretStore
 
     private lateinit var statusSubtitle: TextView
+    private lateinit var buttonsSwitch: MaterialSwitch
+    private lateinit var buttonsSub: TextView
     private lateinit var audioRowSub: TextView
     private lateinit var accRowSub: TextView
     private lateinit var keyRowSub: TextView
@@ -91,6 +93,17 @@ class MainActivity : AppCompatActivity() {
         val statusRow = settingsRow("Status", "Checking...")
         statusSubtitle = statusRow.findViewWithTag("subtitle")
         root.addView(statusRow)
+
+        // Same toggle as the Quick Settings tile: hides every floating button until tapped again.
+        buttonsSwitch = MaterialSwitch(this).apply { isClickable = false }
+        val buttonsRow = settingsRow("Show the floating buttons", "", buttonsSwitch) {
+            val service = WhisperAccessibilityService.instance
+            if (service == null) showAccessibilityDisclosure()
+            else service.setButtonsHidden(!service.buttonsHidden)
+            refresh()
+        }
+        buttonsSub = buttonsRow.findViewWithTag("subtitle")
+        root.addView(buttonsRow)
 
         // --- Setup ---
         root.addView(sectionHeader("Setup"))
@@ -745,6 +758,13 @@ class MainActivity : AppCompatActivity() {
         volumeSub.text = if (settings.volumePillEnabled)
             "Tap the pill above the mic, then draw a V on the track: dip down, slide to a preset, rise to apply."
         else "Off. Four one-gesture volume presets: Silent + DND for an hour, Mute, Medium, Loud."
+        val service = WhisperAccessibilityService.instance
+        buttonsSwitch.isChecked = service != null && !service.buttonsHidden
+        buttonsSub.text = when {
+            service == null -> "The accessibility service is off. Tap to turn it on."
+            service.buttonsHidden -> "Hidden. Tap to bring back the mic and its pills."
+            else -> "Tap to hide the mic and its pills, like the Quick Settings tile."
+        }
         val glyphInstalled = GlyphPillView.glyphInstalled(this)
         glyphSwitch.isChecked = settings.glyphPillEnabled
         glyphSub.text = when {
