@@ -230,6 +230,8 @@ first. Hiding is not saved, so the buttons come back if the service restarts. If
 off (a force stop turns it off), the tile reads **Service off, tap to fix** and opens
 Accessibility settings.
 
+The app has the same switch under **Status**: **Show the floating buttons**.
+
 ## The arrow pad
 
 Off by default. Turn on **Show the arrow pad** and a second, transparent control appears: a thin
