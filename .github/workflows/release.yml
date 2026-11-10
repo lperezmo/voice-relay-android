@@ -1,6 +1,14 @@
-# The whole release path, in one run: semantic-release decides the version from
-# the conventional commits on main, tags it and writes the GitHub release; the
-# build job then builds that tag and attaches the signed APK.
+# The whole release path, in one run, in this order so nothing is tagged until
+# the APK has passed its tests:
+#
+#   plan              semantic-release --dry-run decides whether the commits on
+#                     main warrant a release and which version; tags nothing.
+#   build             android-build.yml tests and builds this commit as that
+#                     version, signed.
+#   semantic-release  the real run: tags v<version>, commits the version and
+#                     CHANGELOG.md, and writes the GitHub release. It refuses a
+#                     version other than the one that was built.
+#   attach            puts the signed APK and the license notices on the release.
 #
 # It is one workflow calling the other rather than two workflows chained on a
 # tag event: a tag created with GITHUB_TOKEN does not start another workflow
@@ -14,8 +22,8 @@ on:
 
 # The called workflow declares its own, narrower permissions. A caller can only
 # hand down the same or less, so the write scopes semantic-release and the
-# release upload need are granted here, plus actions: write so the build can
-# delete its Actions artifact once the APK is on the release. No issues or
+# release upload need are granted here, plus actions: write so the attach job
+# can delete the Actions artifacts once the APK is on the release. No issues or
 # pull-requests scope: .releaserc.json turns off semantic-release's success
 # and failure comments, which are the only things that would write there.
 permissions:
@@ -27,14 +35,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 10
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      version_code: ${{ steps.plan.outputs.version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install semantic-release
+        run: bun install --frozen-lockfile
+
+      # A dry run only analyzes the commits: no version commit, tag or release.
+      # Its verifyRelease step (scripts/release_plan.sh) reports the version;
+      # the outputs stay empty when nothing warrants a release, which skips
+      # everything below.
+      - name: Plan the release
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PLAN: "1"
+        run: bunx --bun semantic-release --dry-run
+
+      - name: Summarize
+        env:
+          RELEASE: ${{ steps.plan.outputs.release }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          if [ "$RELEASE" = "true" ]; then
+            echo "Planned v${VERSION}: building and testing it before tagging." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: nothing since the last tag warrants a version bump." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Tests and the signed APK, for exactly the commit that will be tagged.
+  build:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/android-build.yml
+    with:
+      ref: ${{ github.sha }}
+      version_name: ${{ needs.plan.outputs.version }}
+      version_code: ${{ needs.plan.outputs.version_code }}
+      release: true
+    secrets: inherit
+
   semantic-release:
+    needs: [plan, build]
     runs-on: ubuntu-latest
     # A hung step must not run to the 6 hour default and burn Actions minutes.
     timeout-minutes: 10
     outputs:
       published: ${{ steps.release.outputs.published }}
       version: ${{ steps.release.outputs.version }}
-      version_code: ${{ steps.release.outputs.version_code }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -51,33 +114,56 @@ jobs:
       # Writes the version into app/build.gradle.kts and README.md
       # (scripts/set_version.sh), commits it with CHANGELOG.md, tags
       # v<version>, publishes the GitHub release, and reports back through
-      # scripts/release_outputs.sh. Outputs stay empty when the commits since
-      # the last release do not warrant one, which skips the build below.
+      # scripts/release_outputs.sh. EXPECTED_VERSION makes it stop before
+      # tagging if it would release anything but what was built. If main moved
+      # on since the plan, semantic-release does not release at all; the next
+      # run picks the commits up.
       - name: Run semantic-release
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
         run: bunx --bun semantic-release
 
       - name: Summarize
         env:
           PUBLISHED: ${{ steps.release.outputs.published }}
           VERSION: ${{ steps.release.outputs.version }}
-          VERSION_CODE: ${{ steps.release.outputs.version_code }}
+          EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           if [ "$PUBLISHED" = "true" ]; then
-            echo "Released v${VERSION} (versionCode ${VERSION_CODE})." >> "$GITHUB_STEP_SUMMARY"
+            echo "Released v${VERSION}." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No release: nothing since the last tag warrants a version bump." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::semantic-release did not publish v${EXPECTED_VERSION} (main moved on?). The APK was built but not released."
           fi
 
-  build:
-    needs: semantic-release
+  attach:
+    needs: [build, semantic-release]
     if: needs.semantic-release.outputs.published == 'true'
-    uses: ./.github/workflows/android-build.yml
-    with:
-      ref: v${{ needs.semantic-release.outputs.version }}
-      version_name: ${{ needs.semantic-release.outputs.version }}
-      version_code: ${{ needs.semantic-release.outputs.version_code }}
-      publish: true
-    secrets: inherit
+    runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 10
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: voice-relay-v${{ needs.build.outputs.version_name }}
+          path: dist
+
+      # The GitHub release already exists (semantic-release wrote it and its
+      # notes), so only the APK and the license notices are attached here.
+      - name: Attach APK to release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: v${{ needs.semantic-release.outputs.version }}
+          files: |
+            dist/voice-relay-v${{ needs.build.outputs.version_name }}.apk
+            dist/NOTICE
+            dist/THIRD_PARTY_NOTICES.md
+
+      - name: Delete the Actions copies of the APK and the wake word library
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: |
+            voice-relay-v${{ needs.build.outputs.version_name }}
+            ${{ needs.build.outputs.sherpa_artifact }}
