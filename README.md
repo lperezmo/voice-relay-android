@@ -186,6 +186,11 @@ How it works:
 - It stays quiet while anything else uses the microphone: Claude's whole conversation, phone
   calls, and the dictate button. It starts listening again 1 second after the microphone is
   free, and never sooner than 4 seconds after a detection.
+- Android does not always say when it takes the microphone away (another app holding it, or the
+  microphone switch in Quick Settings turned off); it hands over silence instead. When Android
+  marks the recording silenced, or the audio has been nothing but zeros for 3 seconds, the
+  notification says it **cannot hear right now**, and goes back to "Listening" as soon as sound
+  returns.
 - **Resume music after Claude** (on by default): Claude pauses your music when it opens and does
   not always restart it. If music was playing when you said the phrase, the app presses play
   once Claude is done, unless something is already playing.
@@ -378,6 +383,8 @@ vulnerabilities privately, as SECURITY.md describes.
   confirm to discard it.
 - **The wake word does not open Claude.** Allow **Display over other apps** (the row under the
   wake word switch), and install the Claude app. Check that the "listening" notification shows.
+  If it says it **cannot hear right now**, another app has the microphone or microphone access is
+  off in Quick Settings.
 - **The wake word fires by mistake, or misses you.** Lower or raise **Sensitivity**.
 - **The wake word stopped after a reboot.** It restarts when Android reconnects the
   accessibility service; if Android blocks that, tap the notification that says so.
@@ -471,6 +478,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
+| `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
 | `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` intents |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |

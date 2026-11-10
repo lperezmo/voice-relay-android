@@ -44,8 +44,9 @@ wake phrase, which keyword fired, and the detection settings. When the keyword i
 opens the Claude app in voice mode (the Claude app then handles your speech under Anthropic's terms).
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
-audio mode, and whether music is playing) to pause while the microphone is in use and, if you
-allow it, to press play again after Claude is done. It does not read other apps' audio.
+audio mode, whether Android has silenced its own recording, and whether music is playing) to pause
+while the microphone is in use, to say in its notification when it cannot hear, and, if you allow
+it, to press play again after Claude is done. It does not read other apps' audio.
 
 ## API keys
 
