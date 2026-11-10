@@ -415,14 +415,50 @@ class DictationMachineTest {
         assertEquals(listOf("hello"), fx.injected)
     }
 
-    @Test fun `the API key gone by the time of the upload ends in idle`() {
+    @Test fun `the API key removed while recording keeps the recording for a retry`() {
         record()
         fx.key = ""
         tap()
         settle()
-        assertEquals(State.IDLE, machine.state)
+        assertEquals(State.RETRY, machine.state)
         assertEquals("Set your OpenAI API key in Voice Relay", lastFeedback())
         assertTrue(fx.uploads.isEmpty())
+        val kept = fx.onDisk!!
+        assertEquals("audio.m4a", kept.filename)
+
+        // Still no key: a tap stays in retry without saving again.
+        fx.events.clear()
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertFalse("save" in fx.events)
+
+        fx.key = "sk-test"
+        tap()
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertSame(kept, fx.uploads.single())
+    }
+
+    @Test fun `the API key removed while recording in live mode cancels the session and keeps the audio`() {
+        fx.liveOn = true
+        fx.draft = FakeDraft()
+        record()
+        fx.key = ""
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertTrue(fx.lives.single().cancelled)
+        assertFalse("live finish" in fx.events)
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+        assertEquals(2.0, fx.onDisk!!.seconds, 0.001)
+
+        fx.key = "sk-test"
+        fx.transcribe = { OpenAiClient.Result("Later.", null) }
+        tap()
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals("Later.", fx.draft!!.finished)
     }
 
     // --- Long-press while working ---

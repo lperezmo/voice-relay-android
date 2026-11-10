@@ -405,7 +405,14 @@ class DictationMachine(
     ) {
         val apiKey = fx.apiKey()
         if (apiKey.isBlank()) {
-            setState(State.IDLE)
+            // The key was removed while recording: keep the recording to send once it is set.
+            session?.cancel()
+            val kept = if (pcm != null) wav(pcm) else audio
+            if (kept !== pendingAudio) scope.launch(io) { savePending(kept) }
+            endWork()
+            pendingAudio = kept
+            pendingDraft = draft
+            setState(State.RETRY)
             fx.showFeedback("Set your OpenAI API key in Voice Relay", 3000)
             return
         }
