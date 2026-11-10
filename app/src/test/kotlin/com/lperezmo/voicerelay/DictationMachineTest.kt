@@ -594,6 +594,42 @@ class DictationMachineTest {
         assertNotNull(fx.onDisk)
     }
 
+    @Test fun `a long-press during the live fallback encode stops before the upload`() {
+        fx.liveOn = true
+        record()
+        fx.lives.single().result = OpenAiClient.Result(null, "Live connection failed")
+        fx.onEncode = { machine.onLongPress() }
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        // Nothing uploaded, and the encoded file never replaced the kept WAV.
+        assertTrue(fx.uploads.isEmpty())
+        assertEquals(listOf("audio.wav"), fx.saves.map { it.filename })
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+    }
+
+    @Test fun `a save for a recording discarded meanwhile does not bring it back`() {
+        record()
+        fx.transcribe = {
+            machine.onLongPress()
+            OpenAiClient.Result("late", null)
+        }
+        tap()
+        // Up to the give-up, whose save is queued on IO but has not run yet.
+        while (machine.state != State.RETRY) {
+            (main.tasks.removeFirstOrNull() ?: io.tasks.removeFirstOrNull() ?: cpu.tasks.removeFirst()).run()
+        }
+        machine.onLongPress()
+        fx.feedback.last().onClick!!()
+        // The discard's clear runs first, then the stale save.
+        val queued = io.tasks.toList().reversed()
+        io.tasks.clear()
+        io.tasks.addAll(queued)
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertNull(fx.onDisk)
+    }
+
     @Test fun `a crash while a live session finishes keeps the recording`() {
         fx.liveOn = true
         record()
