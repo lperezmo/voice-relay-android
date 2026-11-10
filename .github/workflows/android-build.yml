@@ -54,6 +54,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 20
     needs: sherpa
     outputs:
       version_name: ${{ steps.version.outputs.name }}
@@ -195,6 +197,8 @@ jobs:
   release:
     if: ${{ inputs.publish == true }}
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 10
     needs: [sherpa, build]
     permissions:
       contents: write

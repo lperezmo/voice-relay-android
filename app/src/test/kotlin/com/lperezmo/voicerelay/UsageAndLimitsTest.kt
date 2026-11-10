@@ -76,4 +76,14 @@ class UsageAndLimitsTest {
         assertEquals(120, r.inputTokens)
         assertEquals(7, r.outputTokens)
     }
+
+    @Test fun `a locked recording that never started is given back`() {
+        val limits = LockScreenLimits(maxSeconds = 120, maxRecordings = 2)
+        limits.onStart(locked = true, normalMaxSeconds = 600)
+        limits.refund()
+        assertEquals(0, limits.used)
+        limits.refund()
+        assertEquals(0, limits.used)
+        assertEquals(LockScreenLimits.Decision.Allow(120, 1), limits.onStart(locked = true, normalMaxSeconds = 600))
+    }
 }

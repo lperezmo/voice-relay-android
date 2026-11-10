@@ -114,13 +114,16 @@ class OpenAiClient(
 
     /** Model ids visible to this key, sorted. */
     fun listModels(): List<String>? {
-        val request = Request.Builder().url("$baseUrl/models").header("Authorization", "Bearer $apiKey").build()
         return try {
+            // Inside the try: OkHttp rejects a header value with a stray character, such as a pasted line break.
+            val request = Request.Builder().url("$baseUrl/models").header("Authorization", "Bearer $apiKey").build()
             http.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 parseModelIds(resp.body?.string().orEmpty())
             }
         } catch (_: IOException) {
+            null
+        } catch (_: IllegalArgumentException) {
             null
         }
     }
@@ -150,15 +153,21 @@ class OpenAiClient(
         }
     } catch (e: IOException) {
         Result(null, e.message ?: "Network error")
+    } catch (_: IllegalArgumentException) {
+        Result(null, BAD_KEY)
     }
 
     companion object {
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
+        const val BAD_KEY = "The OpenAI API key has a character it cannot have"
 
         internal val sharedHttp = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
+            // A ceiling on the whole request, so a stalled upload on a weak signal ends in a retry
+            // instead of a spinner that never stops. Web sockets stop counting once connected.
+            .callTimeout(180, TimeUnit.SECONDS)
             .build()
 
         /**

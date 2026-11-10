@@ -51,6 +51,7 @@
             android:name=".FixGrammarActivity"
             android:exported="true"
             android:label="@string/fix_grammar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.VoiceRelay.Dialog">
             <intent-filter>

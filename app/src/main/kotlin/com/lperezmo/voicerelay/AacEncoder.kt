@@ -19,10 +19,12 @@ object AacEncoder {
     private const val TIMEOUT_US = 10_000L
 
     fun encode(pcm: ByteArray, sampleRate: Int, cacheDir: File): ByteArray? {
-        val out = File.createTempFile("dictation", ".m4a", cacheDir)
+        var out: File? = null
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
         try {
+            // Inside the try: a full disk fails here, and the caller sends WAV instead.
+            val file = File.createTempFile("dictation", ".m4a", cacheDir).also { out = it }
             val format = MediaFormat.createAudioFormat(MIME, sampleRate, 1).apply {
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
                 setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
@@ -32,10 +34,10 @@ object AacEncoder {
                 configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 start()
             }
-            muxer = MediaMuxer(out.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             drain(codec, muxer, pcm, sampleRate)
             muxer.stop()
-            return out.readBytes()
+            return file.readBytes()
         } catch (e: Exception) {
             Log.w(TAG, "AAC encode failed, falling back to WAV: ${e.javaClass.simpleName}")
             return null
@@ -43,7 +45,7 @@ object AacEncoder {
             try { codec?.stop() } catch (_: Exception) {}
             codec?.release()
             try { muxer?.release() } catch (_: Exception) {}
-            out.delete()
+            out?.delete()
         }
     }
 

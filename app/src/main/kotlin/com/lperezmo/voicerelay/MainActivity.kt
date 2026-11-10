@@ -837,7 +837,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Leave empty and save to remove the stored key.")
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
-                secrets.setApiKey(input.text.toString().trim())
+                secrets.setApiKey(input.text.toString().filterNot { it.isWhitespace() })
                 refresh()
                 refreshModelCache(silent = true)
             }

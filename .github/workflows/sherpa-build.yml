@@ -35,6 +35,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 45
     outputs:
       artifact: ${{ steps.key.outputs.name }}
     steps:

@@ -22,12 +22,16 @@ jobs:
   private-repo:
     if: ${{ github.event.repository.private }}
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 5
     steps:
       - run: echo "::notice::Pages is skipped while the repository is private; it deploys once the repository is public."
 
   deploy:
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
