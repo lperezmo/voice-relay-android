@@ -50,7 +50,14 @@ class LiveTranscription(
     private val startedAt = System.currentTimeMillis()
 
     fun start() {
-        val request = Request.Builder().url(url).header("Authorization", "Bearer $apiKey").build()
+        val request = try {
+            Request.Builder().url(url).header("Authorization", "Bearer $apiKey").build()
+        } catch (_: IllegalArgumentException) {
+            // A key OkHttp cannot put in a header. No socket: finish() reports it and the
+            // caller falls back to the standard upload, which names the problem.
+            log("Live: the API key cannot be sent as a header")
+            return
+        }
         // OkHttp queues sends until the socket opens, so audio captured while connecting is kept.
         socket = http.newWebSocket(request, Listener()).also { it.send(sessionUpdate(model, vocabulary, languages).toString()) }
     }

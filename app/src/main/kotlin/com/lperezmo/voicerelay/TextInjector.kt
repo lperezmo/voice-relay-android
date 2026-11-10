@@ -411,6 +411,7 @@ class TextInjector(private val service: AccessibilityService) {
 
     private fun describe(node: AccessibilityNodeInfo?): String =
         if (node == null) "node=none"
+        else if (!BuildConfig.DEBUG) "editable=${node.isEditable} focused=${node.isFocused}"
         else "pkg=${node.packageName} cls=${node.className} editable=${node.isEditable} " +
             "focused=${node.isFocused} visible=${node.isVisibleToUser} win=${node.windowId} " +
             "sel=${node.textSelectionStart},${node.textSelectionEnd}"
@@ -418,7 +419,7 @@ class TextInjector(private val service: AccessibilityService) {
     private fun windowsSummary(): String =
         service.windows.orEmpty().joinToString(" ") {
             "${it.id}:t${it.type}${if (it.isActive) "A" else ""}${if (it.isFocused) "F" else ""}"
-        } + " activeRoot=${service.rootInActiveWindow?.let { "${it.windowId}/${it.packageName}" }}"
+        } + if (BuildConfig.DEBUG) " activeRoot=${service.rootInActiveWindow?.let { "${it.windowId}/${it.packageName}" }}" else ""
 
     data class Insertion(val text: String, val cursor: Int)
 

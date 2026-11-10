@@ -108,6 +108,7 @@ and [SECURITY.md](SECURITY.md).
 | **Tap** (recording) | Stop. The audio is transcribed, cleaned up, and inserted at the cursor. |
 | **Long-press** (idle) | Fix the grammar of the selected text, or the whole focused field when nothing is selected. |
 | **Tap** (amber with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |
+| **Long-press** (gray, working) | Gives up on a transcription or grammar fix that is taking too long. The recording is kept: the button turns amber for a retry. |
 | **Long-press** (amber) | Asks to discard the failed recording; tap the red bubble to confirm. |
 | **Drag** | Move the button; it snaps to the nearest edge. |
 | **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |

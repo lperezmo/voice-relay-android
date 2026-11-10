@@ -19,6 +19,8 @@ class Recorder(
     private val onLimit: () -> Unit = {},
     /** Each captured PCM chunk as it arrives, on the capture thread (live transcription). */
     private val onChunk: ((ByteArray, Int) -> Unit)? = null,
+    /** The microphone stopped delivering audio mid-recording. Fires once, on the capture thread. */
+    private val onError: () -> Unit = {},
 ) {
     @Volatile
     var maxSeconds: Int = maxSeconds
@@ -43,8 +45,14 @@ class Recorder(
         }
         buffer = ByteArrayOutputStream()
         record = rec
-        running.set(true)
         rec.startRecording()
+        // Another app holding the mic (a call) leaves it stopped without throwing.
+        if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            rec.release()
+            record = null
+            throw IllegalStateException("Microphone is in use by another app")
+        }
+        running.set(true)
         val out = buffer
         thread = Thread({
             val chunk = ByteArray(minBuf)
@@ -53,6 +61,11 @@ class Recorder(
                 if (n > 0) {
                     out.write(chunk, 0, n)
                     onChunk?.invoke(chunk, n)
+                } else if (n < 0) {
+                    // A read error (the audio server restarted, the mic was taken away) repeats
+                    // forever without blocking; stop instead of spinning.
+                    onError()
+                    break
                 }
                 if (out.size() >= maxSeconds * SAMPLE_RATE * 2) {
                     onLimit()

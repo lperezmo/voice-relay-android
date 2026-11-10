@@ -149,4 +149,14 @@ class OpenAiClientTest {
         assertEquals(listOf("gpt-transcribe", "gpt-4o-mini-transcribe", "whisper-1"), OpenAiClient.transcriptionModels(ids))
         assertEquals(listOf("gpt-5.6-luna"), OpenAiClient.cleanupModels(ids))
     }
+
+    @Test fun `a key with a line break inside is an error, not a crash`() {
+        val bad = OpenAiClient("sk-te
+st", server.url("/v1").toString().trimEnd('/'), OkHttpClient())
+        val result = bad.transcribe(OpenAiClient.Audio.wav(ByteArray(8)), "gpt-transcribe", emptyList(), emptyList())
+        assertNull(result.text)
+        assertEquals(OpenAiClient.BAD_KEY, result.error)
+        assertNull(bad.listModels())
+        assertEquals(0, server.requestCount)
+    }
 }

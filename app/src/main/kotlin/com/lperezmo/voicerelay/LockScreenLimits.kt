@@ -26,6 +26,11 @@ class LockScreenLimits(val maxSeconds: Int = MAX_SECONDS, val maxRecordings: Int
     }
 
     /** The phone was unlocked: the locked-recording count starts over. */
+    /** Gives back a locked recording that [onStart] counted but that never started. */
+    fun refund() {
+        if (used > 0) used--
+    }
+
     fun onUnlock() {
         used = 0
     }
