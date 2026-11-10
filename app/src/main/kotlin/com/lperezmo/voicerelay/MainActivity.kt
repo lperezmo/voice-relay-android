@@ -87,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(TextView(this).apply {
             text = getString(R.string.app_name)
             textSize = 32f
-            setPadding(dp(24), dp(64), dp(24), dp(24))
+            setPadding(dp(24), dp(32), dp(24), dp(24))
         })
 
         val statusRow = settingsRow("Status", "Checking...")
@@ -319,6 +319,8 @@ class MainActivity : AppCompatActivity() {
         root.addView(View(this).apply { minimumHeight = dp(32) })
 
         setContentView(ScrollView(this).apply {
+            // Edge to edge is enforced on Android 15+: keep rows out from under the system bars.
+            fitsSystemWindows = true
             setBackgroundColor(attrColor(android.R.attr.colorBackground))
             addView(root)
         })
@@ -788,7 +790,7 @@ class MainActivity : AppCompatActivity() {
         statusSubtitle.text = when {
             ready && settings.claudeCleanup && settings.cleanupEnabled && anthropicKey.isBlank() ->
                 "Ready. Set your Anthropic API key below for Claude cleanup; until then the raw transcript is inserted."
-            ready -> "Ready. Tap the overlay button to dictate."
+            ready -> "Ready. Double-tap the floating button to dictate."
             apiKey.isBlank() -> "Set your OpenAI API key to start"
             else -> "Setup required"
         }
