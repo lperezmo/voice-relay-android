@@ -25,12 +25,12 @@ class LockScreenLimits(val maxSeconds: Int = MAX_SECONDS, val maxRecordings: Int
         return Decision.Allow(minOf(maxSeconds, normalMaxSeconds), maxRecordings - used)
     }
 
-    /** The phone was unlocked: the locked-recording count starts over. */
-    /** Gives back a locked recording that [onStart] counted but that never started. */
+    /** Gives back a locked recording that [onStart] counted but that produced nothing: it never started, was too short, or failed. */
     fun refund() {
         if (used > 0) used--
     }
 
+    /** The phone was unlocked: the locked-recording count starts over. */
     fun onUnlock() {
         used = 0
     }

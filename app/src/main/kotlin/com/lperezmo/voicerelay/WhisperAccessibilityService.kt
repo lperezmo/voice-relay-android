@@ -521,8 +521,13 @@ class WhisperAccessibilityService : AccessibilityService() {
         override fun dictationCleaner() =
             if (settings.cleanupEnabled) TextService(settings, secrets, usage).cleaner(settings.cleanupPrompt) else null
 
-        override fun grammarFixMissingKey() = TextService(settings, secrets, usage).missingKey()
-        override fun grammarFixCleaner() = TextService(settings, secrets, usage).cleaner(settings.fixPrompt)
+        override fun grammarFix(): DictationMachine.GrammarFix {
+            val service = TextService(settings, secrets, usage)
+            return object : DictationMachine.GrammarFix {
+                override fun missingKey() = service.missingKey()
+                override fun cleaner() = service.cleaner(settings.fixPrompt)
+            }
+        }
 
         override fun rememberFocus() = injector.rememberFocus()
         override fun forgetSnapshot() = injector.forgetSnapshot()

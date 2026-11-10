@@ -165,8 +165,14 @@ class DictationMachineTest {
         }
         override fun recordLiveUsage(seconds: Double) { liveUsage += seconds }
         override fun dictationCleaner() = cleaner
-        override fun grammarFixMissingKey() = fixMissingKey
-        override fun grammarFixCleaner() = DictationPipeline.Cleaner { fix(it) }
+        var grammarFixes = 0
+        override fun grammarFix(): DictationMachine.GrammarFix {
+            grammarFixes++
+            return object : DictationMachine.GrammarFix {
+                override fun missingKey() = fixMissingKey
+                override fun cleaner() = DictationPipeline.Cleaner { fix(it) }
+            }
+        }
 
         override fun rememberFocus() { events += "remember focus" }
         override fun forgetSnapshot() { events += "forget snapshot" }
@@ -1076,6 +1082,8 @@ class DictationMachineTest {
         assertEquals("Hello there.", fx.fixTarget!!.replaced)
         assertEquals("Grammar fixed", lastFeedback())
         assertEquals(Fb.ACTION, fx.feedback.last().style)
+        // One text service for the key check and the fix.
+        assertEquals(1, fx.grammarFixes)
     }
 
     @Test fun `grammar fix needs a key and a field`() {

@@ -95,12 +95,6 @@ class ArrowPad(
     }
 
     /**
-     * Arrow keys only reach other apps through a keyboard, so they go to
-     * [KeysInputMethodService] when it is the selected one. Otherwise the caret
-     * is moved through accessibility, which works in ordinary text fields but
-     * not in a remote desktop session.
-     */
-    /**
      * Touching the knob: switch to the arrows keyboard before the first key, so
      * it is bound by the time the push lands. Nothing happens if it is already
      * selected, or if automatic switching is off.
@@ -121,6 +115,12 @@ class ArrowPad(
         scheduleKeyboardRestore()
     }
 
+    /**
+     * Arrow keys only reach other apps through a keyboard, so they go to
+     * [KeysInputMethodService] when it is the selected one. Otherwise the caret
+     * is moved through accessibility, which works in ordinary text fields but
+     * not in a remote desktop session.
+     */
     private fun sendArrow(keyCode: Int) = deliverArrow(keyCode, 0)
 
     /**

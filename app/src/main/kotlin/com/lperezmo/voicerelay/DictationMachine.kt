@@ -74,6 +74,12 @@ class DictationMachine(
         fun finish(text: String): Boolean
     }
 
+    interface GrammarFix {
+        /** What to tell the user before a grammar fix can run, or null when the key it needs is set. */
+        fun missingKey(): String?
+        fun cleaner(): DictationPipeline.Cleaner
+    }
+
     /** The text a grammar fix applies to ([TextInjector.FieldRange]). */
     interface FixTarget {
         val text: String
@@ -103,9 +109,8 @@ class DictationMachine(
         fun recordLiveUsage(seconds: Double)
         /** The dictation cleanup, or null when it is off. */
         fun dictationCleaner(): DictationPipeline.Cleaner?
-        /** What to tell the user before a grammar fix can run, or null when the key it needs is set. */
-        fun grammarFixMissingKey(): String?
-        fun grammarFixCleaner(): DictationPipeline.Cleaner
+        /** The text service behind one grammar fix ([TextService]). */
+        fun grammarFix(): GrammarFix
 
         // The text field.
         fun rememberFocus()
@@ -558,7 +563,8 @@ class DictationMachine(
      * with the typed-text prompt, regardless of whether dictation cleanup is on.
      */
     private fun fixFocusedText() {
-        fx.grammarFixMissingKey()?.let {
+        val service = fx.grammarFix()
+        service.missingKey()?.let {
             fx.showFeedback(it, 3000)
             return
         }
@@ -569,7 +575,7 @@ class DictationMachine(
         }
         fx.haptic()
         setState(State.WORKING)
-        val cleaner = fx.grammarFixCleaner()
+        val cleaner = service.cleaner()
         val original = range.text
         workAudio = null
         workCancellable = true
