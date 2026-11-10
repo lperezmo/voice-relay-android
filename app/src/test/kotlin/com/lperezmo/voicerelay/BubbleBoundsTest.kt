@@ -42,4 +42,32 @@ class BubbleBoundsTest {
         assertEquals(1000 - 56 - 8, b.snapX(700, 8))
         assertEquals(8, b.snapX(200, 8))
     }
+
+    @Test fun `a saved side goes back against that side`() {
+        val b = bounds()
+        assertEquals(true, b.isRight(700))
+        assertEquals(false, b.isRight(200))
+        assertEquals(1000 - 56 - 8, b.sideX(true, 8))
+        assertEquals(8, b.sideX(false, 8))
+    }
+
+    @Test fun `a saved height comes back at the same spot on the same screen`() {
+        val f = BubbleBounds.fraction(500, 56, 2000)
+        assertEquals(500, BubbleBounds.yAt(f, 56, 2000))
+    }
+
+    @Test fun `a height saved in portrait lands inside a landscape screen`() {
+        // At the very bottom of a 2000 px tall screen, then rotated to one 900 px tall.
+        val landscape = BubbleBounds(left = 0, top = 0, right = 2000, bottom = 900, ring = 56, above = 40, below = 40)
+        assertEquals(900 - 56 - 40, landscape.clampY(BubbleBounds.yAt(BubbleBounds.fraction(1900, 56, 2000), 56, 900)))
+        // Higher up, the same share of the new height.
+        assertEquals(794, landscape.clampY(BubbleBounds.yAt(BubbleBounds.fraction(1800, 56, 2000), 56, 900)))
+    }
+
+    @Test fun `an out of range fraction is kept on screen`() {
+        assertEquals(1f, BubbleBounds.fraction(5000, 56, 2000))
+        assertEquals(0f, BubbleBounds.fraction(-5000, 56, 2000))
+        assertEquals(-28, BubbleBounds.yAt(-3f, 56, 2000))
+        assertEquals(0.5f, BubbleBounds.fraction(10, 56, 0))
+    }
 }
