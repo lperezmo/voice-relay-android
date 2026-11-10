@@ -200,10 +200,7 @@ class DictationMachine(
      * recording that was never offered for a retry.
      */
     private var restoring = false
-    /**
-     * Whether the running recording is one of the counted locked ones. A dictation
-     * holds the button until it ends, so no other can be counted before it is refunded.
-     */
+    /** Whether the running recording is one of the counted locked ones, to give back if it is too short. */
     private var countedLocked = false
 
     // --- Events ---
@@ -419,9 +416,9 @@ class DictationMachine(
         val seconds = Recorder.durationSeconds(pcm)
         fx.logInfo("Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
         if (session != null) {
-            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed, counted)
+            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
         } else {
-            launchWork(pcm = pcm) { process(withContext(cpu) { fx.encode(pcm, seconds) }, counted = counted) }
+            launchWork(pcm = pcm) { process(withContext(cpu) { fx.encode(pcm, seconds) }) }
         }
     }
 
@@ -483,8 +480,6 @@ class DictationMachine(
         session: LiveSession? = null,
         pcm: ByteArray? = null,
         draft: Draft? = null,
-        /** A new locked recording, counted against the limit: a failure gives it back. */
-        counted: Boolean = false,
     ) {
         val apiKey = fx.apiKey()
         if (apiKey.isBlank()) {
@@ -547,7 +542,6 @@ class DictationMachine(
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     fx.logWarn("Transcription failed: ${outcome.error}")
-                    refund(counted)
                     val kept = if (pcm == null) audio
                         else uploaded ?: withContext(cpu) { fx.encode(pcm, audio.seconds) }
                     if (pcm != null) withContext(io) { savePending(kept) }
@@ -561,7 +555,11 @@ class DictationMachine(
         }
     }
 
-    /** Gives back a locked recording that produced nothing. After an unlock there is nothing to give back. */
+    /**
+     * Gives back a locked recording too short to send. One that was sent stays counted
+     * even if the request failed: a failure could otherwise be retried forever while
+     * locked, and a failed live session may already have been billed.
+     */
     private fun refund(counted: Boolean) {
         if (counted) lockLimits.refund()
     }

@@ -25,7 +25,10 @@ class LockScreenLimits(val maxSeconds: Int = MAX_SECONDS, val maxRecordings: Int
         return Decision.Allow(minOf(maxSeconds, normalMaxSeconds), maxRecordings - used)
     }
 
-    /** Gives back a locked recording that [onStart] counted but that produced nothing: it never started, was too short, or failed. */
+    /**
+     * Gives back a locked recording that [onStart] counted but that never started or was
+     * too short to send. A recording that was sent stays counted, even if the request failed.
+     */
     fun refund() {
         if (used > 0) used--
     }

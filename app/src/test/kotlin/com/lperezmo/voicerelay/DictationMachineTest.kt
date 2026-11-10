@@ -849,16 +849,15 @@ class DictationMachineTest {
         assertEquals(1, limits.used)
     }
 
-    @Test fun `a locked recording whose upload fails is given back`() {
+    @Test fun `a locked recording whose upload fails stays counted, and its retry is not counted again`() {
         fx.locked = true
         fx.transcribe = { failed() }
         dictate()
         assertEquals(State.RETRY, machine.state)
-        assertEquals(0, limits.used)
-        // The retry is not a new recording: it neither counts nor refunds.
+        assertEquals(1, limits.used)
         tap()
         settle()
-        assertEquals(0, limits.used)
+        assertEquals(1, limits.used)
     }
 
     @Test fun `a too-short locked recording is given back`() {
@@ -875,10 +874,10 @@ class DictationMachineTest {
         assertEquals(1, limits.used)
     }
 
-    @Test fun `failed locked recordings never use up the limit`() {
+    @Test fun `failed locked recordings still use up the limit`() {
         fx.locked = true
         fx.transcribe = { failed() }
-        repeat(LockScreenLimits.MAX_RECORDINGS + 2) {
+        repeat(LockScreenLimits.MAX_RECORDINGS) {
             record()
             tap()
             settle()
@@ -886,7 +885,17 @@ class DictationMachineTest {
             fx.feedback.last().onClick!!()
             settle()
         }
+        doubleTap()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals("Unlock your phone to keep dictating (5 locked recordings used)", lastFeedback())
+    }
+
+    @Test fun `too-short locked recordings never use up the limit`() {
+        fx.locked = true
+        repeat(LockScreenLimits.MAX_RECORDINGS + 2) { dictate(0.1) }
         assertEquals(0, limits.used)
+        doubleTap()
+        assertEquals(State.RECORDING, machine.state)
     }
 
     @Test fun `the screen locking mid-recording caps it from now`() {
