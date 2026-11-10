@@ -66,6 +66,30 @@ class WakeWordService : Service() {
         private const val HOTWORD_SOURCE = 1999
         private const val TICK_MS = 250L
         private const val POLL_MS = 1000L
+        /** A stopped mic thread still going after this long is logged. */
+        private const val SLOW_STOP_MS = 1500L
+        /** How long a new mic thread waits for an earlier one to let go of the mic before giving up. */
+        private const val PREVIOUS_WAIT_MS = 10_000L
+
+        /**
+         * The last mic thread started, by any instance of the service: a quick off and
+         * on can start a new instance while the old one's thread is still winding down,
+         * and the new thread waits for it. A thread that ended normally clears itself,
+         * so a destroyed instance is not kept alive by it.
+         */
+        private val lastStartedMic = java.util.concurrent.atomic.AtomicReference<Thread?>(null)
+
+        /**
+         * Audio sessions of our own recorders that are not released yet, of any
+         * instance, including a stopped one still winding down, so none of them
+         * looks like another app.
+         */
+        private val ownSessions: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        /**
+         * All-zero chunks in a row before the notification says the mic cannot hear: 5 s,
+         * long enough that a HAL's noise gate in a quiet room does not trip it.
+         */
+        private const val ZERO_CHUNKS = 50
 
         @Volatile
         var running = false
@@ -146,7 +170,9 @@ class WakeWordService : Service() {
             ensureChannel(context)
             val tap = PendingIntent.getActivity(
                 context, 1,
-                Intent(context, WakeControlActivity::class.java).setAction(WakeControlActivity.ACTION_WAKE_ON)
+                // The non-exported alias, so this works even when other apps may not control Voice Relay.
+                Intent().setClassName(context, WakeControlActivity.INTERNAL_ALIAS)
+                    .setAction(WakeControlActivity.ACTION_WAKE_ON)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
@@ -167,19 +193,25 @@ class WakeWordService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val controller = WakeWordController()
+    /** Whether the running mic hears anything; main thread only. */
+    private val hearing = MicHearing()
     private lateinit var settings: AppSettings
     private lateinit var audio: AudioManager
     private var mic: MicThread? = null
-    @Volatile private var lastMicThread: Thread? = null
-    @Volatile private var ownSession = -1
+    /** Mic threads of this instance that have not ended yet; the spotter is theirs. */
+    private val liveThreads = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Set by [stopEverything]: the mic thread that brings [liveThreads] to 0 frees the spotter. */
+    @Volatile private var stopped = false
     private var foreground = false
     private var callbacksRegistered = false
 
     /**
      * Built and used only by mic threads, and only while holding [spotterLock].
-     * stopMic() waits for a mic thread only so long; the lock makes the next
-     * thread wait for the last one to finish (a model load can outlast that
-     * wait), so there is never more than one spotter.
+     * stopMic() does not wait for a mic thread; the next thread (of this or a
+     * new instance) waits for the last one to release its AudioRecord, which
+     * includes the last one's spotter work (a model load), so there is never
+     * more than one spotter or one open recorder. It gives up after
+     * [PREVIOUS_WAIT_MS] rather than wait forever on a stuck thread.
      */
     private var spotter: KeywordSpotter? = null
     private val spotterLock = Any()
@@ -206,7 +238,11 @@ class WakeWordService : Service() {
     }
 
     private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
-        override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) = evaluate()
+        override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
+            // Another app taking the mic pauses listening first, so it is not shown as "cannot hear".
+            evaluate()
+            checkSilenced(configs)
+        }
     }
 
     private val modeListener: Any? = if (Build.VERSION.SDK_INT >= 31) {
@@ -237,7 +273,7 @@ class WakeWordService : Service() {
                     startMic()
                 }
                 // The phrase may have changed: show it.
-                shownState = null
+                shownText = null
                 updateNotification()
                 return START_STICKY
             }
@@ -250,6 +286,7 @@ class WakeWordService : Service() {
         if (!goForeground()) return START_NOT_STICKY
         if (!running) {
             running = true
+            stopped = false
             registerCallbacks()
             Log.i(
                 TAG,
@@ -301,16 +338,12 @@ class WakeWordService : Service() {
         val stop = PendingIntent.getService(
             this, 0, Intent(this, WakeWordService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = when (controller.state) {
-            WakeWordController.State.LISTENING -> "Listening for ${effectiveWake(this).phrase}. Audio stays on the phone."
-            WakeWordController.State.WAITING -> "Opening Claude"
-            WakeWordController.State.BUSY -> "Paused while the microphone is in use"
-            WakeWordController.State.OFF -> "Starting"
-        }
+        val text = notificationText()
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_voice_mark)
             .setContentTitle("Wake word")
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
@@ -320,11 +353,20 @@ class WakeWordService : Service() {
             .build()
     }
 
-    private var shownState: WakeWordController.State? = null
+    private fun notificationText(): String = when (controller.state) {
+        WakeWordController.State.LISTENING -> MicHearing.listeningText(effectiveWake(this).phrase, hearing.deaf)
+        WakeWordController.State.WAITING -> "Opening Claude"
+        WakeWordController.State.BUSY -> "Paused while the microphone is in use"
+        WakeWordController.State.OFF -> "Starting"
+    }
+
+    private var shownText: String? = null
 
     private fun updateNotification() {
-        if (!foreground || shownState == controller.state) return
-        shownState = controller.state
+        if (!foreground) return
+        val text = notificationText()
+        if (shownText == text) return
+        shownText = text
         try {
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
         } catch (_: SecurityException) {
@@ -335,6 +377,7 @@ class WakeWordService : Service() {
         handler.removeCallbacksAndMessages(null)
         if (running) Log.i(TAG, "Wake word: service down")
         running = false
+        stopped = true
         apply(controller.stop())
         stopMic()
         unregisterCallbacks()
@@ -342,9 +385,10 @@ class WakeWordService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             foreground = false
         }
-        // The spotter is used on the mic thread; free it only once that thread is gone.
-        // If it is still going, it frees the spotter itself as it ends (see MicThread).
-        if (lastMicThread?.isAlive != true) releaseSpotter()
+        // The spotter is used on the mic threads; free it only once none is left. If one
+        // is still going, the last to end frees it (see MicThread). Each side writes
+        // before it reads the other's value, so at least one of them frees it.
+        if (liveThreads.get() == 0) releaseSpotter()
         stopSelf()
     }
 
@@ -392,9 +436,8 @@ class WakeWordService : Service() {
      */
     private fun micBusy(): Boolean {
         if (audio.mode != AudioManager.MODE_NORMAL) return true
-        val own = ownSession
         return audio.activeRecordingConfigurations.any {
-            it.clientAudioSessionId != own && it.clientAudioSource != HOTWORD_SOURCE
+            it.clientAudioSessionId !in ownSessions && it.clientAudioSource != HOTWORD_SOURCE
         }
     }
 
@@ -478,28 +521,62 @@ class WakeWordService : Service() {
             return
         }
         // Known before recording starts, so our own stream never looks like someone else's.
-        ownSession = rec.audioSessionId
+        // The thread takes the session out again once it has released the recorder.
+        ownSessions += rec.audioSessionId
+        hearing.reset()
         val keywords = currentKeywords()
-        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords)).also {
-            lastMicThread = it
+        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords), lastStartedMic.get()).also {
+            lastStartedMic.set(it)
+            liveThreads.incrementAndGet()
             it.start()
         }
     }
 
+    /**
+     * Tells the mic thread to stop and returns at once; the thread stops and
+     * releases its AudioRecord within about one 100 ms read. A mic started
+     * meanwhile waits on its own thread for that release (see [MicThread]).
+     */
     private fun stopMic() {
         val m = mic ?: return
         mic = null
         m.running = false
-        m.join(1500)
-        if (m.isAlive) Log.w(TAG, "Wake word: mic thread slow to stop")
-        ownSession = -1
+        handler.postDelayed({ if (m.isAlive) Log.w(TAG, "Wake word: mic thread slow to stop") }, SLOW_STOP_MS)
+    }
+
+    /**
+     * Android silences a recording, rather than failing it, when another app or the
+     * microphone privacy switch takes the mic. Reads that from the current mic's
+     * configuration and shows it in the notification.
+     */
+    private fun checkSilenced(configs: List<AudioRecordingConfiguration>) {
+        if (controller.state != WakeWordController.State.LISTENING) return
+        val m = mic ?: return
+        val config = configs.firstOrNull { it.clientAudioSessionId == m.session } ?: return
+        val silenced = config.isClientSilenced
+        if (hearing.onSilenced(silenced)) {
+            Log.i(TAG, if (silenced) "Wake word: Android silenced the mic" else "Wake word: the mic hears again")
+            updateNotification()
+        }
+    }
+
+    /** The current mic thread started or stopped hearing only zeros. */
+    private fun onZeros(thread: MicThread, zeros: Boolean) {
+        if (mic !== thread) return
+        if (hearing.onZeros(zeros)) {
+            Log.w(
+                TAG,
+                if (zeros) "Wake word: the mic has delivered only silence for ${ZERO_CHUNKS / 10} s (another app has it, or mic access is off)"
+                else "Wake word: the mic hears again"
+            )
+            updateNotification()
+        }
     }
 
     /** The mic thread ended on its own (read error, model failure). Back off and retry. */
     private fun micDied(thread: MicThread) {
         if (mic !== thread) return
         mic = null
-        ownSession = -1
         apply(controller.onMicFailed(now()))
     }
 
@@ -530,16 +607,55 @@ class WakeWordService : Service() {
         }
     }
 
-    /** [keywords] is [WakeWord.streamKeywords] of the phrase to listen for. */
+    /**
+     * [keywords] is [WakeWord.streamKeywords] of the phrase to listen for.
+     * [previous] is the mic thread before this one, which may still be winding
+     * down after stopMic(); this one waits for it before touching the mic.
+     */
     private inner class MicThread(
         private val rec: AudioRecord,
         private val threshold: Float,
         private val keywords: String,
+        private var previous: Thread?,
     ) : Thread("VoiceRelay-wake") {
         @Volatile var running = true
+        /** An earlier thread this one gave up waiting for; a later thread waits for it instead. */
+        @Volatile var blocker: Thread? = null
+        val session = rec.audioSessionId
+
+        /**
+         * Waits for every earlier mic thread to end, following [blocker]s past any that
+         * gave up. Returns the one still going after [PREVIOUS_WAIT_MS], or null.
+         */
+        private fun waitForEarlier(): Thread? {
+            var p = previous
+            previous = null
+            while (p != null) {
+                try {
+                    p.join(PREVIOUS_WAIT_MS)
+                } catch (_: InterruptedException) {
+                    return p
+                }
+                if (p.isAlive) return p
+                p = (p as? MicThread)?.blocker
+            }
+            return null
+        }
 
         override fun run() {
             try {
+                // The earlier thread releases its AudioRecord as it ends, so wait for that
+                // before starting this one: never two of our recorders at once. Always the
+                // whole wait, even if this one is stopped meanwhile, so a later thread that
+                // waits for this one has waited for every earlier one too.
+                val stuck = waitForEarlier()
+                if (stuck != null) {
+                    // Give up without touching the mic: this ends through micDied, which
+                    // backs off and retries, and the next thread waits for the stuck one.
+                    blocker = stuck
+                    Log.w(TAG, "Wake word: an earlier mic thread has not let go of the mic after ${PREVIOUS_WAIT_MS / 1000} s")
+                    return
+                }
                 // Waits here while an earlier thread (stopped, but still loading the model) finishes.
                 synchronized(spotterLock) {
                     if (!running) return
@@ -558,9 +674,13 @@ class WakeWordService : Service() {
             } finally {
                 try { rec.stop() } catch (_: IllegalStateException) {}
                 rec.release()
+                ownSessions -= session
                 if (running) handler.post { micDied(this) }
-                // The service stopped while this thread was still going, so it left the spotter to us.
-                if (!WakeWordService.running && lastMicThread === this) releaseSpotter()
+                // The service stopped while this thread was still going, so the last of its
+                // threads to end frees the spotter.
+                if (liveThreads.decrementAndGet() == 0 && stopped) releaseSpotter()
+                // Nobody needs to wait for this one any more, unless it left a stuck one behind.
+                if (blocker == null) lastStartedMic.compareAndSet(this, null)
             }
         }
 
@@ -574,8 +694,7 @@ class WakeWordService : Service() {
             Log.i(TAG, "Wake word: listening for ${keywords.split('/').joinToString(", ") { it.substringAfterLast('@') }}")
             val pcm = ShortArray(CHUNK)
             val samples = FloatArray(CHUNK)
-            var silentChunks = 0
-            var warnedSilent = false
+            val zeroRun = ZeroRun(ZERO_CHUNKS)
             try {
                 while (running) {
                     val n = rec.read(pcm, 0, CHUNK)
@@ -590,13 +709,8 @@ class WakeWordService : Service() {
                         samples[i] = s / 32768f
                         peak = maxOf(peak, abs(s))
                     }
-                    // Android hands a background app without mic access pure zeros, not an error.
-                    if (peak == 0) {
-                        if (++silentChunks == 50 && !warnedSilent) {
-                            warnedSilent = true
-                            Log.w(TAG, "Wake word: the mic has delivered only silence for 5 s (no mic access in the background?)")
-                        }
-                    } else silentChunks = 0
+                    // Android hands a recording it took the mic from pure zeros, not an error.
+                    zeroRun.feed(peak)?.let { zeros -> handler.post { onZeros(this@MicThread, zeros) } }
                     stream.acceptWaveform(if (n == CHUNK) samples else samples.copyOf(n), SAMPLE_RATE)
                     while (kws.isReady(stream)) {
                         kws.decode(stream)

@@ -44,8 +44,15 @@ wake phrase, which keyword fired, and the detection settings. When the keyword i
 opens the Claude app in voice mode (the Claude app then handles your speech under Anthropic's terms).
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
-audio mode, and whether music is playing) to pause while the microphone is in use and, if you
-allow it, to press play again after Claude is done. It does not read other apps' audio.
+audio mode, whether Android has silenced its own recording, and whether music is playing) to pause
+while the microphone is in use, to say in its notification when it cannot hear, and, if you allow
+it, to press play again after Claude is done. It does not read other apps' audio.
+
+Other apps on the phone (Tasker, adb, or anything installed) can send the app's control intents to
+turn the wake word on (only once you have turned it on in the app) or off, open Claude in voice
+mode, and hide or show the floating buttons. They carry no data in or out. **Allow other apps to
+control Voice Relay** in the settings (on by default) turns all of them off; the app then ignores
+them and logs only that it did.
 
 ## API keys
 

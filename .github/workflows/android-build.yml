@@ -1,8 +1,9 @@
 name: android-build
 
 on:
-  # main is owned by release.yml: it runs semantic-release and, when a release
-  # is actually published, calls this workflow (workflow_call) for the tag.
+  # main is owned by release.yml: when semantic-release (dry run) says the
+  # commits warrant a release, it calls this workflow (workflow_call) to test
+  # and build that commit as the coming version, before anything is tagged.
   pull_request:
     branches: [main]
     paths-ignore:
@@ -19,7 +20,7 @@ on:
         type: string
         default: ""
       version_name:
-        description: "versionName to build; defaults to appVersionName in app/build.gradle.kts"
+        description: "versionName to build, stamped in with scripts/set_version.sh; defaults to appVersionName in app/build.gradle.kts"
         required: false
         type: string
         default: ""
@@ -28,11 +29,18 @@ on:
         required: false
         type: string
         default: ""
-      publish:
-        description: "Sign and attach the APK to the GitHub release"
+      release:
+        description: "Build for a release: requires version_name, and signs the APK"
         required: false
         type: boolean
         default: false
+    outputs:
+      version_name:
+        description: "The versionName that was built"
+        value: ${{ jobs.build.outputs.version_name }}
+      sherpa_artifact:
+        description: "Name of the artifact holding the wake word library, for cleanup"
+        value: ${{ jobs.sherpa.outputs.artifact }}
 
 permissions:
   contents: read
@@ -50,7 +58,7 @@ jobs:
     uses: ./.github/workflows/sherpa-build.yml
     with:
       ref: ${{ inputs.ref }}
-      retention-days: ${{ inputs.publish && 30 || 3 }}
+      retention-days: ${{ inputs.release && 30 || 3 }}
 
   build:
     runs-on: ubuntu-latest
@@ -60,7 +68,7 @@ jobs:
     outputs:
       version_name: ${{ steps.version.outputs.name }}
     env:
-      IS_RELEASE: ${{ inputs.publish == true }}
+      IS_RELEASE: ${{ inputs.release == true }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -78,8 +86,14 @@ jobs:
         with:
           # v6 defaults to a closed-source caching provider that is only a free
           # preview for private repositories; basic is the MIT-licensed one
-          # built on actions/cache.
+          # built on actions/cache. Runs on main (the release build) write the
+          # cache; pull requests only read it.
+          #
+          # No configuration cache: app/build.gradle.kts reads the signing
+          # passwords at configuration time, so its cache entry would hold them,
+          # and saved to the Actions cache it would be readable from PR runs.
           cache-provider: basic
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Read versionName
         id: version
@@ -92,6 +106,21 @@ jobs:
             VERSION_NAME=$(grep -oP 'appVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n1)
           fi
           echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+
+      # A release is built from the commit semantic-release is about to tag, before
+      # its version commit exists, so the version goes in here the same way
+      # semantic-release's prepare step puts it in (app/build.gradle.kts, README).
+      - name: Stamp the release version
+        if: env.IS_RELEASE == 'true'
+        env:
+          INPUT_VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          if [ -z "$INPUT_VERSION_NAME" ]; then
+            echo "::error::a release build needs version_name"
+            exit 1
+          fi
+          scripts/set_version.sh "$VERSION_NAME"
 
       # versionCode must only ever go up for in-place upgrades, so a release
       # derives it from the versionName (scripts/version_code.sh). Throwaway PR
@@ -190,40 +219,7 @@ jobs:
           path: dist/*
           # Artifacts count against the account's Actions storage quota.
           # Releases keep their APK on the GitHub release (release assets do
-          # not count), and the release job below deletes this copy once the
+          # not count), and release.yml's attach job deletes this copy once the
           # APK is attached, so the short retention only matters for PR builds.
           retention-days: 3
 
-  release:
-    if: ${{ inputs.publish == true }}
-    runs-on: ubuntu-latest
-    # A hung step must not run to the 6 hour default and burn Actions minutes.
-    timeout-minutes: 10
-    needs: [sherpa, build]
-    permissions:
-      contents: write
-      actions: write # delete the artifact once it is attached to the release
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: voice-relay-v${{ needs.build.outputs.version_name }}
-          path: dist
-
-      # The GitHub release already exists (semantic-release wrote it and its
-      # notes), so only the APK and the license notices are attached here.
-      - name: Attach APK to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: v${{ needs.build.outputs.version_name }}
-          files: |
-            dist/voice-relay-v${{ needs.build.outputs.version_name }}.apk
-            dist/NOTICE
-            dist/THIRD_PARTY_NOTICES.md
-
-      - name: Delete the Actions copies of the APK and the wake word library
-        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
-        with:
-          name: |
-            voice-relay-v${{ needs.build.outputs.version_name }}
-            ${{ needs.sherpa.outputs.artifact }}

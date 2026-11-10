@@ -1210,8 +1210,12 @@ class WhisperAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = screenW - ringSize - margin
-            y = screenH / 2 - ringSize / 2 - (BUTTON_LIFT_DP * dp).toInt()
+            // Where it was last dragged to, if anywhere. The pills are added later and
+            // settle it again with their room.
+            if (!placeAtSavedPosition(this)) {
+                x = screenW - ringSize - margin
+                y = screenH / 2 - ringSize / 2 - (BUTTON_LIFT_DP * dp).toInt()
+            }
         }
 
         var startX = 0; var startY = 0
@@ -1246,6 +1250,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                         if (!longPressed) onTap(ev.downTime, ev.eventTime)
                     } else {
                         settleBubble()
+                        saveBubblePosition()
                     }
                     true
                 }
@@ -1288,10 +1293,26 @@ class WhisperAccessibilityService : AccessibilityService() {
         feedbackLayoutParams = feedbackParams
     }
 
-    /** Rotation or a resize: put the button back against a side and inside the new screen. */
+    /**
+     * Rotation or a resize: put the button back at the side and share of the height
+     * it was dragged to (or just inside the new screen), with everything riding along.
+     */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        handler.post { settleBubble() }
+        handler.post {
+            layoutParams?.let { placeAtSavedPosition(it) }
+            settleBubble()
+        }
+    }
+
+    /** Puts [params] where the button was last dragged to, inside this screen. False if it never was. */
+    private fun placeAtSavedPosition(params: WindowManager.LayoutParams): Boolean {
+        val fraction = settings.bubbleYFraction
+        if (fraction < 0f) return false
+        val bounds = bubbleBounds()
+        params.x = bounds.sideX(settings.bubbleOnRight, (MARGIN_DP * dp).toInt())
+        params.y = bounds.clampY(BubbleBounds.yAt(fraction, (RING_DP * dp).toInt(), screenH))
+        return true
     }
 
     /**
@@ -1334,6 +1355,15 @@ class WhisperAccessibilityService : AccessibilityService() {
         params.y = bounds.clampY(params.y)
         wm.updateViewLayout(view, params)
         followBubble(wm, params)
+    }
+
+    /** Remembers the side and height the button was dragged to, for the next start of the service. */
+    private fun saveBubblePosition() {
+        val params = layoutParams ?: return
+        val onRight = bubbleBounds().isRight(params.x)
+        val fraction = BubbleBounds.fraction(params.y, (RING_DP * dp).toInt(), screenH)
+        settings.saveBubble(onRight, fraction)
+        Log.i(TAG, "Buttons: dictate button left on the ${if (onRight) "right" else "left"} at %.2f of the height".format(fraction))
     }
 
     /**

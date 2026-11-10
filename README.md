@@ -109,7 +109,7 @@ and [SECURITY.md](SECURITY.md).
 | **Tap** (amber with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |
 | **Long-press** (gray, working) | Gives up on a transcription or grammar fix that is taking too long. The recording is kept: the button turns amber for a retry. |
 | **Long-press** (amber) | Asks to discard the failed recording; tap the red bubble to confirm. |
-| **Drag** | Move the button; it snaps to the nearest edge. |
+| **Drag** | Move the button; it snaps to the nearest edge. Its side and height are remembered, also across restarts, and kept on screen after a rotation. |
 | **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |
 
 Where the text goes:
@@ -186,6 +186,11 @@ How it works:
 - It stays quiet while anything else uses the microphone: Claude's whole conversation, phone
   calls, and the dictate button. It starts listening again 1 second after the microphone is
   free, and never sooner than 4 seconds after a detection.
+- Android does not always say when it takes the microphone away (another app holding it, or the
+  microphone switch in Quick Settings turned off); it hands over silence instead. When Android
+  marks the recording silenced, or the audio has been nothing but zeros for 5 seconds, the
+  notification says it **cannot hear right now**, and goes back to "Listening" as soon as sound
+  returns.
 - **Resume music after Claude** (on by default): Claude pauses your music when it opens and does
   not always restart it. If music was playing when you said the phrase, the app presses play
   once Claude is done, unless something is already playing.
@@ -221,6 +226,10 @@ adb shell am start -a com.lperezmo.voicerelay.WAKE_ON -n com.lperezmo.voicerelay
 `WAKE_ON` only works after the wake word has been turned on once in the app, which is where its
 permissions are granted; before that it is ignored, so another app cannot switch the microphone
 on by itself. `WAKE_OFF` always works.
+
+Any app on the phone can send these intents, not only Tasker. If you do not use them, turn off
+**Allow other apps to control Voice Relay** (under the wake word settings, on by default): every
+action is then ignored, and the log says so.
 
 ### Hiding the buttons for a screen recording
 
@@ -325,6 +334,7 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
+| Allow other apps to control Voice Relay | on | Whether Tasker, adb and other apps may send the [control intents](#turning-it-on-and-off-from-tasker). |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
@@ -378,6 +388,8 @@ vulnerabilities privately, as SECURITY.md describes.
   confirm to discard it.
 - **The wake word does not open Claude.** Allow **Display over other apps** (the row under the
   wake word switch), and install the Claude app. Check that the "listening" notification shows.
+  If it says it **cannot hear right now**, another app has the microphone or microphone access is
+  off in Quick Settings.
 - **The wake word fires by mistake, or misses you.** Lower or raise **Sensitivity**.
 - **The wake word stopped after a reboot.** It restarts when Android reconnects the
   accessibility service; if Android blocks that, tap the notification that says so.
@@ -439,10 +451,11 @@ release (when signed with the same key), and the next release installs over it.
 ## Releases
 
 CI builds and tests an unsigned APK for every pull request (`.github/workflows/android-build.yml`).
-Every merge to `main` runs semantic-release (`.github/workflows/release.yml`): a `feat:` or
-`fix:` commit cuts a version, tags it, and attaches the signed APK, `NOTICE` and
-`THIRD_PARTY_NOTICES.md` to the GitHub release; `chore:`, `docs:`, `ci:` and `refactor:` commits
-do not. Build artifacts are kept 3 days (30 for a release run, so its failed jobs can be re-run),
+Every merge to `main` runs `.github/workflows/release.yml`: a `feat:` or `fix:` commit cuts a
+version; `chore:`, `docs:`, `ci:` and `refactor:` commits do not. The order is: semantic-release
+works out the version in a dry run, the merged commit is tested and built as that version and
+signed, and only then does semantic-release tag it and write the GitHub release, to which the
+signed APK, `NOTICE` and `THIRD_PARTY_NOTICES.md` are attached. A failing test means no tag. Build artifacts are kept 3 days (30 for a release run, so its failed jobs can be re-run),
 and a release deletes its own artifacts once the APK is attached. `versionName` is `0.21.2`, and it is owned by semantic-release, so never edit it by
 hand. `versionCode` is derived from it by `scripts/version_code.sh`.
 
@@ -471,7 +484,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
-| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` intents |
+| `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |

@@ -1893,8 +1893,9 @@
           <span class="tag">Starting it</span>
           Android only lets a microphone foreground service start while the app is in the foreground. So it is started from
           the settings screen, from an invisible activity (Tasker and adb send <code>WAKE_ON</code>, <code>WAKE_OFF</code> or
-          <code>WAKE_TOGGLE</code> to it), or by the accessibility service when Android rebinds it after a reboot or update.
-          When Android refuses, a notification offers to turn it back on with one tap.
+          <code>WAKE_TOGGLE</code> to it, unless <em>Allow other apps to control Voice Relay</em> is off), or by the
+          accessibility service when Android rebinds it after a reboot or update. When Android refuses, a notification offers
+          to turn it back on with one tap; it reaches the same activity through a non-exported alias, so it works either way.
         </div>
       </section>
 
@@ -2057,7 +2058,7 @@
           <ul>
             <li><strong>OpenAI</strong> with your audio and the text you send, under your agreement with them.</li>
             <li><strong>Anthropic</strong>, only if you choose Claude as the cleanup service, with the transcript and the text to fix.</li>
-            <li><strong>Other apps</strong> with two exported entry points: Fix grammar can spend your key (10 a minute at most), and the control intents can turn the wake word on (only once you set it up) or off, open Claude in voice mode, and hide or show the floating buttons. Use a key with a monthly spend limit.</li>
+            <li><strong>Other apps</strong> with two exported entry points: Fix grammar can spend your key (10 a minute at most), and the control intents can turn the wake word on (only once you set it up) or off, open Claude in voice mode, and hide or show the floating buttons, unless you turn off <em>Allow other apps to control Voice Relay</em>. Use a key with a monthly spend limit.</li>
             <li><strong>The Claude app</strong> once the wake word opens it.</li>
             <li><strong>The accessibility service</strong>, which watches which field is focused in every app and reads a field only when you dictate, fix or undo.</li>
           </ul>

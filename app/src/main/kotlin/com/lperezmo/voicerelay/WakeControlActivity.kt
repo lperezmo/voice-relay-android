@@ -21,15 +21,21 @@ import android.widget.Toast
  * CLAUDE_VOICE opens Claude's assistant straight into voice mode, the same
  * way the wake word does, for a Tasker gesture or button.
  *
- * Exported, so any app can send these four actions. What that allows is
- * bounded: turning on only works after you turned the wake word on once in
- * Voice Relay (which is where the microphone permission is granted), and the
- * only effect is listening on the phone and opening Claude's assistant.
+ * Exported, so any app can send these actions. What that allows is bounded:
+ * turning on only works after you turned the wake word on once in Voice Relay
+ * (which is where the microphone permission is granted), and the only effects
+ * are listening on the phone, opening Claude's assistant, and hiding or
+ * showing the floating buttons. "Allow other apps to control Voice Relay"
+ * ([AppSettings.externalControl]) turns all of it off. The app's own
+ * notification comes in through [INTERNAL_ALIAS], which is not exported, so
+ * it works either way.
  */
 class WakeControlActivity : Activity() {
 
     companion object {
         private const val TAG = "VoiceRelay"
+        /** Non-exported alias of this activity for the app's own PendingIntents. See the manifest. */
+        const val INTERNAL_ALIAS = "com.lperezmo.voicerelay.WakeControlInternal"
         const val ACTION_WAKE_ON = "com.lperezmo.voicerelay.WAKE_ON"
         const val ACTION_WAKE_OFF = "com.lperezmo.voicerelay.WAKE_OFF"
         const val ACTION_WAKE_TOGGLE = "com.lperezmo.voicerelay.WAKE_TOGGLE"
@@ -52,6 +58,11 @@ class WakeControlActivity : Activity() {
 
     private fun handle(action: String?) {
         val settings = AppSettings(this)
+        val internal = intent?.component?.className == INTERNAL_ALIAS
+        if (!internal && !settings.externalControl) {
+            Log.w(TAG, "Control intent ignored: other apps may not control Voice Relay (setting is off)")
+            return
+        }
         when (action) {
             ACTION_WAKE_ON -> on(settings)
             ACTION_WAKE_OFF -> off(settings)

@@ -28,6 +28,22 @@ class BubbleBounds(
     }
 
     /** Against the nearer side, [margin] in from it. */
-    fun snapX(x: Int, margin: Int): Int =
-        if (x + ring / 2 > (left + right) / 2) clampX(right - ring - margin) else clampX(left + margin)
+    fun snapX(x: Int, margin: Int): Int = sideX(isRight(x), margin)
+
+    /** True when a button at [x] sits on the right half. */
+    fun isRight(x: Int): Boolean = x + ring / 2 > (left + right) / 2
+
+    /** Against the right or left side, [margin] in from it. */
+    fun sideX(onRight: Boolean, margin: Int): Int =
+        if (onRight) clampX(right - ring - margin) else clampX(left + margin)
+
+    companion object {
+        /** The middle of a [ring] px button at [y], as a fraction of a [height] px screen, kept in 0..1. */
+        fun fraction(y: Int, ring: Int, height: Int): Float =
+            if (height <= 0) 0.5f else ((y + ring / 2f) / height).coerceIn(0f, 1f)
+
+        /** The y that puts the button's middle at [fraction] of a [height] px screen; clamp it afterwards. */
+        fun yAt(fraction: Float, ring: Int, height: Int): Int =
+            (fraction.coerceIn(0f, 1f) * height - ring / 2f).toInt()
+    }
 }

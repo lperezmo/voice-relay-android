@@ -16,6 +16,7 @@
     [
       "@semantic-release/exec",
       {
+        "verifyReleaseCmd": "scripts/release_plan.sh ${nextRelease.version}",
         "prepareCmd": "scripts/set_version.sh ${nextRelease.version}",
         "successCmd": "scripts/release_outputs.sh ${nextRelease.version}"
       }

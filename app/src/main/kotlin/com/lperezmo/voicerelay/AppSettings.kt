@@ -90,6 +90,21 @@ class AppSettings(context: Context) {
         get() = prefs.getInt("joystick_y", -1)
         set(v) = prefs.edit().putInt("joystick_y", v).apply()
 
+    /** Which side the dictate button was dragged to. Saved when a drag ends. */
+    val bubbleOnRight: Boolean
+        get() = prefs.getBoolean("bubble_right", true)
+
+    /**
+     * Where the middle of the dictate button was left, as a fraction of the screen
+     * height (see [BubbleBounds.fraction]), so a rotation or another screen size
+     * cannot put it off screen. -1 means "not moved yet": the default spot is used.
+     */
+    val bubbleYFraction: Float
+        get() = prefs.getFloat("bubble_y_fraction", -1f)
+
+    fun saveBubble(onRight: Boolean, yFraction: Float) =
+        prefs.edit().putBoolean("bubble_right", onRight).putFloat("bubble_y_fraction", yFraction).apply()
+
     /** Switch to the arrows keyboard when the pad is used, and back when it goes quiet. */
     var joystickAutoSwitch: Boolean
         get() = prefs.getBoolean("joystick_auto_switch", true)
@@ -160,6 +175,15 @@ class AppSettings(context: Context) {
     var wakeWordSetUp: Boolean
         get() = prefs.getBoolean("wake_word_set_up", false)
         set(v) = prefs.edit().putBoolean("wake_word_set_up", v).apply()
+
+    /**
+     * Whether other apps (Tasker, adb, anything installed) may use the control
+     * intents in [WakeControlActivity]. On by default, so existing automations
+     * keep working.
+     */
+    var externalControl: Boolean
+        get() = prefs.getBoolean("external_control", true)
+        set(v) = prefs.edit().putBoolean("external_control", v).apply()
 
     /** 1 (strict) to 7 (loose); see [WakeWord.threshold]. */
     var wakeSensitivity: Int
