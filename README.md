@@ -404,7 +404,7 @@ Requirements: JDK 21, the Android SDK with `platforms;android-36` and `build-too
 ```sh
 echo "sdk.dir=/path/to/Android/Sdk" > local.properties   # or set ANDROID_HOME
 bash scripts/fetch_sherpa.sh                             # wake word library and model
-./gradlew testReleaseUnitTest assembleRelease            # gradlew.bat on Windows
+./gradlew testDebugUnitTest assembleRelease            # gradlew.bat on Windows
 ```
 
 `scripts/fetch_sherpa.sh` downloads the pinned keyword-spotting model and checks its SHA-256, and

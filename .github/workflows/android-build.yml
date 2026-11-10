@@ -183,7 +183,8 @@ jobs:
           KEYSTORE_PASSWORD: ${{ env.IS_RELEASE == 'true' && secrets.KEYSTORE_PASSWORD || '' }}
           KEY_ALIAS: ${{ env.IS_RELEASE == 'true' && secrets.KEY_ALIAS || '' }}
           KEY_PASSWORD: ${{ env.IS_RELEASE == 'true' && secrets.KEY_PASSWORD || '' }}
-        run: ./gradlew testReleaseUnitTest assembleRelease -PversionCode=${{ steps.code.outputs.code }}
+        # AGP 9 creates unit tests for the tested build type (debug) only.
+        run: ./gradlew testDebugUnitTest assembleRelease -PversionCode=${{ steps.code.outputs.code }}
 
       - name: Stage APK
         run: |
