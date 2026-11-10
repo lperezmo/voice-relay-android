@@ -30,17 +30,28 @@ object WakeWord {
     const val ACTION_VOICE_ASSIST = "android.intent.action.VOICE_ASSIST"
 
     /**
-     * Claude's assistant overlay opens in text chat since its 2026-10-29 update, so after
-     * the wake word opens it the accessibility service taps the button announced with this
-     * label to start voice. Matched whole and case-blind, never by screen position.
+     * A link the Claude app opens as a new chat. Since its 2026-11-09 update the assistant
+     * intent only brings the app forward on whatever screen it was on, and the extra that
+     * starts a chat in voice is honoured from Claude's own non-exported entry points only.
+     * A new chat always has the button that starts voice.
      */
-    const val VOICE_MODE_LABEL = "Voice Mode"
+    const val CLAUDE_NEW_CHAT = "https://claude.ai/new"
 
-    /** How long to wait for Claude's overlay to show the Voice Mode button. */
-    const val VOICE_MODE_WAIT_MS = 2_500L
+    /**
+     * After the wake word opens Claude, the accessibility service presses the control
+     * announced with one of these labels to start voice: "Voice Mode" in a chat's composer,
+     * "Talk with Claude" on the home screen. Matched whole and case-blind, never by screen
+     * position.
+     */
+    val VOICE_MODE_LABELS = listOf("Voice Mode", "Talk with Claude")
 
-    fun isVoiceModeLabel(label: CharSequence?): Boolean =
-        label != null && label.toString().trim().equals(VOICE_MODE_LABEL, ignoreCase = true)
+    /** How long to wait for Claude to show the control; a cold start takes a few seconds. */
+    const val VOICE_MODE_WAIT_MS = 6_000L
+
+    fun isVoiceModeLabel(label: CharSequence?): Boolean {
+        val text = label?.toString()?.trim() ?: return false
+        return VOICE_MODE_LABELS.any { it.equals(text, ignoreCase = true) }
+    }
 
     /** Per-keyword boost for the decoder. 1.5 is the sherpa-onnx default. */
     const val BOOST = 1.5f

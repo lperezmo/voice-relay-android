@@ -151,7 +151,7 @@ class WakeWordService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_mic)
+                .setSmallIcon(R.drawable.ic_voice_mark)
                 .setContentTitle("Wake word is off")
                 .setContentText("Android stopped it. Tap to listen for ${effectiveWake(context).phrase} again.")
                 .setContentIntent(tap)
@@ -308,7 +308,7 @@ class WakeWordService : Service() {
             WakeWordController.State.OFF -> "Starting"
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_mic)
+            .setSmallIcon(R.drawable.ic_voice_mark)
             .setContentTitle("Wake word")
             .setContentText(text)
             .setOngoing(true)
@@ -438,9 +438,8 @@ class WakeWordService : Service() {
         // most clearly lets start activities from the background.
         val ctx: Context = WhisperAccessibilityService.instance ?: this
         try {
-            ctx.startActivity(Intent(intent).setPackage(WakeWord.CLAUDE_PACKAGE))
+            ClaudeVoice.open(ctx)
             Log.i(TAG, "Wake word: opened Claude")
-            WhisperAccessibilityService.instance?.tapClaudeVoiceMode()
         } catch (_: ActivityNotFoundException) {
             try {
                 ctx.startActivity(intent)

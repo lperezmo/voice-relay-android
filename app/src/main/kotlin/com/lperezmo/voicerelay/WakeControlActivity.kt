@@ -86,13 +86,9 @@ class WakeControlActivity : Activity() {
     }
 
     private fun claudeVoice() {
-        val intent = Intent(WakeWord.ACTION_VOICE_ASSIST)
-            .setPackage(WakeWord.CLAUDE_PACKAGE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            startActivity(intent)
+            ClaudeVoice.open(this)
             Log.i(TAG, "Wake word: opened Claude from a control intent")
-            WhisperAccessibilityService.instance?.tapClaudeVoiceMode()
         } catch (_: ActivityNotFoundException) {
             Log.w(TAG, "Wake word: CLAUDE_VOICE ignored, Claude is not installed")
             toast("Install the Claude app first")

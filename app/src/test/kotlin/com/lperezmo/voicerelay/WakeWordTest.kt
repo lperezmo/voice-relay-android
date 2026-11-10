@@ -404,6 +404,7 @@ class WakeWordTest {
     @Test fun `the voice mode label matches whole and case blind only`() {
         assertTrue(WakeWord.isVoiceModeLabel("Voice Mode"))
         assertTrue(WakeWord.isVoiceModeLabel(" voice mode "))
+        assertTrue(WakeWord.isVoiceModeLabel("Talk with Claude"))
         assertFalse(WakeWord.isVoiceModeLabel("Exit Voice Mode"))
         assertFalse(WakeWord.isVoiceModeLabel("Start speech input"))
         assertFalse(WakeWord.isVoiceModeLabel(null))

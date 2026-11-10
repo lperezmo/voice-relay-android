@@ -106,7 +106,7 @@
         <service
             android:name=".ButtonsTileService"
             android:exported="true"
-            android:icon="@drawable/ic_mic"
+            android:icon="@drawable/ic_voice_mark"
             android:label="@string/buttons_tile_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

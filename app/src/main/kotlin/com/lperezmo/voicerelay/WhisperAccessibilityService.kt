@@ -70,9 +70,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val MARGIN_DP = 8
         private const val TAP_THRESHOLD_DP = 10
         private const val RING_DP = 56
-        /** How far above the middle the button starts. Dead centre on the right
-         *  edge is where chat apps put their send button. */
-        private const val BUTTON_LIFT_DP = 80
+        /** How far above the middle the button starts. The right edge at mid-height is
+         *  where chat apps put their send and voice buttons (an empty Claude chat centres
+         *  its composer there), so the whole stack, the pill under the button included,
+         *  has to end well above the middle. */
+        private const val BUTTON_LIFT_DP = 200
         private const val FB_RADIUS_DP = 16f
         private const val FB_CHIP_RADIUS_DP = 18f
         private const val MIN_CLIP_SECONDS = 0.3
@@ -280,6 +282,9 @@ class WhisperAccessibilityService : AccessibilityService() {
      */
     var buttonsHidden = false
         private set
+
+    /** True while the buttons are hidden only to keep them clear of the Voice Mode press. */
+    private var hiddenForVoicePress = false
 
     /** Hides or shows the bubble and every pill at once. A running recording is finished first. */
     fun setButtonsHidden(hide: Boolean) {
@@ -669,11 +674,17 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * After the wake word opens Claude: polls Claude's window for its Voice Mode button and
-     * taps it, for up to [WakeWord.VOICE_MODE_WAIT_MS]. Claude's overlay opens in text chat
-     * since its 2026-10-29 update. If the button never shows, Claude stays in text chat.
+     * After the wake word opens Claude on a new chat: polls Claude's window for the control
+     * that starts voice ([WakeWord.VOICE_MODE_LABELS]) and presses it, for up to
+     * [WakeWord.VOICE_MODE_WAIT_MS]. If it never shows, Claude stays in text chat.
      */
     fun tapClaudeVoiceMode() {
+        // The floating buttons sit where Claude puts its voice button, so they step
+        // aside until the press is done.
+        if (!buttonsHidden) {
+            hiddenForVoicePress = true
+            setButtonsHidden(true)
+        }
         val deadline = SystemClock.uptimeMillis() + WakeWord.VOICE_MODE_WAIT_MS
         handler.postDelayed({ tryVoiceMode(deadline) }, 200)
     }
@@ -683,13 +694,25 @@ class WhisperAccessibilityService : AccessibilityService() {
         if (button != null) {
             val tapped = clickSelfOrParent(button)
             Log.i(TAG, if (tapped) "Wake word: started Claude voice mode" else "Wake word: Voice Mode button would not click")
+            showButtonsAfterVoicePress()
             return
         }
         if (SystemClock.uptimeMillis() >= deadline) {
             Log.w(TAG, "Wake word: Claude opened but no Voice Mode button showed; it stays in text chat")
+            showButtonsAfterVoicePress()
             return
         }
         handler.postDelayed({ tryVoiceMode(deadline) }, 150)
+    }
+
+    /** Brings back the buttons [tapClaudeVoiceMode] hid, once Claude's screen has changed. */
+    private fun showButtonsAfterVoicePress() {
+        handler.postDelayed({
+            if (hiddenForVoicePress) {
+                hiddenForVoicePress = false
+                if (buttonsHidden) setButtonsHidden(false)
+            }
+        }, 800)
     }
 
     private fun findVoiceModeButton(): AccessibilityNodeInfo? {
@@ -1157,7 +1180,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
 
         val img = ImageView(this).apply {
-            setImageResource(R.drawable.ic_mic)
+            setImageResource(R.drawable.ic_voice_mark)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(pad, pad, pad, pad)
             background = circle(COLOR_IDLE)
