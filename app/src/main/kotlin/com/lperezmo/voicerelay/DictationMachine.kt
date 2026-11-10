@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs one dictation at a time for the floating button:
@@ -144,7 +145,7 @@ class DictationMachine(
         fx.logError("Unexpected failure: ${e.javaClass.simpleName}: ${e.message}")
         fx.post {
             if (state != State.WORKING) return@post
-            val kept = workAudio ?: pendingAudio
+            val kept = keepWorkRecording() ?: pendingAudio
             endWork()
             pendingAudio = kept
             if (kept != null) {
@@ -160,10 +161,20 @@ class DictationMachine(
     private var work: Job? = null
     /** The recording [work] is uploading (standard mode), so giving up on it can keep it for a retry. */
     private var workAudio: OpenAiClient.Audio? = null
-    /** The raw recording [work] holds only in memory (while it is encoded), so giving up on it can still keep it. */
+    /**
+     * The raw recording [work] holds only in memory (while it is encoded, or while a
+     * live session finishes), so giving up on it, a crash or a destroy can still keep it.
+     */
     private var workPcm: ByteArray? = null
-    /** Whether a long-press may give up on [work]: not while a live session is finishing. */
+    /** The live session [work] is waiting on, and the words it typed, so giving up can drop the one and keep the other. */
+    private var workSession: LiveSession? = null
+    private var workDraft: Draft? = null
+    /** Set when [work] is given up, for the transcriber on the IO thread: no fallback upload or cleanup after that. */
+    private var workGivenUp: AtomicBoolean? = null
+    /** Whether a long-press may give up on [work]. */
     private var workCancellable = false
+    /** Saves and clears of the pending recording can come from two IO threads at once (a fallback upload and a give-up). */
+    private val pendingLock = Any()
     private var recorder: Mic? = null
     /** The live transcription stream for the current recording, in live mode. */
     private var live: LiveSession? = null
@@ -243,6 +254,9 @@ class DictationMachine(
         }
         recorder = null
         live?.cancel()
+        // Work that still holds its recording only in memory saves it now.
+        if (workAudio == null) workPcm?.let { savePending(wav(it)) }
+        workSession?.cancel()
         scope.cancel()
     }
 
@@ -256,13 +270,15 @@ class DictationMachine(
     private fun cancelWork() {
         if (!workCancellable) return
         work?.cancel()
+        workGivenUp?.set(true)
+        workSession?.cancel()
         fx.haptic()
-        // Still being encoded: keep the raw recording, as WAV, instead.
-        val kept = workAudio ?: workPcm?.let { pcm -> wav(pcm).also { scope.launch(io) { savePending(it) } } }
+        val kept = keepWorkRecording()
+        val typed = workDraft
         endWork()
         if (kept != null) {
             pendingAudio = kept
-            pendingDraft = null
+            pendingDraft = typed
             setState(State.RETRY)
             fx.showFeedback("Stopped\nRecording saved. Tap to retry, hold to discard", 5000)
         } else {
@@ -274,7 +290,7 @@ class DictationMachine(
     private fun discardPending() {
         pendingAudio = null
         pendingDraft = null
-        scope.launch(io) { fx.clearPending() }
+        scope.launch(io) { synchronized(pendingLock) { fx.clearPending() } }
         setState(State.IDLE)
         fx.showFeedback("Recording discarded")
     }
@@ -382,10 +398,24 @@ class DictationMachine(
         }
     }
 
+    /**
+     * The recording [work] is handling, saved for a retry: the upload's file (saved
+     * again in case the upload was given up before its own save ran), or the raw
+     * recording held in memory, as WAV (no encode on the way out).
+     */
+    private fun keepWorkRecording(): OpenAiClient.Audio? {
+        val kept = workAudio ?: workPcm?.let { wav(it) } ?: return null
+        if (kept !== pendingAudio) scope.launch(io) { savePending(kept) }
+        return kept
+    }
+
     /** The work is over (done, failed or given up): nothing is left to cancel or keep. */
     private fun endWork() {
         workAudio = null
         workPcm = null
+        workSession = null
+        workDraft = null
+        workGivenUp = null
         workCancellable = false
     }
 
@@ -419,10 +449,14 @@ class DictationMachine(
         setState(State.WORKING)
         val standard = fx.standardTranscriber(apiKey)
         var uploaded: OpenAiClient.Audio? = null
+        val givenUp = AtomicBoolean(false)
         val transcriber = if (session == null || pcm == null) standard else DictationPipeline.Transcriber { clip ->
             val result = session.finish()
-            if (result.error == null) {
-                fx.recordLiveUsage(clip.seconds)
+            if (result.error == null) fx.recordLiveUsage(clip.seconds)
+            if (givenUp.get()) {
+                // Given up while the live session finished: the answer is ignored, so do no more.
+                OpenAiClient.Result(null, "Cancelled")
+            } else if (result.error == null) {
                 result
             } else {
                 fx.logWarn("Live transcription failed (${result.error}), using the standard upload")
@@ -436,8 +470,11 @@ class DictationMachine(
             log = { fx.logInfo("Dictation: $it") },
         )
         workAudio = if (session == null) audio else null
-        workPcm = null
-        workCancellable = session == null
+        workPcm = pcm
+        workSession = session
+        workDraft = draft
+        workGivenUp = givenUp
+        workCancellable = true
         work = scope.launch {
             val outcome = withContext(io) {
                 // Saved before the upload, so a crash mid-upload cannot lose it either.
@@ -446,7 +483,7 @@ class DictationMachine(
                 pipeline.run(audio)
             }
             endWork()
-            if (outcome !is DictationPipeline.Outcome.Failed) withContext(io) { fx.clearPending() }
+            if (outcome !is DictationPipeline.Outcome.Failed) withContext(io) { synchronized(pendingLock) { fx.clearPending() } }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
                     pendingAudio = null
@@ -479,7 +516,7 @@ class DictationMachine(
     /** A full disk must not stop the upload; the recording is still held in memory. */
     private fun savePending(audio: OpenAiClient.Audio) {
         try {
-            fx.savePending(audio)
+            synchronized(pendingLock) { fx.savePending(audio) }
         } catch (e: Exception) {
             fx.logWarn("Could not save the recording for retry: ${e.message}")
         }

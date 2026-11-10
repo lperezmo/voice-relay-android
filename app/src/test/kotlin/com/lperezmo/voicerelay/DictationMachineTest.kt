@@ -61,8 +61,10 @@ class DictationMachineTest {
         var appended = 0
         var cancelled = false
         override fun append(chunk: ByteArray, length: Int) { appended += length }
+        var onFinish: () -> Unit = {}
         override fun finish(): OpenAiClient.Result {
             events += "live finish"
+            onFinish()
             return result
         }
         override fun cancel() {
@@ -542,16 +544,77 @@ class DictationMachineTest {
         assertEquals(0, fx.haptics)
     }
 
-    @Test fun `long-press while a live session finishes does nothing`() {
+    @Test fun `long-press while a live session finishes keeps the recording and the typed words for a retry`() {
+        fx.liveOn = true
+        fx.draft = FakeDraft()
+        record()
+        val session = fx.lives.single()
+        session.onDelta!!("some words")
+        settle()
+        runDelayed()
+        // The user gives up while the live result is awaited; dropping the session fails it.
+        session.result = OpenAiClient.Result(null, "Live connection failed")
+        session.onFinish = { machine.onLongPress() }
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertEquals(1, fx.haptics)
+        assertTrue(session.cancelled)
+        assertEquals("Stopped\nRecording saved. Tap to retry, hold to discard", lastFeedback())
+        // No fallback upload, no encode: the recording is kept as WAV.
+        assertFalse("upload" in fx.events)
+        assertFalse("encode" in fx.events)
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+
+        fx.transcribe = { OpenAiClient.Result("Some words.", null) }
+        tap()
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals("audio.wav", fx.uploads.single().filename)
+        assertEquals("Some words.", fx.draft!!.finished)
+    }
+
+    @Test fun `a live result that arrives after giving up is ignored`() {
+        fx.liveOn = true
+        record()
+        val session = fx.lives.single()
+        session.result = OpenAiClient.Result("late words", null)
+        session.onFinish = { machine.onLongPress() }
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertTrue(fx.injected.isEmpty())
+        assertNotNull(fx.onDisk)
+    }
+
+    @Test fun `a crash while a live session finishes keeps the recording`() {
+        fx.liveOn = true
+        record()
+        fx.lives.single().onFinish = { throw IllegalStateException("boom") }
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertEquals("Something went wrong\nRecording saved. Tap to retry, hold to discard", lastFeedback())
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+    }
+
+    @Test fun `destroy while a live session finishes saves the recording and drops the session`() {
         fx.liveOn = true
         record()
         tap()
         assertEquals(State.WORKING, machine.state)
-        machine.onLongPress()
-        assertEquals(State.WORKING, machine.state)
-        assertEquals(0, fx.haptics)
+        machine.destroy()
+        assertEquals("audio.wav", fx.saves.single().filename)
+        assertTrue(fx.lives.single().cancelled)
+    }
+
+    @Test fun `destroy while the recording is encoding saves it`() {
+        record()
+        tap()
+        machine.destroy()
+        assertEquals("audio.wav", fx.saves.single().filename)
         settle()
-        assertEquals(State.IDLE, machine.state)
+        assertTrue(fx.uploads.isEmpty())
     }
 
     // --- Live mode ---
