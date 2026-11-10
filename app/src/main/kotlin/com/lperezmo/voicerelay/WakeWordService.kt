@@ -66,6 +66,8 @@ class WakeWordService : Service() {
         private const val HOTWORD_SOURCE = 1999
         private const val TICK_MS = 250L
         private const val POLL_MS = 1000L
+        /** A stopped mic thread still going after this long is logged. */
+        private const val SLOW_STOP_MS = 1500L
 
         @Volatile
         var running = false
@@ -170,16 +172,23 @@ class WakeWordService : Service() {
     private lateinit var settings: AppSettings
     private lateinit var audio: AudioManager
     private var mic: MicThread? = null
-    @Volatile private var lastMicThread: Thread? = null
-    @Volatile private var ownSession = -1
+    @Volatile private var lastMicThread: MicThread? = null
+    /**
+     * Audio sessions of our own recorders that are not released yet, including a
+     * stopped one still winding down, so none of them looks like another app.
+     */
+    private val ownSessions: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    /** Set by [stopEverything]: the last mic thread to end frees the spotter. */
+    @Volatile private var stopped = false
     private var foreground = false
     private var callbacksRegistered = false
 
     /**
      * Built and used only by mic threads, and only while holding [spotterLock].
-     * stopMic() waits for a mic thread only so long; the lock makes the next
-     * thread wait for the last one to finish (a model load can outlast that
-     * wait), so there is never more than one spotter.
+     * stopMic() does not wait for a mic thread; the next thread waits for the
+     * last one to release its AudioRecord, and the lock makes it wait for the
+     * last one's spotter work too (a model load), so there is never more than
+     * one spotter or one open recorder.
      */
     private var spotter: KeywordSpotter? = null
     private val spotterLock = Any()
@@ -250,6 +259,7 @@ class WakeWordService : Service() {
         if (!goForeground()) return START_NOT_STICKY
         if (!running) {
             running = true
+            stopped = false
             registerCallbacks()
             Log.i(
                 TAG,
@@ -335,6 +345,7 @@ class WakeWordService : Service() {
         handler.removeCallbacksAndMessages(null)
         if (running) Log.i(TAG, "Wake word: service down")
         running = false
+        stopped = true
         apply(controller.stop())
         stopMic()
         unregisterCallbacks()
@@ -342,9 +353,10 @@ class WakeWordService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             foreground = false
         }
-        // The spotter is used on the mic thread; free it only once that thread is gone.
+        // The spotter is used on the mic thread; free it only once that thread is done.
         // If it is still going, it frees the spotter itself as it ends (see MicThread).
-        if (lastMicThread?.isAlive != true) releaseSpotter()
+        // Each side sets its own flag before reading the other's, so at least one frees it.
+        if (lastMicThread?.finished != false) releaseSpotter()
         stopSelf()
     }
 
@@ -392,9 +404,8 @@ class WakeWordService : Service() {
      */
     private fun micBusy(): Boolean {
         if (audio.mode != AudioManager.MODE_NORMAL) return true
-        val own = ownSession
         return audio.activeRecordingConfigurations.any {
-            it.clientAudioSessionId != own && it.clientAudioSource != HOTWORD_SOURCE
+            it.clientAudioSessionId !in ownSessions && it.clientAudioSource != HOTWORD_SOURCE
         }
     }
 
@@ -478,28 +489,31 @@ class WakeWordService : Service() {
             return
         }
         // Known before recording starts, so our own stream never looks like someone else's.
-        ownSession = rec.audioSessionId
+        // The thread takes the session out again once it has released the recorder.
+        ownSessions += rec.audioSessionId
         val keywords = currentKeywords()
-        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords)).also {
+        mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords), lastMicThread).also {
             lastMicThread = it
             it.start()
         }
     }
 
+    /**
+     * Tells the mic thread to stop and returns at once; the thread stops and
+     * releases its AudioRecord within about one 100 ms read. A mic started
+     * meanwhile waits on its own thread for that release (see [MicThread]).
+     */
     private fun stopMic() {
         val m = mic ?: return
         mic = null
         m.running = false
-        m.join(1500)
-        if (m.isAlive) Log.w(TAG, "Wake word: mic thread slow to stop")
-        ownSession = -1
+        handler.postDelayed({ if (m.isAlive) Log.w(TAG, "Wake word: mic thread slow to stop") }, SLOW_STOP_MS)
     }
 
     /** The mic thread ended on its own (read error, model failure). Back off and retry. */
     private fun micDied(thread: MicThread) {
         if (mic !== thread) return
         mic = null
-        ownSession = -1
         apply(controller.onMicFailed(now()))
     }
 
@@ -530,16 +544,30 @@ class WakeWordService : Service() {
         }
     }
 
-    /** [keywords] is [WakeWord.streamKeywords] of the phrase to listen for. */
+    /**
+     * [keywords] is [WakeWord.streamKeywords] of the phrase to listen for.
+     * [previous] is the mic thread before this one, which may still be winding
+     * down after stopMic(); this one waits for it before touching the mic.
+     */
     private inner class MicThread(
         private val rec: AudioRecord,
         private val threshold: Float,
         private val keywords: String,
+        private var previous: Thread?,
     ) : Thread("VoiceRelay-wake") {
         @Volatile var running = true
+        /** Set as the very last step; see [stopEverything]. */
+        @Volatile var finished = false
+        private val session = rec.audioSessionId
 
         override fun run() {
             try {
+                // The earlier thread releases its AudioRecord as it ends, so wait for that
+                // before starting this one: never two of our recorders at once. Always the
+                // whole wait, even if this one is stopped meanwhile, so a later thread that
+                // waits for this one has waited for every earlier one too.
+                previous?.join()
+                previous = null
                 // Waits here while an earlier thread (stopped, but still loading the model) finishes.
                 synchronized(spotterLock) {
                     if (!running) return
@@ -558,9 +586,11 @@ class WakeWordService : Service() {
             } finally {
                 try { rec.stop() } catch (_: IllegalStateException) {}
                 rec.release()
+                ownSessions -= session
                 if (running) handler.post { micDied(this) }
+                finished = true
                 // The service stopped while this thread was still going, so it left the spotter to us.
-                if (!WakeWordService.running && lastMicThread === this) releaseSpotter()
+                if (stopped && lastMicThread === this) releaseSpotter()
             }
         }
 
