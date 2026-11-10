@@ -68,8 +68,11 @@ class WakeWordService : Service() {
         private const val POLL_MS = 1000L
         /** A stopped mic thread still going after this long is logged. */
         private const val SLOW_STOP_MS = 1500L
-        /** All-zero chunks in a row before the notification says the mic cannot hear: 3 s. */
-        private const val ZERO_CHUNKS = 30
+        /**
+         * All-zero chunks in a row before the notification says the mic cannot hear: 5 s,
+         * long enough that a HAL's noise gate in a quiet room does not trip it.
+         */
+        private const val ZERO_CHUNKS = 50
 
         @Volatile
         var running = false
@@ -222,8 +225,9 @@ class WakeWordService : Service() {
 
     private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
         override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
-            checkSilenced(configs)
+            // Another app taking the mic pauses listening first, so it is not shown as "cannot hear".
             evaluate()
+            checkSilenced(configs)
         }
     }
 
@@ -531,6 +535,7 @@ class WakeWordService : Service() {
      * configuration and shows it in the notification.
      */
     private fun checkSilenced(configs: List<AudioRecordingConfiguration>) {
+        if (controller.state != WakeWordController.State.LISTENING) return
         val m = mic ?: return
         val config = configs.firstOrNull { it.clientAudioSessionId == m.session } ?: return
         val silenced = config.isClientSilenced

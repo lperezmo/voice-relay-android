@@ -188,7 +188,7 @@ How it works:
   free, and never sooner than 4 seconds after a detection.
 - Android does not always say when it takes the microphone away (another app holding it, or the
   microphone switch in Quick Settings turned off); it hands over silence instead. When Android
-  marks the recording silenced, or the audio has been nothing but zeros for 3 seconds, the
+  marks the recording silenced, or the audio has been nothing but zeros for 5 seconds, the
   notification says it **cannot hear right now**, and goes back to "Listening" as soon as sound
   returns.
 - **Resume music after Claude** (on by default): Claude pauses your music when it opens and does
