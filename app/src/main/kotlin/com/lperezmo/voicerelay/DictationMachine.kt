@@ -186,6 +186,11 @@ class DictationMachine(
     private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
+    /**
+     * Whether the running recording is one of the counted locked ones. A dictation
+     * holds the button until it ends, so no other can be counted before it is refunded.
+     */
+    private var countedLocked = false
 
     // --- Events ---
 
@@ -340,6 +345,7 @@ class DictationMachine(
         }
         recorder = rec
         live = session
+        countedLocked = decision.remaining != null
         setState(State.RECORDING)
         fx.rememberFocus()
         if (session != null) startLiveTyping(session)
@@ -365,6 +371,8 @@ class DictationMachine(
 
     private fun stopAndProcess(hitLimit: Boolean = false) {
         val rec = recorder
+        val counted = countedLocked
+        countedLocked = false
         val pcm = rec?.stop() ?: ByteArray(0)
         recorder = null
         val session = live
@@ -376,6 +384,7 @@ class DictationMachine(
         typed?.update(partial.toString().trim())
         if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
             typed?.update("")
+            refund(counted)
             session?.cancel()
             fx.forgetSnapshot()
             setState(State.IDLE)
@@ -389,12 +398,12 @@ class DictationMachine(
         val seconds = Recorder.durationSeconds(pcm)
         fx.logInfo("Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
         if (session != null) {
-            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
+            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed, counted)
         } else {
             workAudio = null
             workPcm = pcm
             workCancellable = true
-            work = scope.launch { process(withContext(cpu) { fx.encode(pcm, seconds) }) }
+            work = scope.launch { process(withContext(cpu) { fx.encode(pcm, seconds) }, counted = counted) }
         }
     }
 
@@ -432,6 +441,8 @@ class DictationMachine(
         session: LiveSession? = null,
         pcm: ByteArray? = null,
         draft: Draft? = null,
+        /** A new locked recording, counted against the limit: a failure gives it back. */
+        counted: Boolean = false,
     ) {
         val apiKey = fx.apiKey()
         if (apiKey.isBlank()) {
@@ -500,6 +511,7 @@ class DictationMachine(
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     fx.logWarn("Transcription failed: ${outcome.error}")
+                    refund(counted)
                     val kept = if (pcm == null) audio
                         else uploaded ?: withContext(cpu) { fx.encode(pcm, audio.seconds) }
                     if (pcm != null) withContext(io) { savePending(kept) }
@@ -511,6 +523,11 @@ class DictationMachine(
                 }
             }
         }
+    }
+
+    /** Gives back a locked recording that produced nothing. After an unlock there is nothing to give back. */
+    private fun refund(counted: Boolean) {
+        if (counted) lockLimits.refund()
     }
 
     /** A full disk must not stop the upload; the recording is still held in memory. */
