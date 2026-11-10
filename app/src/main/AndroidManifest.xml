@@ -102,6 +102,13 @@
             </intent-filter>
         </activity>
 
+        <!-- The same activity for the app's own notifications only. Not exported, so it
+             keeps working when other apps are not allowed to control Voice Relay. -->
+        <activity-alias
+            android:name=".WakeControlInternal"
+            android:targetActivity=".WakeControlActivity"
+            android:exported="false" />
+
         <!-- Quick Settings tile: hide or show every floating button, e.g. to record the screen. -->
         <service
             android:name=".ButtonsTileService"

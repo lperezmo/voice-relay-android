@@ -69,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wakeResumeSwitch: MaterialSwitch
     private lateinit var wakeOverlaySub: TextView
     private lateinit var wakeContainer: LinearLayout
+    private lateinit var externalControlSwitch: MaterialSwitch
     private lateinit var usageTotalSub: TextView
     private lateinit var usage: UsageStore
 
@@ -166,6 +167,17 @@ class MainActivity : AppCompatActivity() {
         wakeOverlaySub = overlayRow.findViewWithTag("subtitle")
         wakeContainer.addView(overlayRow)
         root.addView(wakeContainer)
+        // Shown with the wake word off too: the same intents also hide and show the buttons.
+        externalControlSwitch = MaterialSwitch(this).apply { isClickable = false }
+        root.addView(settingsRow(
+            "Allow other apps to control Voice Relay",
+            "Lets Tasker, adb or any other app turn the wake word on or off, open Claude in voice mode, " +
+                "and hide or show the floating buttons.",
+            externalControlSwitch,
+        ) {
+            settings.externalControl = !settings.externalControl
+            refresh()
+        })
 
         // --- OpenAI ---
         root.addView(sectionHeader("OpenAI"))
@@ -756,6 +768,7 @@ class MainActivity : AppCompatActivity() {
         joystickSub.text = if (settings.joystickEnabled)
             "A draggable pad that sends arrow keys. Push the middle knob; drag the ring to move it."
         else "Off. A floating pad for arrow keys, for remote desktop and terminals."
+        externalControlSwitch.isChecked = settings.externalControl
         volumeSwitch.isChecked = settings.volumePillEnabled
         volumeSub.text = if (settings.volumePillEnabled)
             "Tap the pill above the mic, then draw a V on the track: dip down, slide to a preset, rise to apply."

@@ -150,7 +150,9 @@ class WakeWordService : Service() {
             ensureChannel(context)
             val tap = PendingIntent.getActivity(
                 context, 1,
-                Intent(context, WakeControlActivity::class.java).setAction(WakeControlActivity.ACTION_WAKE_ON)
+                // The non-exported alias, so this works even when other apps may not control Voice Relay.
+                Intent().setClassName(context, WakeControlActivity.INTERNAL_ALIAS)
+                    .setAction(WakeControlActivity.ACTION_WAKE_ON)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )

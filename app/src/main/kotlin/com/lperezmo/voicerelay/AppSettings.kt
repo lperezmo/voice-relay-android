@@ -176,6 +176,15 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("wake_word_set_up", false)
         set(v) = prefs.edit().putBoolean("wake_word_set_up", v).apply()
 
+    /**
+     * Whether other apps (Tasker, adb, anything installed) may use the control
+     * intents in [WakeControlActivity]. On by default, so existing automations
+     * keep working.
+     */
+    var externalControl: Boolean
+        get() = prefs.getBoolean("external_control", true)
+        set(v) = prefs.edit().putBoolean("external_control", v).apply()
+
     /** 1 (strict) to 7 (loose); see [WakeWord.threshold]. */
     var wakeSensitivity: Int
         get() = prefs.getInt("wake_sensitivity", WakeWord.DEFAULT_SENSITIVITY)

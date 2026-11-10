@@ -227,6 +227,10 @@ adb shell am start -a com.lperezmo.voicerelay.WAKE_ON -n com.lperezmo.voicerelay
 permissions are granted; before that it is ignored, so another app cannot switch the microphone
 on by itself. `WAKE_OFF` always works.
 
+Any app on the phone can send these intents, not only Tasker. If you do not use them, turn off
+**Allow other apps to control Voice Relay** (under the wake word settings, on by default): every
+action is then ignored, and the log says so.
+
 ### Hiding the buttons for a screen recording
 
 Add the **Voice Relay buttons** tile to Quick Settings. Tapping it hides the dictate button and
@@ -330,6 +334,7 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
+| Allow other apps to control Voice Relay | on | Whether Tasker, adb and other apps may send the [control intents](#turning-it-on-and-off-from-tasker). |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
@@ -479,7 +484,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
-| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` intents |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
 | `Usage.kt` | Usage counter and list-price cost estimate |

@@ -56,7 +56,10 @@ apps" windows.
     Turning it on only works after you have turned the wake word on once in Voice Relay, which is
     where the microphone permission is granted. The effect is bounded: the phone listens for
     its wake phrase locally, with its notification showing, and can open the Claude app. Another
-    app could also turn the wake word off. The intents cannot change the phrase.
+    app could also turn the wake word off, open Claude in voice mode, or hide and show the floating
+    buttons. The intents cannot change the phrase. Turn off **Allow other apps to control Voice
+    Relay** to have the app ignore all of them (the app's own "tap to listen again" notification
+    keeps working through a non-exported alias).
 - **The Claude app.** Once the wake word opens it, what it can do on your phone is up to the
   Claude app and the permissions you gave it, not Voice Relay.
 - **The build.** Official APKs come from this repository's GitHub releases. The wake word's native
