@@ -29,6 +29,8 @@ concurrency:
 jobs:
   semantic-release:
     runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 10
     outputs:
       published: ${{ steps.release.outputs.published }}
       version: ${{ steps.release.outputs.version }}
