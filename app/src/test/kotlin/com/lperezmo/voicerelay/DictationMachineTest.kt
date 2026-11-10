@@ -201,7 +201,8 @@ class DictationMachineTest {
 
         override fun logInfo(message: String) {}
         override fun logWarn(message: String) {}
-        override fun logError(message: String) {}
+        val errors = mutableListOf<String>()
+        override fun logError(message: String) { errors += message }
     }
 
     private val fx = Fx()
@@ -1142,6 +1143,32 @@ class DictationMachineTest {
         tap()
         settle()
         assertEquals(State.IDLE, machine.state)
+    }
+
+    @Test fun `a late crash from work given up on leaves the newer dictation alone`() {
+        record()
+        fx.transcribe = {
+            // Given up while uploading, and the abandoned request then blows up.
+            machine.onLongPress()
+            throw IllegalStateException("late")
+        }
+        tap()
+        // Run until the crash guard has posted, then retry before the post runs.
+        while (fx.posted.isEmpty()) {
+            (main.tasks.removeFirstOrNull() ?: io.tasks.removeFirstOrNull() ?: cpu.tasks.removeFirst()).run()
+        }
+        assertEquals(State.RETRY, machine.state)
+        assertEquals(1, fx.errors.size)
+        fx.transcribe = { OpenAiClient.Result("retried", null) }
+        tap()
+        assertEquals(State.WORKING, machine.state)
+        // The late crash report lands while the retry is working.
+        fx.posted.removeFirst().run()
+        assertEquals(State.WORKING, machine.state)
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals(listOf("retried"), fx.injected)
+        assertFalse(fx.feedback.any { it.text.startsWith("Something went wrong") })
     }
 
     @Test fun `a crash during a grammar fix goes back to idle`() {

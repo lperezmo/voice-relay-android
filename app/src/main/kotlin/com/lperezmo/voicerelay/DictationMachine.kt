@@ -3,6 +3,7 @@ package com.lperezmo.voicerelay
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -146,10 +147,12 @@ class DictationMachine(
      * Anything a dictation or grammar fix throws ends here instead of crashing the
      * process, which would also take the floating button and the wake word down.
      */
-    private val crashGuard = CoroutineExceptionHandler { _, e ->
+    private val crashGuard = CoroutineExceptionHandler { context, e ->
         fx.logError("Unexpected failure: ${e.javaClass.simpleName}: ${e.message}")
+        val failed = context[Job]
         fx.post {
-            if (state != State.WORKING) return@post
+            // Work given up on can fail later; only the current work may end the dictation.
+            if (state != State.WORKING || failed !== work) return@post
             val kept = keepWorkRecording() ?: pendingAudio
             endWork()
             pendingAudio = kept
@@ -418,10 +421,7 @@ class DictationMachine(
         if (session != null) {
             process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed, counted)
         } else {
-            workAudio = null
-            workPcm = pcm
-            workCancellable = true
-            work = scope.launch { process(withContext(cpu) { fx.encode(pcm, seconds) }, counted = counted) }
+            launchWork(pcm = pcm) { process(withContext(cpu) { fx.encode(pcm, seconds) }, counted = counted) }
         }
     }
 
@@ -434,6 +434,30 @@ class DictationMachine(
         val kept = workAudio ?: workPcm?.let { wav(it) } ?: return null
         if (kept !== pendingAudio) scope.launch(io) { savePending(kept) }
         return kept
+    }
+
+    /**
+     * Starts [block] as the current [work], with what giving it up, a crash or a destroy
+     * needs to keep the recording. The only place [work] is set. Started after it is
+     * assigned, so work that starts more work cannot have its own job written over it.
+     */
+    private fun launchWork(
+        audio: OpenAiClient.Audio? = null,
+        pcm: ByteArray? = null,
+        session: LiveSession? = null,
+        draft: Draft? = null,
+        givenUp: AtomicBoolean? = null,
+        block: suspend CoroutineScope.() -> Unit,
+    ) {
+        workAudio = audio
+        workPcm = pcm
+        workSession = session
+        workDraft = draft
+        workGivenUp = givenUp
+        workCancellable = true
+        val job = scope.launch(start = CoroutineStart.LAZY, block = block)
+        work = job
+        job.start()
     }
 
     /** The work is over (done, failed or given up): nothing is left to cancel or keep. */
@@ -498,13 +522,7 @@ class DictationMachine(
             cleaner = fx.dictationCleaner(),
             log = { fx.logInfo("Dictation: $it") },
         )
-        workAudio = if (session == null) audio else null
-        workPcm = pcm
-        workSession = session
-        workDraft = draft
-        workGivenUp = givenUp
-        workCancellable = true
-        work = scope.launch {
+        launchWork(if (session == null) audio else null, pcm, session, draft, givenUp) {
             val outcome = withContext(io) {
                 // Saved before the upload, so a crash mid-upload cannot lose it either.
                 // Live mode keeps the raw audio in memory and saves it only on failure.
@@ -577,9 +595,7 @@ class DictationMachine(
         setState(State.WORKING)
         val cleaner = service.cleaner()
         val original = range.text
-        workAudio = null
-        workCancellable = true
-        work = scope.launch {
+        launchWork {
             val started = System.currentTimeMillis()
             val outcome = withContext(io) { DictationPipeline.fixTyped(original, cleaner) }
             fx.logInfo("Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
