@@ -31,30 +31,15 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.lperezmo.voicerelay.DictationMachine.Fb
+import com.lperezmo.voicerelay.DictationMachine.State
 import kotlin.math.abs
 
 /**
- * Hosts the floating dictation button and runs one dictation at a time:
- *
- *   IDLE --tap--> RECORDING --tap--> WORKING --text--> IDLE
- *                                        \--network error--> RETRY
- *   RETRY --tap--> WORKING (same audio)   RETRY --long-press, then tap "Discard"--> IDLE
- *   IDLE --long-press--> WORKING (grammar fix of the selection or focused field) --> IDLE
- *
- * A recording is saved to disk ([PendingRecording]) before it is uploaded and
- * removed once it is transcribed, so a failed one comes back in RETRY even after
- * the service restarts (an app update, a crash, a reboot).
- *
- * While the phone is locked, recordings are capped by [LockScreenLimits]. After
- * text lands in a field, the feedback bubble offers undo for a few seconds.
+ * Hosts the floating dictation button. The dictation itself (idle, recording,
+ * working, retry) is [DictationMachine]; this service gives it the microphone,
+ * the network, the text field and the button through [DictationMachine.Effects].
+ * The recording kept for a retry lives in [PendingRecording].
  *
  * The overlay is a TYPE_ACCESSIBILITY_OVERLAY window. The service follows which
  * text field is focused, and reads a field's text only to insert, fix or undo
@@ -77,12 +62,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val BUTTON_LIFT_DP = 200
         private const val FB_RADIUS_DP = 16f
         private const val FB_CHIP_RADIUS_DP = 18f
-        private const val MIN_CLIP_SECONDS = 0.3
-        private const val MAX_SECONDS = 600
-        private const val UNDO_WINDOW_MS = 5000L
-        private const val CONFIRM_WINDOW_MS = 5000L
         private const val BADGE_DP = 20
-        private const val DRAFT_INTERVAL_MS = 250L
         /** Quiet time on the pad before your own keyboard comes back. */
         private const val AUTO_RETURN_MS = 4000L
         private const val KEY_RETRIES = 8
@@ -106,70 +86,23 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val COLOR_RING = 0xFFE8EAED.toInt()
     }
 
-    private enum class State { IDLE, RECORDING, WORKING, RETRY }
-
-    /**
-     * How the feedback bubble is drawn: a notice that can wrap, a tappable undo
-     * chip, or a red box that confirms something destructive when tapped.
-     */
-    private enum class Fb { NOTICE, ACTION, CONFIRM }
-
-    private var state = State.IDLE
-    /** When the last tap on the idle button lifted, for pairing two taps into a start. */
-    private var lastIdleTapAt = 0L
-    /**
-     * Anything a dictation or grammar fix throws ends here instead of crashing the
-     * process, which would also take the floating button and the wake word down.
-     */
-    private val crashGuard = CoroutineExceptionHandler { _, e ->
-        Log.e(TAG, "Unexpected failure: ${e.javaClass.simpleName}: ${e.message}")
-        handler.post {
-            if (state != State.WORKING) return@post
-            val kept = workAudio ?: pendingAudio
-            workAudio = null
-            pendingAudio = kept
-            if (kept != null) {
-                setState(State.RETRY)
-                showFeedback("Something went wrong\nRecording saved. Tap to retry, hold to discard", 6000)
-            } else {
-                setState(State.IDLE)
-                showFeedback("Something went wrong (${e.javaClass.simpleName})", 4000)
-            }
-        }
-    }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + crashGuard)
-    private var work: Job? = null
-    /** The recording [work] is uploading (standard mode), so giving up on it can keep it for a retry. */
-    private var workAudio: OpenAiClient.Audio? = null
-    /** Whether a long-press may give up on [work]: not while a live session is finishing. */
-    private var workCancellable = false
-    private var recorder: Recorder? = null
-    /** The live transcription stream for the current recording, in live mode. */
-    private var live: LiveTranscription? = null
-    /** Words typed into the field while talking (live mode), and what has been heard so far. */
-    private var draft: TextInjector.LiveDraft? = null
-    private var pendingDraft: TextInjector.LiveDraft? = null
-    private val partial = StringBuilder()
-    /** Field updates are batched: at most one every [DRAFT_INTERVAL_MS]. */
-    private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
-    /** Audio of the last failed dictation, kept until it is sent or discarded. */
-    private var pendingAudio: OpenAiClient.Audio? = null
-    /** The on-disk copy of [pendingAudio], and of the recording being uploaded. */
+    /** The on-disk copy of the recording waiting for a retry, and of the recording being uploaded. */
     private lateinit var pending: PendingRecording
 
     private lateinit var settings: AppSettings
     private lateinit var secrets: SecretStore
     private lateinit var injector: TextInjector
     private lateinit var usage: UsageStore
-    private val lockLimits = LockScreenLimits()
+
+    private val machine = DictationMachine(DictationEffects(), ViewConfiguration.getDoubleTapTimeout().toLong())
 
     /** Unlock resets the locked-recording count; locking mid-dictation caps the running recording. */
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                Intent.ACTION_USER_PRESENT -> lockLimits.onUnlock()
+                Intent.ACTION_USER_PRESENT -> machine.onUnlock()
                 Intent.ACTION_SCREEN_OFF -> {
-                    recorder?.let { it.capAt(lockLimits.capWhenLocked(it.elapsedSeconds)) }
+                    machine.onScreenOff()
                     hideTrack()
                 }
             }
@@ -249,7 +182,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         volume = VolumeController(this)
         volume.resumeDndTimer()
         showOverlay()
-        restorePendingRecording()
+        machine.restorePending()
         refreshJoystick()
         refreshVolumePill()
         refreshGlyphPill()
@@ -289,7 +222,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     /** Hides or shows the bubble and every pill at once. A running recording is finished first. */
     fun setButtonsHidden(hide: Boolean) {
         if (hide == buttonsHidden) return
-        if (hide && state == State.RECORDING) stopAndProcess()
+        if (hide) machine.finishRecording()
         buttonsHidden = hide
         if (hide) {
             handler.removeCallbacks(hideFeedback)
@@ -762,13 +695,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
         try { unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
         // A recording in progress is kept for a retry instead of thrown away.
-        recorder?.stop()?.let { pcm ->
-            val seconds = Recorder.durationSeconds(pcm)
-            if (seconds >= MIN_CLIP_SECONDS) savePending(OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds))
-        }
-        recorder = null
-        live?.cancel()
-        scope.cancel()
+        machine.destroy()
         handler.removeCallbacks(restoreKeyboard)
         restorePreviousKeyboard()
         hideJoystick()
@@ -779,376 +706,130 @@ class WhisperAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    // --- State machine ---
+    // --- Dictation ---
 
-    /**
-     * Starting a recording takes a double tap, so a stray finger brushing the
-     * button does nothing. Stopping, retrying and the long-press stay one touch.
-     */
-    private fun onTap(downAt: Long, upAt: Long) {
-        when (state) {
-            State.IDLE -> if (downAt - lastIdleTapAt <= ViewConfiguration.getDoubleTapTimeout()) {
-                lastIdleTapAt = 0L
-                startRecording()
-            } else {
-                lastIdleTapAt = upAt
-            }
-            State.RECORDING -> stopAndProcess()
-            State.WORKING -> {}
-            State.RETRY -> pendingAudio?.let { process(it, draft = pendingDraft) } ?: setState(State.IDLE)
-        }
-    }
+    /** What [DictationMachine] does to the phone: microphone, network, text field and button. */
+    private inner class DictationEffects : DictationMachine.Effects {
+        override fun apiKey() = secrets.getApiKey()
+        override fun isLocked() = (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        override fun liveTranscriptionEnabled() = settings.liveTranscription
 
-    private fun onLongPress() {
-        when (state) {
-            State.IDLE -> fixFocusedText()
-            State.RETRY -> {
-                val length = pendingAudio?.let { " ${clock(it.seconds)}" } ?: ""
-                showFeedback("Discard the$length recording? Tap here to discard it", CONFIRM_WINDOW_MS, Fb.CONFIRM) {
-                    if (state == State.RETRY) discardPending()
-                }
-            }
-            State.WORKING -> cancelWork()
-            else -> {}
-        }
-    }
-
-    /**
-     * Gives up on a transcription or grammar fix that is taking too long. The
-     * recording is already on disk, so it becomes a retry. The request itself is
-     * left to finish or time out in the background; its answer is ignored.
-     */
-    private fun cancelWork() {
-        if (!workCancellable) return
-        work?.cancel()
-        overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        val kept = workAudio
-        workAudio = null
-        if (kept != null) {
-            pendingAudio = kept
-            pendingDraft = null
-            setState(State.RETRY)
-            showFeedback("Stopped\nRecording saved. Tap to retry, hold to discard", 5000)
-        } else {
-            setState(State.IDLE)
-            showFeedback("Cancelled")
-        }
-    }
-
-    private fun discardPending() {
-        pendingAudio = null
-        pendingDraft = null
-        scope.launch(Dispatchers.IO) { pending.clear() }
-        setState(State.IDLE)
-        showFeedback("Recording discarded")
-    }
-
-    /** A recording that never got transcribed before the service stopped goes back to RETRY. */
-    private fun restorePendingRecording() {
-        scope.launch {
-            val audio = withContext(Dispatchers.IO) { pending.load() } ?: return@launch
-            if (state != State.IDLE) return@launch
-            Log.i(TAG, "Restored a pending %.1f s recording".format(audio.seconds))
-            pendingAudio = audio
-            setState(State.RETRY)
-            showFeedback("A ${clock(audio.seconds)} recording was not transcribed\nTap to retry, hold to discard", 6000)
-        }
-    }
-
-    private fun clock(seconds: Double): String {
-        val s = seconds.toInt()
-        return "%d:%02d".format(s / 60, s % 60)
-    }
-
-    private fun startRecording() {
-        // Read once: each read is a Keystore decrypt, and it runs before the mic opens.
-        val apiKey = secrets.getApiKey()
-        if (apiKey.isBlank()) {
-            showFeedback("Set your OpenAI API key in Voice Relay", 3000)
-            return
-        }
-        val locked = (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
-        val decision = lockLimits.onStart(locked, MAX_SECONDS)
-        if (decision !is LockScreenLimits.Decision.Allow) {
-            showFeedback("Unlock your phone to keep dictating (${lockLimits.maxRecordings} locked recordings used)", 3500)
-            return
-        }
-        val session = if (settings.liveTranscription) {
-            LiveTranscription(
+        override fun startLiveSession(apiKey: String): DictationMachine.LiveSession {
+            val session = LiveTranscription(
                 apiKey, settings.liveModel, settings.vocabulary, settings.languages,
                 log = { Log.i(TAG, it) },
             ).also { it.start() }
-        } else null
-        val rec = Recorder(
-            decision.maxSeconds,
-            onLimit = { handler.post { if (state == State.RECORDING) stopAndProcess(hitLimit = true) } },
-            onChunk = session?.let { s -> { chunk, n -> s.append(chunk, n) } },
-            onError = {
-                handler.post {
-                    if (state != State.RECORDING) return@post
-                    val heard = (recorder?.elapsedSeconds ?: 0.0) >= MIN_CLIP_SECONDS
-                    stopAndProcess()
-                    showFeedback(
-                        if (heard) "The microphone stopped. Transcribing what was recorded"
-                        else "The microphone stopped working. Try again",
-                        3500,
-                    )
-                }
-            },
-        )
-        try {
-            rec.start()
-        } catch (_: SecurityException) {
-            session?.cancel()
-            if (decision.remaining != null) lockLimits.refund()
-            showFeedback("Grant microphone access in Voice Relay", 3000)
-            return
-        } catch (e: IllegalStateException) {
-            session?.cancel()
-            if (decision.remaining != null) lockLimits.refund()
-            showFeedback(e.message ?: "Microphone unavailable", 3000)
-            return
-        }
-        recorder = rec
-        live = session
-        setState(State.RECORDING)
-        injector.rememberFocus()
-        if (session != null) startLiveTyping(session)
-        OpenAiClient(apiKey).prewarm()
-        decision.remaining?.let { left ->
-            showFeedback("Phone locked: stops after ${decision.maxSeconds / 60} min, $left more before you must unlock", 3000)
-        }
-    }
-
-    /** Types recognized words into the focused field as they arrive. */
-    private fun startLiveTyping(session: LiveTranscription) {
-        partial.clear()
-        pendingDraft = null
-        draft = injector.beginDraft()
-        Log.i(TAG, "Live typing: ${if (draft != null) "into the focused field" else "no editable field"}")
-        session.onDelta = { piece ->
-            handler.post {
-                partial.append(piece)
-                if (draft != null && !handler.hasCallbacks(draftTick)) handler.postDelayed(draftTick, DRAFT_INTERVAL_MS)
+            return object : DictationMachine.LiveSession {
+                override var onDelta: ((String) -> Unit)?
+                    get() = session.onDelta
+                    set(value) { session.onDelta = value }
+                override fun append(chunk: ByteArray, length: Int) = session.append(chunk, length)
+                override fun finish() = session.finish()
+                override fun cancel() = session.cancel()
             }
         }
-    }
 
-    private fun stopAndProcess(hitLimit: Boolean = false) {
-        val rec = recorder
-        val pcm = rec?.stop() ?: ByteArray(0)
-        recorder = null
-        val session = live
-        live = null
-        val typed = draft
-        draft = null
-        handler.removeCallbacks(draftTick)
-        // Everything heard so far goes into the field now, before the final text.
-        typed?.update(partial.toString().trim())
-        if (Recorder.durationSeconds(pcm) < MIN_CLIP_SECONDS) {
-            typed?.update("")
-            session?.cancel()
-            injector.forgetSnapshot()
-            setState(State.IDLE)
-            showFeedback("Too short, nothing sent")
-            return
-        }
-        if (hitLimit && rec != null) {
-            showFeedback("Stopped at the ${rec.maxSeconds / 60} min limit, transcribing", 2500)
-        }
-        setState(State.WORKING)
-        val seconds = Recorder.durationSeconds(pcm)
-        Log.i(TAG, "Recorded %.1f s (%s)".format(seconds, if (session != null) "live" else "standard"))
-        if (session != null) {
-            process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
-        } else {
-            scope.launch { process(withContext(Dispatchers.Default) { encode(pcm, seconds) }) }
-        }
-    }
-
-    private fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio =
-        AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
-            ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
-
-    /**
-     * Transcribe and clean up [audio]. With a [session] (live mode) the transcript
-     * comes from the live stream, and [pcm] is the fallback: if the live session
-     * fails, the same recording goes through the standard upload instead, and it is
-     * what a retry resends.
-     */
-    private fun process(
-        audio: OpenAiClient.Audio,
-        session: LiveTranscription? = null,
-        pcm: ByteArray? = null,
-        draft: TextInjector.LiveDraft? = null,
-    ) {
-        val apiKey = secrets.getApiKey()
-        if (apiKey.isBlank()) {
-            setState(State.IDLE)
-            showFeedback("Set your OpenAI API key in Voice Relay", 3000)
-            return
-        }
-        setState(State.WORKING)
-        val client = OpenAiClient(apiKey)
-        val standard = standardTranscriber(client)
-        var uploaded: OpenAiClient.Audio? = null
-        val transcriber = if (session == null || pcm == null) standard else DictationPipeline.Transcriber { clip ->
-            val result = session.finish()
-            if (result.error == null) {
-                usage.recordTranscription(settings.liveModel, clip.seconds)
-                result
-            } else {
-                Log.w(TAG, "Live transcription failed (${result.error}), using the standard upload")
-                // On disk before the upload, like a standard recording.
-                encode(pcm, clip.seconds).also { uploaded = it; savePending(it) }.let { standard.transcribe(it) }
+        override fun newMic(
+            maxSeconds: Int,
+            onLimit: () -> Unit,
+            onChunk: ((ByteArray, Int) -> Unit)?,
+            onError: () -> Unit,
+        ): DictationMachine.Mic {
+            val rec = Recorder(maxSeconds, onLimit = onLimit, onChunk = onChunk, onError = onError)
+            return object : DictationMachine.Mic {
+                override fun start() = rec.start()
+                override fun stop() = rec.stop()
+                override val elapsedSeconds get() = rec.elapsedSeconds
+                override val maxSeconds get() = rec.maxSeconds
+                override fun capAt(seconds: Int) = rec.capAt(seconds)
             }
         }
-        val pipeline = buildPipeline(transcriber)
-        workAudio = if (session == null) audio else null
-        workCancellable = session == null
-        work = scope.launch {
-            val outcome = withContext(Dispatchers.IO) {
-                // Saved before the upload, so a crash mid-upload cannot lose it either.
-                // Live mode keeps the raw audio in memory and saves it only on failure.
-                if (session == null && audio !== pendingAudio) savePending(audio)
-                pipeline.run(audio)
-            }
-            workAudio = null
-            if (outcome !is DictationPipeline.Outcome.Failed) withContext(Dispatchers.IO) { pending.clear() }
-            when (outcome) {
-                is DictationPipeline.Outcome.Text -> {
-                    pendingAudio = null
-                    pendingDraft = null
-                    setState(State.IDLE)
-                    deliver(outcome.text, outcome.note, draft)
-                }
-                DictationPipeline.Outcome.NoSpeech -> {
-                    pendingAudio = null
-                    pendingDraft = null
-                    draft?.update("")
-                    setState(State.IDLE)
-                    showFeedback("No speech detected")
-                }
-                is DictationPipeline.Outcome.Failed -> {
-                    Log.w(TAG, "Transcription failed: ${outcome.error}")
-                    val kept = if (pcm == null) audio
-                        else uploaded ?: withContext(Dispatchers.Default) { encode(pcm, audio.seconds) }
-                    if (pcm != null) withContext(Dispatchers.IO) { savePending(kept) }
-                    pendingAudio = kept
-                    pendingDraft = draft
-                    setState(State.RETRY)
-                    val typed = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
-                    showFeedback("Failed: ${outcome.error.take(80)}$typed\nRecording saved. Tap to retry, hold to discard", 6000)
+
+        override fun prewarm(apiKey: String) = OpenAiClient(apiKey).prewarm()
+
+        override fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio =
+            AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
+                ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
+
+        override fun savePending(audio: OpenAiClient.Audio) = pending.save(audio)
+        override fun loadPending() = pending.load()
+        override fun clearPending() = pending.clear()
+
+        override fun standardTranscriber(apiKey: String): DictationPipeline.Transcriber {
+            val client = OpenAiClient(apiKey)
+            val vocabulary = settings.vocabulary
+            val languages = settings.languages
+            val model = settings.transcriptionModel
+            return DictationPipeline.Transcriber { audio ->
+                client.transcribe(audio, model, vocabulary, languages).also {
+                    // A clean response is billed even when it heard no speech.
+                    if (it.error == null) usage.recordTranscription(model, audio.seconds)
                 }
             }
         }
-    }
 
-    /** A full disk must not stop the upload; the recording is still held in memory. */
-    private fun savePending(audio: OpenAiClient.Audio) {
-        try {
-            pending.save(audio)
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not save the recording for retry: ${e.message}")
-        }
-    }
+        override fun recordLiveUsage(seconds: Double) = usage.recordTranscription(settings.liveModel, seconds)
 
-    private fun standardTranscriber(client: OpenAiClient): DictationPipeline.Transcriber {
-        val vocabulary = settings.vocabulary
-        val languages = settings.languages
-        val model = settings.transcriptionModel
-        return DictationPipeline.Transcriber { audio ->
-            client.transcribe(audio, model, vocabulary, languages).also {
-                // A clean response is billed even when it heard no speech.
-                if (it.error == null) usage.recordTranscription(model, audio.seconds)
+        override fun dictationCleaner() =
+            if (settings.cleanupEnabled) TextService(settings, secrets, usage).cleaner(settings.cleanupPrompt) else null
+
+        override fun grammarFixMissingKey() = TextService(settings, secrets, usage).missingKey()
+        override fun grammarFixCleaner() = TextService(settings, secrets, usage).cleaner(settings.fixPrompt)
+
+        override fun rememberFocus() = injector.rememberFocus()
+        override fun forgetSnapshot() = injector.forgetSnapshot()
+
+        override fun beginDraft(): DictationMachine.Draft? {
+            val draft = injector.beginDraft() ?: return null
+            return object : DictationMachine.Draft {
+                override val typed get() = draft.typed
+                override fun update(text: String) = draft.update(text)
+                override fun finish(text: String) = draft.finish(text)
             }
         }
-    }
 
-    private fun buildPipeline(transcriber: DictationPipeline.Transcriber): DictationPipeline {
-        val cleaner = if (settings.cleanupEnabled) TextService(settings, secrets, usage).cleaner(settings.cleanupPrompt) else null
-        return DictationPipeline(
-            transcriber = transcriber,
-            cleaner = cleaner,
-            log = { Log.i(TAG, "Dictation: $it") },
-        )
-    }
-
-    /**
-     * Grammar fix for typed text: the selection in the focused field, or the
-     * whole field when nothing is selected. Uses the cleanup service and model
-     * with the typed-text prompt, regardless of whether dictation cleanup is on.
-     */
-    private fun fixFocusedText() {
-        val service = TextService(settings, secrets, usage)
-        service.missingKey()?.let {
-            showFeedback(it, 3000)
-            return
-        }
-        val range = injector.readFocusedRange()
-        if (range == null) {
-            showFeedback("Select text, or focus a field with text, to fix grammar", 3000)
-            return
-        }
-        overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        setState(State.WORKING)
-        val cleaner = service.cleaner(settings.fixPrompt)
-        val original = range.target
-        workAudio = null
-        workCancellable = true
-        work = scope.launch {
-            val started = System.currentTimeMillis()
-            val outcome = withContext(Dispatchers.IO) { DictationPipeline.fixTyped(original, cleaner) }
-            Log.i(TAG, "Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
-            setState(State.IDLE)
-            when (outcome) {
-                is DictationPipeline.Outcome.Text -> when {
-                    outcome.text == original -> showFeedback("Looks good already")
-                    injector.replace(range, outcome.text) -> offerUndo("Grammar fixed")
-                    else -> {
-                        injector.copyToClipboard(outcome.text)
-                        showFeedback("Text changed while fixing, fixed version copied to clipboard", 3000)
-                    }
-                }
-                is DictationPipeline.Outcome.Failed -> showFeedback("Fix failed: ${outcome.error.take(80)}", 3000)
-                DictationPipeline.Outcome.NoSpeech -> {}
+        override fun readFixTarget(): DictationMachine.FixTarget? {
+            val range = injector.readFocusedRange() ?: return null
+            return object : DictationMachine.FixTarget {
+                override val text get() = range.target
+                override fun replace(replacement: String) = injector.replace(range, replacement)
             }
         }
+
+        override suspend fun inject(text: String) = injector.inject(text)
+        override fun copyToClipboard(text: String) = injector.copyToClipboard(text)
+        override val canUndo get() = injector.canUndo
+        override fun undo() = injector.undo()
+
+        override fun showState(state: DictationMachine.State) = this@WhisperAccessibilityService.showState(state)
+        override fun showFeedback(text: String, durationMs: Long, style: Fb, onClick: (() -> Unit)?) =
+            this@WhisperAccessibilityService.showFeedback(text, durationMs, style, onClick)
+        override fun haptic() {
+            overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+
+        override fun post(block: Runnable) {
+            handler.post(block)
+        }
+        override fun postDelayed(block: Runnable, delayMs: Long) {
+            handler.postDelayed(block, delayMs)
+        }
+        override fun removeCallbacks(block: Runnable) = handler.removeCallbacks(block)
+        override fun hasCallbacks(block: Runnable) = handler.hasCallbacks(block)
+
+        override fun logInfo(message: String) {
+            Log.i(TAG, message)
+        }
+        override fun logWarn(message: String) {
+            Log.w(TAG, message)
+        }
+        override fun logError(message: String) {
+            Log.e(TAG, message)
+        }
     }
 
-    private suspend fun deliver(text: String, note: String?, draft: TextInjector.LiveDraft? = null) {
-        if (draft != null) {
-            // Live typing: swap the partial words for the final text in place.
-            if (draft.finish(text)) return offerUndo(note ?: "Inserted")
-            if (draft.typed > 0) {
-                // The field changed while dictating; inserting again would duplicate the words.
-                injector.copyToClipboard(text)
-                return showFeedback("The field changed while you were dictating, final text copied to clipboard", 3500)
-            }
-        }
-        val message = when (injector.inject(text)) {
-            TextInjector.Outcome.INSERTED -> return offerUndo(note ?: "Inserted")
-            TextInjector.Outcome.PASTED -> note
-            TextInjector.Outcome.COPIED_NO_FIELD -> "No text field focused, copied to clipboard"
-            TextInjector.Outcome.COPIED_FAILED -> "Could not insert, copied to clipboard"
-        }
-        message?.let { showFeedback(it, 2500) }
-    }
-
-    /** Shows [message] as a chip you can tap to undo, for a few seconds after text lands. */
-    private fun offerUndo(message: String) {
-        if (!injector.canUndo) return showFeedback(message)
-        showFeedback(message, UNDO_WINDOW_MS, Fb.ACTION) {
-            when (injector.undo()) {
-                TextInjector.UndoResult.UNDONE -> showFeedback("Undone")
-                TextInjector.UndoResult.CHANGED_SINCE -> showFeedback("The text changed since, nothing undone", 2500)
-                TextInjector.UndoResult.NOTHING -> {}
-            }
-        }
-    }
-
-    private fun setState(new: State) {
-        state = new
+    /** Draws [state] on the button. */
+    private fun showState(new: DictationMachine.State) {
         stopPulse()
         spinner?.visibility = if (new == State.WORKING) View.VISIBLE else View.GONE
         button?.background = circle(
@@ -1221,7 +902,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         var startX = 0; var startY = 0
         var touchX = 0f; var touchY = 0f
         var longPressed = false
-        val longPress = Runnable { longPressed = true; onLongPress() }
+        val longPress = Runnable { longPressed = true; machine.onLongPress() }
 
         overlay.setOnTouchListener { v, ev ->
             when (ev.action) {
@@ -1247,7 +928,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                     handler.removeCallbacks(longPress)
                     val moved = abs(ev.rawX - touchX) + abs(ev.rawY - touchY)
                     if (moved < TAP_THRESHOLD_DP * dp) {
-                        if (!longPressed) onTap(ev.downTime, ev.eventTime)
+                        if (!longPressed) machine.onTap(ev.downTime, ev.eventTime)
                     } else {
                         settleBubble()
                         saveBubblePosition()
@@ -1524,7 +1205,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         button?.let {
             it.animate().alpha(0.4f).setDuration(500).withEndAction {
                 it.animate().alpha(1f).setDuration(500).withEndAction {
-                    if (state == State.RECORDING) startPulse()
+                    if (machine.state == State.RECORDING) startPulse()
                 }.start()
             }.start()
         }
