@@ -944,11 +944,26 @@ class DictationMachineTest {
         assertEquals(State.IDLE, machine.state)
     }
 
-    @Test fun `a restored recording does not interrupt a dictation already under way`() {
-        fx.onDisk = OpenAiClient.Audio.m4a(ByteArray(8), 5.0)
+    @Test fun `nothing starts until the saved recording has been read, so it is never overwritten unseen`() {
+        val old = OpenAiClient.Audio.m4a(ByteArray(8), 5.0)
+        fx.onDisk = old
+        fx.fixTarget = FakeTarget("helo")
         machine.restorePending()
-        record()
+        doubleTap()
+        machine.onLongPress()
+        assertEquals(State.IDLE, machine.state)
+        assertTrue(fx.mics.isEmpty())
         settle()
+        // The old recording is offered, and still on disk.
+        assertEquals(State.RETRY, machine.state)
+        assertSame(old, fx.onDisk)
+        assertNull(fx.fixTarget!!.replaced)
+    }
+
+    @Test fun `with nothing saved, a start works as soon as the read is done`() {
+        machine.restorePending()
+        settle()
+        doubleTap()
         assertEquals(State.RECORDING, machine.state)
     }
 

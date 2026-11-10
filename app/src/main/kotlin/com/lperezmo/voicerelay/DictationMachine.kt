@@ -187,6 +187,12 @@ class DictationMachine(
     /** Audio of the last failed dictation, kept until it is sent or discarded. */
     private var pendingAudio: OpenAiClient.Audio? = null
     /**
+     * True while [restorePending] reads the disk (a few ms after the service starts).
+     * Nothing starts until it is done, so a new dictation's save cannot overwrite a
+     * recording that was never offered for a retry.
+     */
+    private var restoring = false
+    /**
      * Whether the running recording is one of the counted locked ones. A dictation
      * holds the button until it ends, so no other can be counted before it is refunded.
      */
@@ -199,6 +205,7 @@ class DictationMachine(
      * button does nothing. Stopping, retrying and the long-press stay one touch.
      */
     fun onTap(downAt: Long, upAt: Long) {
+        if (state == State.IDLE && restoring) return
         when (state) {
             State.IDLE -> if (downAt - lastIdleTapAt <= doubleTapTimeoutMs) {
                 lastIdleTapAt = 0L
@@ -213,6 +220,7 @@ class DictationMachine(
     }
 
     fun onLongPress() {
+        if (state == State.IDLE && restoring) return
         when (state) {
             State.IDLE -> fixFocusedText()
             State.RETRY -> {
@@ -241,8 +249,13 @@ class DictationMachine(
 
     /** A recording that never got transcribed before the service stopped goes back to RETRY. */
     fun restorePending() {
+        restoring = true
         scope.launch {
-            val audio = withContext(io) { fx.loadPending() } ?: return@launch
+            val audio = try {
+                withContext(io) { fx.loadPending() }
+            } finally {
+                restoring = false
+            } ?: return@launch
             if (state != State.IDLE) return@launch
             fx.logInfo("Restored a pending %.1f s recording".format(audio.seconds))
             pendingAudio = audio
