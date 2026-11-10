@@ -578,10 +578,14 @@ class DictationMachine(
                 }
                 is DictationPipeline.Outcome.Failed -> {
                     fx.logWarn("Transcription failed: ${outcome.error}")
-                    val kept = if (pcm == null) audio
-                        else uploaded ?: withContext(cpu) { fx.encode(pcm, audio.seconds) }
-                    if (pcm != null) withContext(io) { savePending(kept) }
-                    pendingAudio = kept
+                    if (pcm == null) {
+                        // Saved before the upload.
+                        pendingAudio = audio
+                    } else {
+                        // Live mode fails here only through the fallback upload, whose file this is.
+                        // Saved again in case its own save failed; WAV only as a last resort.
+                        keepForRetry(uploaded ?: wav(pcm))
+                    }
                     pendingDraft = draft
                     setState(State.RETRY)
                     val typed = if ((draft?.typed ?: 0) > 0) "\nThe words so far are in the field." else ""
