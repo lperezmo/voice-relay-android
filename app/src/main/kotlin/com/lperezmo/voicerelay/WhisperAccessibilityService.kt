@@ -201,7 +201,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     var buttonsHidden = false
         private set
 
-    private val voicePress = ClaudeVoicePress(this, handler, { buttonsHidden }, ::setButtonsHidden)
+    private val voicePress = ClaudeVoicePress.forService(this, handler, { buttonsHidden }, ::setButtonsHidden)
 
     /** After the wake word opens Claude on a new chat: presses its voice control ([ClaudeVoicePress]). */
     fun tapClaudeVoiceMode() = voicePress.start()
@@ -445,6 +445,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         try { unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
         // A recording in progress is kept for a retry instead of thrown away.
         machine.destroy()
+        voicePress.cancel()
         arrowPad.destroy()
         hideVolumePill()
         hideGlyphPill()
