@@ -150,8 +150,8 @@ it.
 ## Wake word
 
 Off by default. Turn on the **Wake word** switch (its title shows the phrase, "hey claude" until
-you change it) and say the phrase anywhere, from any app or with the screen off, to open Claude's
-voice assistant (the same overlay as holding the assistant key). With "claude" in the phrase,
+you change it) and say the phrase from any app to open the Claude app on a new chat in voice
+mode. With "claude" in the phrase,
 "cloud" and "clod" work too, for accents where Claude comes out that way. It is
 meant for hands-free use, such as asking Claude to change the music while driving.
 
@@ -179,11 +179,11 @@ How it works:
   keyword-spotting model ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), about 5 MB) that
   runs on the phone. Nothing is recorded, stored, or sent anywhere. A notification shows while it
   listens, with a **Stop** button.
-- When it hears the phrase it lets go of the microphone and opens Claude with
-  `android.intent.action.VOICE_ASSIST` (falling back to your default assistant if Claude is not
-  installed). Claude's overlay opens in text chat since its 2026-10-29 update, so the
-  accessibility service then taps its **Voice Mode** button (found by its label, for up to
-  2.5 seconds); if the button never shows, Claude stays in text chat.
+- When it hears the phrase it lets go of the microphone and opens a new chat in the Claude app
+  by link (falling back to your default assistant if Claude is not installed). Claude has no way
+  for another app to start voice directly, so the accessibility service then presses its
+  **Voice Mode** button (found by its label, for up to 6 seconds); if the button never shows,
+  Claude stays in text chat. With the phone locked, Claude opens once you unlock.
 - It stays quiet while anything else uses the microphone: Claude's whole conversation, phone
   calls, and the dictate button. It starts listening again 1 second after the microphone is
   free, and never sooner than 4 seconds after a detection.
