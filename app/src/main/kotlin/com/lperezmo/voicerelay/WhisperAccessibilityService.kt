@@ -3,7 +3,6 @@ package com.lperezmo.voicerelay
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,7 +13,6 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -61,10 +59,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val FB_RADIUS_DP = 16f
         private const val FB_CHIP_RADIUS_DP = 18f
         private const val BADGE_DP = 20
-        /** Quiet time on the pad before your own keyboard comes back. */
-        private const val AUTO_RETURN_MS = 4000L
-        private const val KEY_RETRIES = 8
-        private const val KEY_RETRY_MS = 60L
         /** Space between each pill (volume above, Glyph below) and the dictate button, and between the track and the volume pill. */
         private const val PILL_GAP_DP = 6
         private const val TRACK_GAP_DP = 12
@@ -112,15 +106,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var spinner: ProgressBar? = null
     private var retryBadge: ImageView? = null
     private var feedbackView: TextView? = null
-    private var joystickView: JoystickView? = null
-    private var joystickParams: WindowManager.LayoutParams? = null
-    /** Set when the arrows keyboard was chosen by a long-press, so it stays until switched back. */
-    private var pinnedArrows = false
-    /** True while a finger is on the pad, so the keyboard is not swapped mid-push. */
-    private var padTouched = false
-    private val restoreKeyboard = Runnable {
-        if (padTouched) scheduleKeyboardRestore() else restorePreviousKeyboard()
-    }
+    private lateinit var arrowPad: ArrowPad
     private lateinit var volume: VolumeController
     private var pillView: VolumePillView? = null
     private var pillParams: WindowManager.LayoutParams? = null
@@ -167,6 +153,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         settings = AppSettings(this)
         secrets = SecretStore(this)
         injector = TextInjector(this)
+        arrowPad = ArrowPad(this, settings, injector, handler) { text, ms -> showFeedback(text, ms) }
         usage = UsageStore(this)
         pending = PendingRecording(java.io.File(filesDir, "pending"))
         ContextCompat.registerReceiver(
@@ -196,7 +183,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         // If a crash or an update left the arrows keyboard selected, undo that now.
-        restorePreviousKeyboard()
+        arrowPad.restorePreviousKeyboard()
         // Android rebinds this service after a reboot or an app update, which is the
         // one moment the wake word can come back without you opening the app. If
         // Android refuses the start, a notification offers to turn it back on.
@@ -228,7 +215,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             handler.removeCallbacks(hideFeedback)
             feedbackView?.visibility = View.GONE
             hideTrack()
-            hideJoystick()
+            arrowPad.hide()
             hideVolumePill()
             hideGlyphPill()
             overlayView?.visibility = View.GONE
@@ -245,172 +232,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     // --- Arrow joystick ---
 
     /** Shows or hides the arrow pad to match the setting. Safe to call at any time. */
-    fun refreshJoystick() {
-        if (settings.joystickEnabled && !buttonsHidden) showJoystick() else hideJoystick()
-    }
-
-    private fun showJoystick() {
-        if (joystickView != null) return
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val size = (JoystickView.SIZE_DP * dp).toInt()
-        val margin = (MARGIN_DP * dp).toInt()
-        val params = WindowManager.LayoutParams(
-            size, size,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = settings.joystickX.takeIf { it >= 0 } ?: margin
-            y = settings.joystickY.takeIf { it >= 0 } ?: (screenH * 2 / 3)
-        }
-        val view = JoystickView(this).apply {
-            onStep = { key -> sendArrow(key) }
-            onDrag = { dx, dy ->
-                params.x = (params.x + dx).coerceIn(0, maxOf(0, screenW - size))
-                params.y = (params.y + dy).coerceIn(0, maxOf(0, screenH - size))
-                wm.updateViewLayout(this, params)
-            }
-            onDragEnd = {
-                settings.joystickX = params.x
-                settings.joystickY = params.y
-            }
-            onPicker = { toggleArrowsKeyboard() }
-            onReady = { onPadReady() }
-            onDone = { onPadDone() }
-        }
-        wm.addView(view, params)
-        joystickView = view
-        joystickParams = params
-    }
-
-    private fun hideJoystick() {
-        handler.removeCallbacks(restoreKeyboard)
-        pinnedArrows = false
-        restorePreviousKeyboard()
-        val view = joystickView ?: return
-        (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
-        joystickView = null
-        joystickParams = null
-    }
-
-    /**
-     * Arrow keys only reach other apps through a keyboard, so they go to
-     * [KeysInputMethodService] when it is the selected one. Otherwise the caret
-     * is moved through accessibility, which works in ordinary text fields but
-     * not in a remote desktop session.
-     */
-    /**
-     * Touching the knob: switch to the arrows keyboard before the first key, so
-     * it is bound by the time the push lands. Nothing happens if it is already
-     * selected, or if automatic switching is off.
-     */
-    private fun onPadReady() {
-        padTouched = true
-        handler.removeCallbacks(restoreKeyboard)
-        if (!settings.joystickAutoSwitch || pinnedArrows) return
-        if (KeysInputMethodService.instance == null) switchKeyboard(arrowsKeyboardId(), remember = true)
-        // Armed here, not after a key lands: in an app that takes no keys, the
-        // keys never land, and the keyboard must still come back.
-        scheduleKeyboardRestore()
-    }
-
-    /** Finger off the pad: start the clock even if nothing was ever sent. */
-    private fun onPadDone() {
-        padTouched = false
-        scheduleKeyboardRestore()
-    }
-
-    private fun sendArrow(keyCode: Int) = deliverArrow(keyCode, 0)
-
-    /**
-     * The keyboard takes a moment to bind after a switch, so a key that arrives
-     * in that window is retried briefly instead of being dropped.
-     */
-    private fun deliverArrow(keyCode: Int, attempt: Int) {
-        scheduleKeyboardRestore()
-        if (KeysInputMethodService.send(keyCode)) return
-        val switching = settings.joystickAutoSwitch && KeysInputMethodService.instance == null
-        if (switching && attempt < KEY_RETRIES) {
-            handler.postDelayed({ deliverArrow(keyCode, attempt + 1) }, KEY_RETRY_MS)
-            return
-        }
-        if (injector.moveCaret(keyCode)) return
-        showFeedback("No keyboard is carrying the arrows. Long-press the pad to switch.", 2500)
-    }
-
-    /**
-     * Back to your own keyboard once the pad has been quiet for a moment. Armed
-     * from every path that can leave the arrows keyboard selected, so the only
-     * way to keep it is to pin it with a long-press.
-     */
-    private fun scheduleKeyboardRestore() {
-        if (pinnedArrows) return
-        handler.removeCallbacks(restoreKeyboard)
-        handler.postDelayed(restoreKeyboard, AUTO_RETURN_MS)
-    }
-
-    private fun restorePreviousKeyboard() {
-        val previous = settings.previousIme.takeIf { it.isNotBlank() } ?: return
-        if (currentKeyboardId() != arrowsKeyboardId()) return
-        switchKeyboard(previous, remember = false)
-        settings.previousIme = ""
-    }
-
-    private fun arrowsKeyboardId() =
-        ComponentName(this, KeysInputMethodService::class.java).flattenToShortString()
-
-    private fun currentKeyboardId(): String? =
-        Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-
-    /** True when the switch was accepted. [remember] keeps the keyboard to come back to. */
-    private fun switchKeyboard(target: String, remember: Boolean): Boolean {
-        val current = currentKeyboardId()
-        if (current == target) return true
-        return try {
-            val ok = softKeyboardController.switchToInputMethod(target)
-            if (ok && remember) settings.previousIme = current.orEmpty()
-            ok
-        } catch (e: Exception) {
-            Log.w(TAG, "Keyboard switch refused: ${e.javaClass.simpleName}")
-            false
-        }
-    }
-
-    /**
-     * Long-press on the pad: swap between the arrows keyboard and whatever was
-     * selected before. An accessibility service may switch input methods
-     * directly (API 30+); the system's own picker is blocked for background
-     * apps, so it is only the fallback when the switch is refused.
-     */
-    private fun toggleArrowsKeyboard() {
-        val arrows = arrowsKeyboardId()
-        val goingToArrows = currentKeyboardId() != arrows
-        val target = if (goingToArrows) arrows else settings.previousIme.ifBlank { null }
-        if (target == null) {
-            showKeyboardPicker()
-            return
-        }
-        handler.removeCallbacks(restoreKeyboard)
-        if (!switchKeyboard(target, remember = goingToArrows)) {
-            showKeyboardPicker()
-            return
-        }
-        // Pinned: a deliberate switch is not undone by the idle timer.
-        pinnedArrows = goingToArrows
-        if (goingToArrows) {
-            showFeedback("Arrows keyboard on, and staying on. Long-press again to switch back.", 2500)
-        } else {
-            settings.previousIme = ""
-            showFeedback("Keyboard switched back")
-        }
-    }
-
-    private fun showKeyboardPicker() {
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showInputMethodPicker()
-        showFeedback("Pick Voice Relay arrows in the keyboard list", 3000)
-    }
+    fun refreshJoystick() = arrowPad.refresh(buttonsHidden)
 
     // --- Volume presets ---
 
@@ -612,8 +434,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         // Tapping into a text field means typing, so hand the keyboard back at
         // once instead of waiting for the idle timer.
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED &&
-            event.source?.isEditable == true && !pinnedArrows
-        ) restorePreviousKeyboard()
+            event.source?.isEditable == true && !arrowPad.pinnedArrows
+        ) arrowPad.restorePreviousKeyboard()
     }
     override fun onInterrupt() {}
 
@@ -623,9 +445,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         try { unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
         // A recording in progress is kept for a retry instead of thrown away.
         machine.destroy()
-        handler.removeCallbacks(restoreKeyboard)
-        restorePreviousKeyboard()
-        hideJoystick()
+        arrowPad.destroy()
         hideVolumePill()
         hideGlyphPill()
         removeOverlay()
