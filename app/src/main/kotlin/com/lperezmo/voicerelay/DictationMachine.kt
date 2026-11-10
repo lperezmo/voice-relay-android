@@ -145,7 +145,7 @@ class DictationMachine(
         fx.post {
             if (state != State.WORKING) return@post
             val kept = workAudio ?: pendingAudio
-            workAudio = null
+            endWork()
             pendingAudio = kept
             if (kept != null) {
                 setState(State.RETRY)
@@ -160,6 +160,8 @@ class DictationMachine(
     private var work: Job? = null
     /** The recording [work] is uploading (standard mode), so giving up on it can keep it for a retry. */
     private var workAudio: OpenAiClient.Audio? = null
+    /** The raw recording [work] holds only in memory (while it is encoded), so giving up on it can still keep it. */
+    private var workPcm: ByteArray? = null
     /** Whether a long-press may give up on [work]: not while a live session is finishing. */
     private var workCancellable = false
     private var recorder: Mic? = null
@@ -237,7 +239,7 @@ class DictationMachine(
     fun destroy() {
         recorder?.stop()?.let { pcm ->
             val seconds = Recorder.durationSeconds(pcm)
-            if (seconds >= MIN_CLIP_SECONDS) savePending(OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds))
+            if (seconds >= MIN_CLIP_SECONDS) savePending(wav(pcm))
         }
         recorder = null
         live?.cancel()
@@ -255,8 +257,9 @@ class DictationMachine(
         if (!workCancellable) return
         work?.cancel()
         fx.haptic()
-        val kept = workAudio
-        workAudio = null
+        // Still being encoded: keep the raw recording, as WAV, instead.
+        val kept = workAudio ?: workPcm?.let { pcm -> wav(pcm).also { scope.launch(io) { savePending(it) } } }
+        endWork()
         if (kept != null) {
             pendingAudio = kept
             pendingDraft = null
@@ -372,9 +375,21 @@ class DictationMachine(
         if (session != null) {
             process(OpenAiClient.Audio(ByteArray(0), "live-stream", "audio/pcm", seconds), session, pcm, typed)
         } else {
-            scope.launch { process(withContext(cpu) { fx.encode(pcm, seconds) }) }
+            workAudio = null
+            workPcm = pcm
+            workCancellable = true
+            work = scope.launch { process(withContext(cpu) { fx.encode(pcm, seconds) }) }
         }
     }
+
+    /** The work is over (done, failed or given up): nothing is left to cancel or keep. */
+    private fun endWork() {
+        workAudio = null
+        workPcm = null
+        workCancellable = false
+    }
+
+    private fun wav(pcm: ByteArray) = OpenAiClient.Audio.wav(WavWriter.encode(pcm), Recorder.durationSeconds(pcm))
 
     /**
      * Transcribe and clean up [audio]. With a [session] (live mode) the transcript
@@ -414,6 +429,7 @@ class DictationMachine(
             log = { fx.logInfo("Dictation: $it") },
         )
         workAudio = if (session == null) audio else null
+        workPcm = null
         workCancellable = session == null
         work = scope.launch {
             val outcome = withContext(io) {
@@ -422,7 +438,7 @@ class DictationMachine(
                 if (session == null && audio !== pendingAudio) savePending(audio)
                 pipeline.run(audio)
             }
-            workAudio = null
+            endWork()
             if (outcome !is DictationPipeline.Outcome.Failed) withContext(io) { fx.clearPending() }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
@@ -487,6 +503,7 @@ class DictationMachine(
             val started = System.currentTimeMillis()
             val outcome = withContext(io) { DictationPipeline.fixTyped(original, cleaner) }
             fx.logInfo("Grammar fix: ${original.length} chars, ${System.currentTimeMillis() - started} ms")
+            endWork()
             setState(State.IDLE)
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> when {

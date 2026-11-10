@@ -137,8 +137,10 @@ class DictationMachineTest {
         override fun newMic(maxSeconds: Int, onLimit: () -> Unit, onChunk: ((ByteArray, Int) -> Unit)?, onError: () -> Unit) =
             FakeMic(maxSeconds, onLimit, onChunk, onError, micStartError, events).also { it.pcm = nextPcm; mics += it }
         override fun prewarm(apiKey: String) { events += "prewarm" }
+        var onEncode: () -> Unit = {}
         override fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio {
             events += "encode"
+            onEncode()
             return OpenAiClient.Audio.m4a(pcm.copyOf(16), seconds)
         }
 
@@ -451,30 +453,57 @@ class DictationMachineTest {
         assertNull(fx.onDisk)
     }
 
-    @Test fun `long-press while the first recording is still encoding is ignored`() {
+    /** Long-press while the recording is still being encoded: kept as WAV for a retry, never uploaded. */
+    private fun assertCancelledDuringEncode(uploadsBefore: Int) {
+        assertEquals(State.RETRY, machine.state)
+        assertEquals("Stopped\nRecording saved. Tap to retry, hold to discard", lastFeedback())
+        assertEquals(uploadsBefore, fx.uploads.size)
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+        assertEquals(2.0, fx.onDisk!!.seconds, 0.001)
+        fx.transcribe = { OpenAiClient.Result("retried", null) }
+        tap()
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals("audio.wav", fx.uploads.last().filename)
+        assertEquals("retried", fx.injected.last())
+    }
+
+    @Test fun `long-press while the first recording is still encoding keeps it for a retry`() {
         record()
         tap()
         // The encode is queued; the long-press lands before it finishes.
         machine.onLongPress()
-        assertEquals(State.WORKING, machine.state)
-        assertEquals(0, fx.haptics)
+        assertEquals(1, fx.haptics)
         settle()
-        assertEquals(State.IDLE, machine.state)
-        assertEquals(1, fx.uploads.size)
+        assertCancelledDuringEncode(uploadsBefore = 0)
     }
 
-    @Test fun `known issue - long-press while encoding after an earlier dictation says Cancelled but still uploads`() {
+    @Test fun `long-press while encoding after an earlier dictation behaves the same`() {
         dictate()
         record()
         tap()
-        // workCancellable is left over from the earlier dictation, so the long-press acts.
         machine.onLongPress()
-        assertEquals(State.IDLE, machine.state)
-        assertEquals("Cancelled", lastFeedback())
         settle()
-        // The encode finishes and the dictation goes ahead anyway.
-        assertEquals(2, fx.uploads.size)
-        assertEquals(listOf("hello", "hello"), fx.injected)
+        assertCancelledDuringEncode(uploadsBefore = 1)
+        assertEquals(listOf("hello", "retried"), fx.injected)
+    }
+
+    @Test fun `long-press in the middle of the encode drops its result`() {
+        record()
+        fx.onEncode = { machine.onLongPress() }
+        tap()
+        settle()
+        fx.onEncode = {}
+        assertCancelledDuringEncode(uploadsBefore = 0)
+    }
+
+    @Test fun `a finished dictation leaves nothing for a later long-press to cancel`() {
+        dictate()
+        fx.fixTarget = null
+        machine.onLongPress()
+        // Idle: the long-press is the grammar fix, not a stale cancel.
+        assertEquals("Select text, or focus a field with text, to fix grammar", lastFeedback())
+        assertEquals(0, fx.haptics)
     }
 
     @Test fun `long-press while a live session finishes does nothing`() {
