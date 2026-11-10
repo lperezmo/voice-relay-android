@@ -197,11 +197,11 @@ class DictationMachine(
     /** The recording last written to disk, so [destroy] can tell what still needs saving. */
     @Volatile private var savedOnDisk: OpenAiClient.Audio? = null
     /**
-     * True while [restorePending] reads the disk (a few ms after the service starts).
-     * Nothing starts until it is done, so a new dictation's save cannot overwrite a
-     * recording that was never offered for a retry.
+     * How many reads of the saved recording [restorePending] has in flight (a few ms
+     * after the service starts). Nothing starts until they are done, so a new
+     * dictation's save cannot overwrite a recording that was never offered for a retry.
      */
-    private var restoring = false
+    private var restoring = 0
     /** Whether the running recording is one of the counted locked ones, to give back if it is too short. */
     private var countedLocked = false
 
@@ -212,9 +212,11 @@ class DictationMachine(
      * button does nothing. Stopping, retrying and the long-press stay one touch.
      */
     fun onTap(downAt: Long, upAt: Long) {
-        if (state == State.IDLE && restoring) return
         when (state) {
-            State.IDLE -> if (downAt - lastIdleTapAt <= doubleTapTimeoutMs) {
+            // While the saved recording is read, a tap only counts toward the next double tap.
+            State.IDLE -> if (restoring > 0) {
+                lastIdleTapAt = upAt
+            } else if (downAt - lastIdleTapAt <= doubleTapTimeoutMs) {
                 lastIdleTapAt = 0L
                 startRecording()
             } else {
@@ -227,7 +229,7 @@ class DictationMachine(
     }
 
     fun onLongPress() {
-        if (state == State.IDLE && restoring) return
+        if (state == State.IDLE && restoring > 0) return
         when (state) {
             State.IDLE -> fixFocusedText()
             State.RETRY -> {
@@ -256,12 +258,12 @@ class DictationMachine(
 
     /** A recording that never got transcribed before the service stopped goes back to RETRY. */
     fun restorePending() {
-        restoring = true
+        restoring++
         scope.launch {
             val audio = try {
                 withContext(io) { fx.loadPending() }
             } finally {
-                restoring = false
+                restoring--
             } ?: return@launch
             if (state != State.IDLE) return@launch
             fx.logInfo("Restored a pending %.1f s recording".format(audio.seconds))

@@ -1065,6 +1065,31 @@ class DictationMachineTest {
         assertNull(fx.fixTarget!!.replaced)
     }
 
+    @Test fun `a tap during the read pairs with the next one`() {
+        machine.restorePending()
+        tap()
+        settle()
+        tap()
+        assertEquals(State.RECORDING, machine.state)
+    }
+
+    @Test fun `two reads in flight both have to finish before a start`() {
+        machine.restorePending()
+        machine.restorePending()
+        // Both reads start; the first finishes, the second is still running.
+        main.tasks.removeFirst().run()
+        main.tasks.removeFirst().run()
+        io.tasks.removeFirst().run()
+        main.tasks.removeFirst().run()
+        assertEquals(1, io.tasks.size)
+        doubleTap()
+        assertEquals(State.IDLE, machine.state)
+        settle()
+        // The last swallowed tap pairs with this one.
+        tap()
+        assertEquals(State.RECORDING, machine.state)
+    }
+
     @Test fun `with nothing saved, a start works as soon as the read is done`() {
         machine.restorePending()
         settle()
