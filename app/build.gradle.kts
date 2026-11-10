@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
@@ -74,9 +75,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    @Suppress("DEPRECATION")
-    kotlinOptions { jvmTarget = "17" }
-
     buildFeatures { buildConfig = true }
 
     testOptions { unitTests { isIncludeAndroidResources = true } }
@@ -85,6 +83,10 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+}
+
+kotlin {
+    compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
 // The wake word needs files that are too big to commit: the sherpa-onnx native
@@ -144,10 +146,10 @@ androidComponents {
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     testImplementation("junit:junit:4.13.2")
