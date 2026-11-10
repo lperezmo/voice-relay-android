@@ -487,7 +487,10 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
 | `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
-| `MainActivity.kt`, `LicensesActivity.kt` | Settings screen, and the open-source licenses screen |
+| `MainActivity.kt`, `LicensesActivity.kt` | Settings screen (wiring and permission requests), and the open-source licenses screen |
+| `SettingsUi.kt`, `SettingsCard.kt` | The settings screen's view builders (cards, rows, switch, radio and status rows) and what each card is given |
+| `StatusCards.kt`, `SpeechCard.kt`, `CleanupCard.kt`, `WakeWordCard.kt`, `FloatingButtonsCard.kt`, `MoreCards.kt` | One settings card each: status and setup, OpenAI, cleanup and the grammar fix, wake word, floating buttons, and other apps, usage and about |
+| `SettingsDialogs.kt`, `WakePhraseDialog.kt` | The settings screen's dialogs: keys, models, languages, vocabulary, prompts, and the wake phrase editor |
 | `Usage.kt` | Usage counter and list-price cost estimate |
 | `AppSettings.kt`, `SecretStore.kt`, `Prompts.kt` | Settings, encrypted API keys, cleanup prompts |
 
