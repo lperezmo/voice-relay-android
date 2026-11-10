@@ -29,8 +29,7 @@ It also has a few extras, all off until you turn them on:
 There is no server in between and no account to create: the app talks straight to OpenAI with
 your key. Dictation needs an internet connection; the wake word does not.
 
-Architecture overview: https://lperezmo.github.io/voice-relay-android/ (published once the
-repository is public; until then, open [`docs/index.html`](docs/index.html) locally).
+Architecture overview: https://lperezmo.github.io/voice-relay-android/
 
 Voice Relay is based on [kafkasl/phone-whisper](https://github.com/kafkasl/phone-whisper)
 (Apache-2.0, see [NOTICE](NOTICE)). On the phone it shows up as **Voice Relay**, with a teal

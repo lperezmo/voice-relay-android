@@ -1548,7 +1548,7 @@
         <p class="lede">
           Voice Relay puts a small dictation button over every app on an Android phone. Double-tap it, speak, and the text lands
           where you are typing, transcribed by OpenAI with your own API key. It can also fix the grammar of text you typed,
-          and listen on the phone for "hey claude", or a wake phrase you choose, to open the Claude app's voice assistant. This page shows how audio
+          and listen on the phone for "hey claude", or a wake phrase you choose, to open the Claude app in voice mode. This page shows how audio
           becomes text, how the text gets into another app's field, how the wake word decides when to listen, and what
           leaves the phone.
         </p>
@@ -1612,7 +1612,7 @@
       <section id="dictation">
         <div class="sec-head"><h2>Dictation pipeline</h2></div>
         <p class="sec-intro">
-          A tap starts the recording and a second tap sends it. The TLS connection to OpenAI is opened while you are still
+          A double-tap starts the recording and a tap sends it. The TLS connection to OpenAI is opened while you are still
           talking, so the upload starts without a handshake. Hover a box for the details.
         </p>
         <div class="diagram">
@@ -1690,7 +1690,8 @@
           </svg>
           <p class="caption">
             A failed request keeps the audio, on disk, so it survives a restart: the button turns amber with a warning badge,
-            a tap sends the same recording again, and a long-press asks to discard it.
+            a tap sends the same recording again, and a long-press asks to discard it. A long-press while a request is
+            still out gives up on it and keeps the recording for a retry; every request ends by itself after 3 minutes.
           </p>
         </div>
 
@@ -1828,7 +1829,7 @@
         <div class="sec-head"><h2>Wake word</h2></div>
         <p class="sec-intro">
           A microphone foreground service feeds 100 ms of 16 kHz audio at a time to a sherpa-onnx keyword spotter. When it
-          hears "hey claude" it lets go of the microphone and opens Claude's voice assistant. A small state machine, tested
+          hears "hey claude" it lets go of the microphone, opens a new chat in the Claude app and presses its Voice Mode button. A small state machine, tested
           without Android, decides when the microphone is on. The phrase is editable: the app spells a typed phrase as the
           model's phones with a bundled copy of CMUdict, one keyword line per pronunciation, checks every phone against the
           model's tokens, and hands the lines to the spotter with each new stream, so a new phrase needs no model reload.
@@ -1864,7 +1865,7 @@
             <path class="edge dash" d="M618 44 C 470 30, 360 60, 346 124" marker-end="url(#ww-arr)" />
             <text class="e-lab" x="470" y="28" text-anchor="middle">nobody took the mic in 10 s</text>
 
-            <g data-tip="The microphone is released and ACTION_VOICE_ASSIST is sent to the Claude app (or your default assistant if Claude is not installed), from the accessibility service's context so Android allows it from the background.">
+            <g data-tip="The microphone is released and a new chat is opened in the Claude app by link (or your default assistant if Claude is not installed), from the accessibility service's context so Android allows it from the background. The accessibility service then presses Claude's Voice Mode button, found by its label, and hides the floating buttons while it does.">
               <rect class="n-box" x="618" y="30" width="250" height="64" rx="9" />
               <text class="n-t" x="743" y="57" text-anchor="middle">WAITING</text>
               <text class="n-s" x="743" y="75" text-anchor="middle">mic off · Claude opened</text>
@@ -1901,6 +1902,8 @@
         <div class="sec-head"><h2>Data flow</h2></div>
         <p class="sec-intro">
           The only network destination is <code>api.openai.com</code>, reached directly from the phone with your key.
+          If you choose Claude as the cleanup service, the transcript and the text you ask it to fix go to
+          <code>api.anthropic.com</code> with your Anthropic key instead; the audio still goes to OpenAI.
         </p>
         <div class="diagram">
           <svg viewBox="0 0 900 320" width="100%" style="min-width: 720px" role="img"
@@ -1927,7 +1930,7 @@
             </g>
             <line class="edge dash" x1="165" y1="226" x2="165" y2="188" marker-end="url(#df-arr)" />
 
-            <g data-tip="Opened with the VOICE_ASSIST intent. No text or audio is handed over; from then on the Claude app handles your speech under its own terms.">
+            <g data-tip="Opened on a new chat by link, then its Voice Mode button is pressed. No text or audio is handed over; from then on the Claude app handles your speech under its own terms.">
               <rect class="n-box" x="360" y="100" width="210" height="64" rx="9" />
               <text class="n-t" x="465" y="127" text-anchor="middle">Claude app</text>
               <text class="n-s" x="465" y="145" text-anchor="middle">opened by intent</text>
@@ -1962,6 +1965,7 @@
               <li>The transcript, when cleanup is on.</li>
               <li>The text you ask it to fix.</li>
               <li>Your vocabulary and language hints, with those requests.</li>
+              <li>With Claude as the cleanup service: the transcript and the text to fix go to Anthropic instead.</li>
             </ul>
           </div>
           <div class="lpanel success" style="margin: 0">
@@ -2052,7 +2056,8 @@
           <div class="lab">What you are trusting</div>
           <ul>
             <li><strong>OpenAI</strong> with your audio and the text you send, under your agreement with them.</li>
-            <li><strong>Other apps</strong> with two exported entry points: Fix grammar can spend your key (10 a minute at most), and the wake word switch can turn listening on (only once you set it up) or off. Use a key with a monthly spend limit.</li>
+            <li><strong>Anthropic</strong>, only if you choose Claude as the cleanup service, with the transcript and the text to fix.</li>
+            <li><strong>Other apps</strong> with two exported entry points: Fix grammar can spend your key (10 a minute at most), and the control intents can turn the wake word on (only once you set it up) or off, open Claude in voice mode, and hide or show the floating buttons. Use a key with a monthly spend limit.</li>
             <li><strong>The Claude app</strong> once the wake word opens it.</li>
             <li><strong>The accessibility service</strong>, which watches which field is focused in every app and reads a field only when you dictate, fix or undo.</li>
           </ul>
