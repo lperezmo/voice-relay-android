@@ -151,8 +151,7 @@ class OpenAiClientTest {
     }
 
     @Test fun `a key with a line break inside is an error, not a crash`() {
-        val bad = OpenAiClient("sk-te
-st", server.url("/v1").toString().trimEnd('/'), OkHttpClient())
+        val bad = OpenAiClient("sk-te\nst", server.url("/v1").toString().trimEnd('/'), OkHttpClient())
         val result = bad.transcribe(OpenAiClient.Audio.wav(ByteArray(8)), "gpt-transcribe", emptyList(), emptyList())
         assertNull(result.text)
         assertEquals(OpenAiClient.BAD_KEY, result.error)
