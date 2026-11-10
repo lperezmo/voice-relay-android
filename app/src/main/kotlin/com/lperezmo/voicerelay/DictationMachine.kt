@@ -194,6 +194,8 @@ class DictationMachine(
     private val draftTick = Runnable { draft?.update(partial.toString().trim()) }
     /** Audio of the last failed dictation, kept until it is sent or discarded. Read on IO threads to skip stale saves. */
     @Volatile private var pendingAudio: OpenAiClient.Audio? = null
+    /** The recording last written to disk, so [destroy] can tell what still needs saving. */
+    @Volatile private var savedOnDisk: OpenAiClient.Audio? = null
     /**
      * True while [restorePending] reads the disk (a few ms after the service starts).
      * Nothing starts until it is done, so a new dictation's save cannot overwrite a
@@ -271,15 +273,14 @@ class DictationMachine(
 
     /** The service is going away. A recording in progress is kept for a retry instead of thrown away. */
     fun destroy() {
-        recorder?.stop()?.let { pcm ->
-            val seconds = Recorder.durationSeconds(pcm)
-            if (seconds >= MIN_CLIP_SECONDS) savePending(wav(pcm))
-        }
+        val recorded = recorder?.stop()?.takeIf { Recorder.durationSeconds(it) >= MIN_CLIP_SECONDS }?.let { wav(it) }
         recorder = null
         live?.cancel()
-        // Work that still holds its recording only in memory saves it now.
-        if (workAudio == null) workPcm?.let { savePending(wav(it)) }
         workSession?.cancel()
+        // The newest recording, saved now unless it is already on disk: saves that were
+        // launched but have not run yet are dropped with the scope below.
+        val keep = recorded ?: keepWorkRecording() ?: pendingAudio?.takeIf { state == State.RETRY }
+        if (keep != null && keep !== savedOnDisk) savePending(keep)
         scope.cancel()
     }
 
@@ -314,7 +315,7 @@ class DictationMachine(
         pendingAudio = null
         pendingDraft = null
         // Only if nothing was kept since: a later recording's file must not be deleted.
-        scope.launch(io) { synchronized(pendingLock) { if (pendingAudio == null) fx.clearPending() } }
+        scope.launch(io) { synchronized(pendingLock) { if (pendingAudio == null) clearPending() } }
         setState(State.IDLE)
         fx.showFeedback("Recording discarded")
     }
@@ -561,7 +562,7 @@ class DictationMachine(
                 pipeline.run(audio)
             }
             endWork()
-            if (outcome !is DictationPipeline.Outcome.Failed) withContext(io) { synchronized(pendingLock) { fx.clearPending() } }
+            if (outcome !is DictationPipeline.Outcome.Failed) withContext(io) { synchronized(pendingLock) { clearPending() } }
             when (outcome) {
                 is DictationPipeline.Outcome.Text -> {
                     pendingAudio = null
@@ -595,6 +596,12 @@ class DictationMachine(
         }
     }
 
+    /** Caller holds [pendingLock]. */
+    private fun clearPending() {
+        fx.clearPending()
+        savedOnDisk = null
+    }
+
     /**
      * Gives back a locked recording too short to send. One that was sent stays counted
      * even if the request failed: a failure could otherwise be retried forever while
@@ -610,7 +617,12 @@ class DictationMachine(
      */
     private fun savePending(audio: OpenAiClient.Audio, unless: () -> Boolean = { false }) {
         try {
-            synchronized(pendingLock) { if (!unless()) fx.savePending(audio) }
+            synchronized(pendingLock) {
+                if (!unless()) {
+                    fx.savePending(audio)
+                    savedOnDisk = audio
+                }
+            }
         } catch (e: Exception) {
             fx.logWarn("Could not save the recording for retry: ${e.message}")
         }

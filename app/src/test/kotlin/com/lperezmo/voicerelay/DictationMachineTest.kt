@@ -1105,6 +1105,36 @@ class DictationMachineTest {
         assertTrue(fx.saves.isEmpty())
     }
 
+    @Test fun `destroy right after a give-up saves the kept recording its queued save would have`() {
+        record()
+        tap()
+        machine.onLongPress()
+        // The WAV's save is queued on IO and has not run.
+        assertNull(fx.onDisk)
+        machine.destroy()
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+        settle()
+        assertEquals(1, fx.saves.size)
+    }
+
+    @Test fun `destroy in retry with the recording already on disk does not save it again`() {
+        fx.transcribe = { failed() }
+        dictate()
+        val saves = fx.saves.size
+        machine.destroy()
+        assertEquals(saves, fx.saves.size)
+    }
+
+    @Test fun `destroy while uploading with the recording on disk does not save it again`() {
+        record()
+        tap()
+        while (io.tasks.isEmpty()) (main.tasks.removeFirstOrNull() ?: cpu.tasks.removeFirst()).run()
+        // The upload's own save runs, then the service goes away mid-request.
+        fx.transcribe = { machine.destroy(); failed() }
+        io.tasks.removeFirst().run()
+        assertEquals(1, fx.saves.size)
+    }
+
     @Test fun `destroy while idle saves nothing`() {
         machine.destroy()
         assertTrue(fx.saves.isEmpty())
