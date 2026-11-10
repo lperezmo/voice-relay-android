@@ -7,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersionName = "0.22.0"
+val appVersionName = "0.23.0"
 // CI passes -PversionCode (scripts/version_code.sh for releases). A local build
 // without it gets one above its release's code, so it installs over that release
 // and the next release installs over it. Same formula as version_code.sh.
