@@ -1,10 +1,8 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 val appVersionName = "0.23.0"
@@ -70,6 +68,7 @@ android {
         }
     }
 
+    // Built-in Kotlin takes its jvmTarget from targetCompatibility.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -85,14 +84,10 @@ android {
     }
 }
 
-kotlin {
-    compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
-}
-
 // The wake word needs files that are too big to commit: the sherpa-onnx native
 // library and the keyword-spotting model. Fail early with the fix instead of
 // building an APK that crashes when the wake word is turned on.
-val checkWakeWordFiles by tasks.registering {
+val checkWakeWordFiles = tasks.register("checkWakeWordFiles") {
     val required = listOf(
         "src/main/jniLibs/arm64-v8a/libsherpa-onnx-jni.so",
         "src/main/assets/wake/model/encoder.onnx",
