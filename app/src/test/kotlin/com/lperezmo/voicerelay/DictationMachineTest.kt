@@ -595,13 +595,18 @@ class DictationMachineTest {
         assertCancelledDuringEncode(uploadsBefore = 0)
     }
 
-    @Test fun `a finished dictation leaves nothing for a later long-press to cancel`() {
+    @Test fun `a finished dictation leaves no recording behind for later work to keep`() {
         dictate()
-        fx.fixTarget = null
+        // A grammar fix that then crashes has no recording of its own: it must not
+        // bring back the finished dictation's audio as a retry.
+        fx.fixTarget = FakeTarget("helo")
+        fx.fix = { throw IllegalStateException("boom") }
         machine.onLongPress()
-        // Idle: the long-press is the grammar fix, not a stale cancel.
-        assertEquals("Select text, or focus a field with text, to fix grammar", lastFeedback())
-        assertEquals(0, fx.haptics)
+        assertEquals(State.WORKING, machine.state)
+        settle()
+        assertEquals(State.IDLE, machine.state)
+        assertEquals("Something went wrong (IllegalStateException)", lastFeedback())
+        assertNull(fx.onDisk)
     }
 
     @Test fun `long-press while a live session finishes keeps the recording and the typed words for a retry`() {
