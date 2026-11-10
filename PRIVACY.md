@@ -41,7 +41,7 @@ with AI** in the wake phrase dialog: then the phrase's text (no audio) is sent t
 key and cleanup model (with `store: false`, like cleanup), which suggests pronunciations; the logs
 note only whether that worked and how many suggestions were kept. Beyond that, the logs record only the
 wake phrase, which keyword fired, and the detection settings. When the keyword is heard, the app
-opens Claude's voice assistant (the Claude app then handles your speech under Anthropic's terms).
+opens the Claude app in voice mode (the Claude app then handles your speech under Anthropic's terms).
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
 audio mode, and whether music is playing) to pause while the microphone is in use and, if you
