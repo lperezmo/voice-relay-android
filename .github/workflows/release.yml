@@ -40,7 +40,7 @@ jobs:
     # A hung step must not run to the 6 hour default and burn Actions minutes.
     timeout-minutes: 10
     outputs:
-      release: ${{ steps.plan.outputs.release }}
+      release: ${{ steps.current.outputs.current == 'true' && steps.plan.outputs.release || '' }}
       version: ${{ steps.plan.outputs.version }}
       version_code: ${{ steps.plan.outputs.version_code }}
     steps:
@@ -67,12 +67,29 @@ jobs:
           RELEASE_PLAN: "1"
         run: bunx --bun semantic-release --dry-run
 
+      # If main has moved on, the real run below would refuse to release this commit
+      # after the build, wasting it. The run for the newer commit (queued behind this
+      # one) releases everything instead.
+      - name: Check main has not moved on
+        id: current
+        if: steps.plan.outputs.release == 'true'
+        run: |
+          HEAD=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$HEAD" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::main is now at ${HEAD}, not ${GITHUB_SHA}; the newer run releases it."
+          fi
+
       - name: Summarize
         env:
           RELEASE: ${{ steps.plan.outputs.release }}
+          CURRENT: ${{ steps.current.outputs.current }}
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          if [ "$RELEASE" = "true" ]; then
+          if [ "$RELEASE" = "true" ] && [ "$CURRENT" != "true" ]; then
+            echo "No release from this run: main moved on, and the newer run releases v${VERSION} or later." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$RELEASE" = "true" ]; then
             echo "Planned v${VERSION}: building and testing it before tagging." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No release: nothing since the last tag warrants a version bump." >> "$GITHUB_STEP_SUMMARY"
@@ -162,6 +179,23 @@ jobs:
             dist/THIRD_PARTY_NOTICES.md
 
       - name: Delete the Actions copies of the APK and the wake word library
+        uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: |
+            voice-relay-v${{ needs.build.outputs.version_name }}
+            ${{ needs.build.outputs.sherpa_artifact }}
+
+  # semantic-release ran and chose not to publish (main moved on after all): the
+  # signed build will never be attached, so do not leave it in Actions storage. A
+  # failed semantic-release run keeps the artifacts, so its jobs can be re-run.
+  cleanup:
+    needs: [build, semantic-release]
+    if: always() && needs.build.result == 'success' && needs.semantic-release.result == 'success' && needs.semantic-release.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    # A hung step must not run to the 6 hour default and burn Actions minutes.
+    timeout-minutes: 5
+    steps:
+      - name: Delete the unreleased APK and the wake word library
         uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
         with:
           name: |
