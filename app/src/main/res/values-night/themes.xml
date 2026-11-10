@@ -10,10 +10,14 @@
         <item name="colorSecondaryContainer">@color/secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
         <item name="colorTertiary">@color/primary</item>
+        <!-- Teal-grey neutrals for switch tracks and outlines, instead of Material's default lavender. -->
+        <item name="colorSurfaceContainerHighest">@color/surface_container_highest</item>
+        <item name="colorOutline">@color/outline</item>
         
         <!-- Status / Navigation Bars -->
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">?android:attr/colorBackground</item>
         <item name="android:navigationBarColor">?android:attr/colorBackground</item>
+        <item name="android:windowBackground">@color/page</item>
     </style>
 </resources>
