@@ -220,7 +220,7 @@ class DictationMachine(
             }
             State.RECORDING -> stopAndProcess()
             State.WORKING -> {}
-            State.RETRY -> pendingAudio?.let { process(it, draft = pendingDraft) } ?: setState(State.IDLE)
+            State.RETRY -> pendingAudio?.let { retry(it) } ?: setState(State.IDLE)
         }
     }
 
@@ -466,6 +466,27 @@ class DictationMachine(
         job.start()
     }
 
+    /**
+     * Sends [audio] again. A WAV, kept as is when a dictation was given up, crashed or
+     * was destroyed, is encoded first (about a tenth of the size), and the encoded file
+     * replaces it as the recording waiting for a retry.
+     */
+    private fun retry(audio: OpenAiClient.Audio) {
+        val draft = pendingDraft
+        if (audio.mime != WAV_MIME) return process(audio, draft = draft)
+        setState(State.WORKING)
+        launchWork(audio = audio, draft = draft) {
+            val encoded = withContext(cpu) {
+                fx.encode(audio.bytes.copyOfRange(WAV_HEADER_BYTES, audio.bytes.size), audio.seconds)
+            }
+            // The encoder failed and fell back to WAV: send the one already kept.
+            if (encoded.mime == WAV_MIME) return@launchWork process(audio, draft = draft)
+            withContext(io) { savePending(encoded, unless = { pendingAudio !== audio }) }
+            if (pendingAudio === audio) pendingAudio = encoded
+            process(encoded, draft = draft)
+        }
+    }
+
     /** The work is over (done, failed or given up): nothing is left to cancel or keep. */
     private fun endWork() {
         workAudio = null
@@ -674,6 +695,9 @@ class DictationMachine(
         const val UNDO_WINDOW_MS = 5000L
         const val CONFIRM_WINDOW_MS = 5000L
         const val DRAFT_INTERVAL_MS = 250L
+        private const val WAV_MIME = "audio/wav"
+        /** [WavWriter]'s header, before the PCM. */
+        private const val WAV_HEADER_BYTES = 44
 
         fun clock(seconds: Double): String {
             val s = seconds.toInt()

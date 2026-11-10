@@ -140,9 +140,13 @@ class DictationMachineTest {
             FakeMic(maxSeconds, onLimit, onChunk, onError, micStartError, events).also { it.pcm = nextPcm; mics += it }
         override fun prewarm(apiKey: String) { events += "prewarm" }
         var onEncode: () -> Unit = {}
+        val encodedSizes = mutableListOf<Int>()
+        var encoderFails = false
         override fun encode(pcm: ByteArray, seconds: Double): OpenAiClient.Audio {
             events += "encode"
+            encodedSizes += pcm.size
             onEncode()
+            if (encoderFails) return OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
             return OpenAiClient.Audio.m4a(pcm.copyOf(16), seconds)
         }
 
@@ -509,7 +513,9 @@ class DictationMachineTest {
         tap()
         settle()
         assertEquals(State.IDLE, machine.state)
-        assertEquals("audio.wav", fx.uploads.last().filename)
+        // The retry encodes the WAV (without its header) and sends the small file.
+        assertEquals("audio.m4a", fx.uploads.last().filename)
+        assertEquals(pcm(2.0).size, fx.encodedSizes.last())
         assertEquals("retried", fx.injected.last())
     }
 
@@ -521,6 +527,53 @@ class DictationMachineTest {
         assertEquals(1, fx.haptics)
         settle()
         assertCancelledDuringEncode(uploadsBefore = 0)
+    }
+
+    @Test fun `a WAV kept for a retry is replaced on disk by the encoded file`() {
+        record()
+        tap()
+        machine.onLongPress()
+        settle()
+        assertEquals("audio.wav", fx.onDisk!!.filename)
+        fx.transcribe = { failed() }
+        tap()
+        settle()
+        // Failed again: what waits now is the small file, on disk and in memory.
+        assertEquals(State.RETRY, machine.state)
+        assertEquals("audio.m4a", fx.onDisk!!.filename)
+        fx.events.clear()
+        fx.transcribe = { OpenAiClient.Result("ok", null) }
+        tap()
+        settle()
+        assertEquals("audio.m4a", fx.uploads.last().filename)
+        assertFalse("encode" in fx.events)
+    }
+
+    @Test fun `a long-press while a retry is encoding keeps the WAV`() {
+        record()
+        tap()
+        machine.onLongPress()
+        settle()
+        val wav = fx.onDisk!!
+        fx.onEncode = { machine.onLongPress() }
+        tap()
+        settle()
+        assertEquals(State.RETRY, machine.state)
+        assertSame(wav, fx.onDisk)
+        assertTrue(fx.uploads.isEmpty())
+    }
+
+    @Test fun `a retry whose encode falls back to WAV sends the kept WAV`() {
+        record()
+        tap()
+        machine.onLongPress()
+        settle()
+        val wav = fx.onDisk!!
+        fx.encoderFails = true
+        tap()
+        settle()
+        assertSame(wav, fx.uploads.single())
+        assertEquals(State.IDLE, machine.state)
     }
 
     @Test fun `long-press while encoding after an earlier dictation behaves the same`() {
@@ -577,7 +630,7 @@ class DictationMachineTest {
         tap()
         settle()
         assertEquals(State.IDLE, machine.state)
-        assertEquals("audio.wav", fx.uploads.single().filename)
+        assertEquals("audio.m4a", fx.uploads.single().filename)
         assertEquals("Some words.", fx.draft!!.finished)
     }
 
