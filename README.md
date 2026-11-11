@@ -456,7 +456,7 @@ version; `chore:`, `docs:`, `ci:` and `refactor:` commits do not. The order is: 
 works out the version in a dry run, the merged commit is tested and built as that version and
 signed, and only then does semantic-release tag it and write the GitHub release, to which the
 signed APK, `NOTICE` and `THIRD_PARTY_NOTICES.md` are attached. A failing test means no tag. Build artifacts are kept 3 days (30 for a release run, so its failed jobs can be re-run),
-and a release deletes its own artifacts once the APK is attached. `versionName` is `0.23.0`, and it is owned by semantic-release, so never edit it by
+and a release deletes its own artifacts once the APK is attached. `versionName` is `0.23.1`, and it is owned by semantic-release, so never edit it by
 hand. `versionCode` is derived from it by `scripts/version_code.sh`.
 
 See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
