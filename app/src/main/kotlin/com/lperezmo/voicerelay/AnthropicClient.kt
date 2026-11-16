@@ -7,6 +7,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Base64
+
+/** One finished Ask the Page exchange, sent back as plain text so a follow-up keeps the conversation. */
+class Exchange(val question: String, val answer: String)
 
 /**
  * Blocking Claude (Anthropic Messages API) calls, for the optional cleanup and
@@ -32,6 +36,32 @@ class AnthropicClient(
         val first = post(messagesBody(text, model, instructions, effort, fallback), fallback)
         if (first.httpCode == 400 && (effort != null || fallback)) {
             return post(messagesBody(text, model, instructions, null, false), false)
+        }
+        return first
+    }
+
+    /**
+     * Ask the Page: send [images] (PNG, or JPEG for a large whole-screen picture; the handwritten question first when there is
+     * one, then any circled parts of the screen (or the whole screen); possibly none at all, for a typed
+     * question) with [userText], after the earlier exchanges in
+     * [history] as plain text turns. Same effort setting and fallback opt-in as
+     * [cleanup]; a 400 is retried once without both only when its message is about
+     * them, so the images are not re-sent for a 400 that would fail again.
+     * Blocking; run off the main thread.
+     */
+    fun ask(
+        images: List<ByteArray>,
+        history: List<Exchange>,
+        model: String,
+        system: String,
+        userText: String,
+    ): OpenAiClient.Result {
+        val fallback = model in FALLBACK_MODELS
+        val first = post(askBody(images, history, model, system, userText, ASK_EFFORT, fallback), fallback)
+        // only a 400 about the effort setting or the fallback is worth re-sending the images for
+        val about = first.error.orEmpty().lowercase()
+        if (first.httpCode == 400 && RETRY_HINTS.any { it in about }) {
+            return post(askBody(images, history, model, system, userText, null, false), false)
         }
         return first
     }
@@ -93,6 +123,64 @@ class AnthropicClient(
                 if (effort != null) put("output_config", JSONObject().put("effort", effort))
                 if (fallback) put("fallbacks", "default")
             }
+
+        /** Effort for Ask the Page: kept low, like cleanup, so the answer starts writing quickly. */
+        private const val ASK_EFFORT = "low"
+
+        /** Words in a 400's message that say the effort setting or the fallback was the problem. */
+        private val RETRY_HINTS = listOf("effort", "output_config", "fallback", "anthropic-beta")
+
+        /** "image/jpeg" for bytes that start like a JPEG (FF D8 FF), else "image/png", what every other page image is. */
+        fun mediaTypeOf(image: ByteArray): String =
+            if (image.size >= 3 && image[0] == 0xFF.toByte() && image[1] == 0xD8.toByte() && image[2] == 0xFF.toByte()) {
+                "image/jpeg"
+            } else {
+                "image/png"
+            }
+
+        /**
+         * The Messages request for [ask]: each earlier exchange as a plain text user
+         * turn (the question as read) and assistant turn (the answer), then the new
+         * user turn with one base64 image block per entry of [images], in order (PNG, or
+         * JPEG for a whole-screen picture that would be too big as PNG; see [mediaTypeOf]),
+         * followed by one text block holding [userText]. With no images the turn is that
+         * one text block, which the API takes like any text-only content.
+         */
+        fun askBody(
+            images: List<ByteArray>,
+            history: List<Exchange>,
+            model: String,
+            system: String,
+            userText: String,
+            effort: String?,
+            fallback: Boolean,
+        ): JSONObject = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", MAX_TOKENS)
+            put("system", system)
+            val messages = JSONArray()
+            // The API rejects an empty text turn, so an exchange missing either side is left out.
+            for (turn in history.filter { it.question.isNotBlank() && it.answer.isNotBlank() }) {
+                messages.put(JSONObject().put("role", "user").put("content", turn.question))
+                messages.put(JSONObject().put("role", "assistant").put("content", turn.answer))
+            }
+            val content = JSONArray()
+            val encoder = Base64.getEncoder()
+            for (image in images) {
+                content.put(
+                    JSONObject().put("type", "image").put(
+                        "source",
+                        JSONObject().put("type", "base64").put("media_type", mediaTypeOf(image))
+                            .put("data", encoder.encodeToString(image)),
+                    ),
+                )
+            }
+            content.put(JSONObject().put("type", "text").put("text", userText))
+            messages.put(JSONObject().put("role", "user").put("content", content))
+            put("messages", messages)
+            if (effort != null) put("output_config", JSONObject().put("effort", effort))
+            if (fallback) put("fallbacks", "default")
+        }
 
         /**
          * The text blocks of a Messages response, plus token usage. Thinking blocks

@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Voice Relay</string>
-    <string name="accessibility_description">Shows the floating dictation button and types your dictated text into the field you are using. It watches which text field is focused so it knows where to type, and reads the text of a field only when you dictate into it, fix its grammar, or undo a change there.</string>
+    <string name="accessibility_description">Shows the floating dictation button and types your dictated text into the field you are using. It watches which text field is focused so it knows where to type, and reads the text of a field only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it takes one picture of the screen when the Glyph canvas opens; the picture stays in memory, only the parts you circle (or the whole screen, when you tap the whole-screen button for that question) go to Anthropic with your handwriting, and it is gone when the canvas closes. The name of the app under the canvas and its screen title go with the question, as text.</string>
     <string name="fix_grammar">Fix grammar</string>
     <string name="buttons_tile_label">Voice Relay buttons</string>
     <string name="buttons_tile_shown">Showing</string>
     <string name="buttons_tile_hidden">Hidden</string>
     <string name="buttons_tile_service_off">Service off, tap to fix</string>
     <string name="keys_ime_label">Voice Relay arrows</string>
+    <string name="glyph_launcher_label">Glyph</string>
+    <string name="glyph_tile_label">Glyph canvas</string>
 </resources>

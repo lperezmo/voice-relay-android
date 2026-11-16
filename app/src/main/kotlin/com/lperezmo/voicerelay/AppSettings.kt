@@ -120,6 +120,30 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("glyph_pill", true)
         set(v) = prefs.edit().putBoolean("glyph_pill", v).apply()
 
+    /**
+     * The Glyph pill opens the canvas built into Voice Relay (package .glyph) instead of
+     * the Glyph app, and shows without Glyph installed. On by default ([DEFAULT_GLYPH_BUILT_IN]):
+     * the Glyph app is being retired. Its launcher icon and tile follow this
+     * ([com.lperezmo.voicerelay.glyph.GlyphTileService.setEnabled]).
+     */
+    var glyphBuiltIn: Boolean
+        get() = prefs.getBoolean("glyph_built_in", DEFAULT_GLYPH_BUILT_IN)
+        set(v) = prefs.edit().putBoolean("glyph_built_in", v).apply()
+
+    /**
+     * Ask the Page: drawing "?" on the built-in canvas turns it into a page you write a
+     * question on, and Claude answers there. Uses the Anthropic key. Off by default
+     * ([DEFAULT_ASK_PAGE]).
+     */
+    var askPageEnabled: Boolean
+        get() = prefs.getBoolean("ask_page", DEFAULT_ASK_PAGE)
+        set(v) = prefs.edit().putBoolean("ask_page", v).apply()
+
+    /** The Claude model Ask the Page sends the handwriting and circled parts to. */
+    var askPageModel: String
+        get() = prefs.getString("ask_page_model", null) ?: DEFAULT_ASK_PAGE_MODEL
+        set(v) = prefs.edit().putString("ask_page_model", v).apply()
+
     /** When the Silent + DND hour ends, in epoch ms. 0 means no hour is running. */
     var dndUntil: Long
         get() = prefs.getLong("dnd_until", 0L)
@@ -225,7 +249,10 @@ class AppSettings(context: Context) {
         const val DEFAULT_LIVE_MODEL = "gpt-live-transcribe"
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
         const val DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
+        const val DEFAULT_ASK_PAGE_MODEL = "claude-sonnet-5-5"
         const val DEFAULT_LANGUAGES = ""
+        const val DEFAULT_GLYPH_BUILT_IN = true
+        const val DEFAULT_ASK_PAGE = false
 
         const val SERVICE_OPENAI = "openai"
         const val SERVICE_CLAUDE = "claude"

@@ -147,6 +147,7 @@ class LicensesActivity : AppCompatActivity() {
             Doc("MPL-2.0.txt", "Mozilla Public License 2.0", "Eigen, and the Public Suffix List in OkHttp"),
             Doc("kaldifst-LICENSE.txt", "kaldifst license", "Inside the wake word library"),
             Doc("cmudict-LICENSE.txt", "CMU Pronouncing Dictionary license", "Spells a typed wake phrase as phones"),
+            Doc("DancingScript-OFL.txt", "Dancing Script font license", "SIL Open Font License 1.1, for Ask the Page's handwriting"),
         )
 
         /**

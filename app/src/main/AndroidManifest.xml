@@ -21,6 +21,15 @@
         </intent>
         <!-- Glyph pill: is Glyph installed, and does it answer OPEN_CANVAS. -->
         <package android:name="com.lperezmo.glyph" />
+        <!-- Built-in Glyph canvas: the app picker and "Open an app" (every app with a
+             launcher icon), and the apps its other actions hand off to. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <package android:name="com.lperezmo.phonerelay" />
+        <package android:name="com.lperezmo.fridgelabels" />
+        <package android:name="com.anthropic.claude" />
     </queries>
 
     <application
@@ -123,6 +132,80 @@
                 android:name="android.service.quicksettings.TOGGLEABLE_TILE"
                 android:value="true" />
         </service>
+
+        <!-- Quick Settings tile "Glyph canvas": opens the built-in canvas. Ships off and follows
+             "Use the built-in canvas" (GlyphTileService.sync / setEnabled); only the system can bind it. -->
+        <service
+            android:name=".glyph.GlyphTileService"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/glyph_ic_tile"
+            android:label="@string/glyph_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Built-in Glyph canvas (package .glyph), opened by the Glyph pill when "Use the
+             built-in canvas" is on. Nothing here is exported except the launcher alias and
+             the tile, which exist only while that switch is on. The soft input mode is for Ask
+             the Page's text field: no keyboard until it is opened, and IME insets reach the
+             views (the canvas draws edge to edge and docks the field above the keyboard itself). -->
+        <activity
+            android:name=".glyph.CanvasActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Glyph.Canvas"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+
+        <!-- The "Glyph" launcher icon: opens the canvas above. Ships off; GlyphTileService.sync
+             turns it on when "Use the built-in canvas" is on (the default) the first time Voice
+             Relay or the canvas opens, and setEnabled follows the switch. Exported so the launcher can
+             start it; the canvas activity itself stays unexported. -->
+        <activity-alias
+            android:name=".glyph.CanvasLauncher"
+            android:targetActivity=".glyph.CanvasActivity"
+            android:label="@string/glyph_launcher_label"
+            android:icon="@mipmap/glyph_ic_launcher"
+            android:roundIcon="@mipmap/glyph_ic_launcher"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity
+            android:name=".glyph.SettingsActivity"
+            android:exported="false"
+            android:label="@string/glyph_settings_label"
+            android:theme="@style/Theme.Glyph"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".glyph.TeachActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Glyph"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- "Meant something else?": the sheet behind the undo X, over the app a match opened. -->
+        <activity
+            android:name=".glyph.UndoActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Glyph.Sheet"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:noHistory="true" />
+
+        <!-- Holds the undo X on screen for a few seconds after a match; not a foreground service. -->
+        <service
+            android:name=".glyph.UndoOverlayService"
+            android:exported="false" />
 
         <receiver
             android:name=".DndExpiryReceiver"

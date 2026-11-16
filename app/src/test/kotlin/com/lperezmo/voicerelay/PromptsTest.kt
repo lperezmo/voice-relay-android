@@ -33,7 +33,7 @@ class PromptsTest {
     }
 
     @Test fun `built-in prompts ask for no em dashes, and the fix for no final period`() {
-        for (prompt in listOf(Prompts.SIMPLE, Prompts.DEV, Prompts.TYPED)) {
+        for (prompt in listOf(Prompts.SIMPLE, Prompts.DEV, Prompts.TYPED, Prompts.PAGE)) {
             assertTrue(prompt.contains("Never use em dashes"))
             assertTrue(!prompt.contains('—'))
         }

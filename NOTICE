@@ -21,6 +21,12 @@ downloaded at build time by scripts/fetch_sherpa.sh. Both are bundled in the
 APK. sherpa-onnx is licensed under the Apache License, Version 2.0; ONNX
 Runtime under the MIT License.
 
+Ask the Page writes its answers in the Dancing Script font
+(https://github.com/googlefonts/DancingScript), Copyright 2016 The Dancing
+Script Project Authors, with Reserved Font Name 'Dancing Script', bundled
+unmodified as app/src/main/res/font/glyph_dancing_script.ttf and licensed
+under the SIL Open Font License, Version 1.1 (licenses/DancingScript-OFL.txt).
+
 THIRD_PARTY_NOTICES.md lists all third-party software included in the app, with
 its license, version and source, and the licenses/ folder holds the full license
 texts that are not reproduced there. The app shows the same files under

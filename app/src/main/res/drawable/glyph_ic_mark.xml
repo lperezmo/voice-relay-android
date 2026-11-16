@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The spiral mark on its own (no tile), cropped to its bounds, for the Settings header. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="36dp"
+    android:viewportWidth="74"
+    android:viewportHeight="66">
+    <group
+        android:translateX="-10"
+        android:translateY="-23">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#E8B74A"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M50,50 c3,-3 8,-1 8,4 c0,7 -9,11 -16,8 c-9,-4 -12,-16 -6,-25 c8,-11 25,-12 35,-3 c12,11 11,31 -1,42 c-14,13 -38,10 -49,-6" />
+        <path
+            android:fillColor="#FFF3C4"
+            android:pathData="M16.5,70 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 Z M11.2,64 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 Z M25.2,78 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 Z" />
+    </group>
+</vector>

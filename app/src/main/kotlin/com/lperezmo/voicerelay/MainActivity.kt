@@ -11,6 +11,7 @@ import android.widget.ScrollView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import com.lperezmo.voicerelay.glyph.GlyphTileService
 
 /**
  * The settings screen: a column of cards. Each card builds and redraws its
@@ -28,6 +29,9 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val settings = AppSettings(this)
+        // The Glyph launcher icon and tile ship disabled while the built-in canvas defaults to on:
+        // line them up with the setting once, without the switch being touched.
+        GlyphTileService.sync(this)
         val secrets = SecretStore(this)
         val usage = UsageStore(this)
         val ui = SettingsUi(this)
