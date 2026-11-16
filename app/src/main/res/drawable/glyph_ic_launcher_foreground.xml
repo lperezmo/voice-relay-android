@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spiral: one gold stroke unfurling from the centre into a spark with two satellite dots.
+     Copied from the Glyph app; source mark is its docs/icon/glyph-spiral.svg (100 x 100); scaled 0.88 into the 108 dp canvas
+     so the content stays about 63 dp wide, inside the 66 dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.88"
+        android:scaleY="0.88"
+        android:translateX="12.64"
+        android:translateY="4.72">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#E8B74A"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M50,50 c3,-3 8,-1 8,4 c0,7 -9,11 -16,8 c-9,-4 -12,-16 -6,-25 c8,-11 25,-12 35,-3 c12,11 11,31 -1,42 c-14,13 -38,10 -49,-6" />
+        <path
+            android:fillColor="#FFF3C4"
+            android:pathData="M16.5,70 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 Z M11.2,64 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 Z M25.2,78 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 Z" />
+    </group>
+    <!-- A teal dot, top right: this Glyph icon is the one inside Voice Relay (its teal), not the old Glyph app. -->
+    <path
+        android:fillColor="#121316"
+        android:pathData="M68.5,31 a8.5,8.5 0 1,0 17,0 a8.5,8.5 0 1,0 -17,0 Z" />
+    <path
+        android:fillColor="#2DD4BF"
+        android:pathData="M71.5,31 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0 Z" />
+</vector>

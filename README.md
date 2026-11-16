@@ -24,7 +24,11 @@ It also has a few extras, all off until you turn them on:
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
 - **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
-- **Glyph pill**: opens the shape canvas of Glyph (a separate shape-launcher app) from below the mic, when Glyph is installed.
+- **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
+  default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
+  or, with that switched off, the one of Glyph (a separate shape-launcher app) when it is installed.
+- **Ask the Page**, on the built-in canvas: draw ?, handwrite a question, circle what it is about,
+  and Claude (with your own Anthropic key) writes the answer on the page in gold cursive.
 
 There is no server in between and no account to create: the app talks straight to OpenAI with
 your key. Dictation needs an internet connection; the wake word does not.
@@ -88,13 +92,13 @@ repository's releases (see [Signing](#signing-and-forks)).
 | Permission | Needed for | Asked when |
 |---|---|---|
 | Microphone | Dictation and the wake word | First launch |
-| Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there | Setup step 3 |
+| Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
 | Notifications | The wake word's "listening" notification (Android 13+) | Turning on the wake word |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
 | Alarms and reminders | Ending the one-hour Do Not Disturb preset on time (optional) | Tapping the row in the Volume presets section |
 | Input method (Voice Relay arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
-| Internet | Requests to OpenAI | Granted at install |
+| Internet | Requests to OpenAI, and to Anthropic for Claude cleanup and Ask the Page | Granted at install |
 
 Why a keyboard, and why accessibility: see [Why does it register a keyboard?](#why-does-it-register-a-keyboard)
 and [SECURITY.md](SECURITY.md).
@@ -306,14 +310,85 @@ touched.
 
 ## Glyph pill
 
-When Glyph (a separate shape-launcher app) is installed, a small **Glyph** pill (a gold star and "Glyph") rides under the
-dictate button, mirroring the volume pill above it. Tap it, or press it and pull down, and Glyph's
-see-through canvas opens over the current app (the pull fires as soon as the finger has moved about
+A small **Glyph** pill (a gold star and "Glyph") rides under the dictate button, mirroring the
+volume pill above it. Tap it, or press it and pull down, and a see-through shape canvas opens over
+the current app (the pull fires as soon as the finger has moved about
 12dp down). Lift, then draw your shape on the canvas. The pill sparkles gold when it fires.
 
-It opens Glyph with the `com.lperezmo.glyph.OPEN_CANVAS` intent, so it needs a Glyph build that
-has it; with no Glyph, or an older one, the pill stays hidden. Turn it off with **Show the Glyph
-pill**. A swipe down on the mic itself is not a trigger, because any drag there moves the button.
+By default the pill opens the [built-in canvas](#the-built-in-glyph-canvas). With **Use the
+built-in canvas** turned off, it opens Glyph with the `com.lperezmo.glyph.OPEN_CANVAS` intent, so
+it needs a Glyph build that has it; with no Glyph, or an older one, the pill stays hidden. Turn it off with **Show the Glyph pill**. A swipe down on the
+mic itself is not a trigger, because any drag there moves the button.
+
+### The built-in Glyph canvas
+
+On by default (the separate Glyph app is being retired). With **Use the built-in canvas** on
+(under **Show the Glyph pill**) the pill opens Voice Relay's own copy of the Glyph canvas, so the
+Glyph app is not needed; the pill then shows whether Glyph is installed or not. It works the same way: draw a shape, and the action
+you gave it runs (open an app or a link, send the clipboard to Phone Relay, turn the wake word on
+or off, print a date label). **Shapes and settings** is where you teach shapes, pick what each one
+does and tune recognition. The shapes and settings are the built-in canvas's own; they are not
+copied from the Glyph app.
+
+While the switch is on, the canvas also gets:
+
+- a **Glyph** icon in the app drawer, with the gold spiral (opened from it, the canvas also shows a
+  **Shapes and settings** handle at the bottom), and
+- a **Glyph canvas** Quick Settings tile that closes the shade and opens the canvas (from the lock
+  screen it asks you to unlock first).
+
+They appear the first time Voice Relay or the canvas opens after install, and disappear again when
+you turn the switch off. To list apps for **Open an app**, the canvas
+can see every installed app that has a launcher icon (see [PRIVACY.md](PRIVACY.md)).
+
+### Ask the Page
+
+Off by default, and only there while the built-in canvas is on. Turn on **Ask the Page**, and give
+it an Anthropic API key when it asks (the same key as [Claude for cleanup](#claude-for-cleanup)).
+Then:
+
+1. Open the canvas and draw **?** (the shape whose action is Ask the Page). The canvas stays open
+   and becomes a page.
+2. Handwrite your question anywhere on it.
+3. To show Claude part of the screen, draw a large closed loop around it: the loop becomes a
+   **lens**, and the screen inside it lights up. Tap inside a loop to switch it between lens and
+   plain ink. Up to 4 lenses at a time.
+
+   Or tap the whole-screen button near the top-left corner to show Claude the entire screen
+   instead: the dim lifts everywhere and a thin gold border runs round the edge. The lenses are
+   not needed then (new loops stay ink, and lenses you lit wait for when you turn it off). It is
+   for one question only: it turns itself off as soon as the question is sent.
+4. Stop writing. After 2.5 seconds (a gold ring fills; more ink starts it over) the page is sent.
+   The ring only fills once there is enough writing to be a question: a few dots, one dash or a
+   small squiggle are not sent, and after the same pause the page says **Write a question first**.
+   The marks stay on the page.
+
+Rather type? Tap the keyboard button in the bottom-left corner of the page. A text field opens
+above your keyboard (any keyboard, with swipe typing and voice input). Type the question and tap
+Send; lenses you drew still go with it, and handwriting you also wrote goes too when it is enough
+to be a question. While the field is open nothing is sent by itself. Back, a tap on the keyboard
+button in the field, or (after an answer) a tap on the page puts the field away, keeping any ink.
+
+The answer is written out on the page in gold cursive, letter by letter. **Copy** puts the question
+and the answer on the clipboard. Write again to ask a follow-up in the same conversation; closing
+the canvas ends it.
+
+What goes to Anthropic is your handwriting, drawn as light strokes on black, or the question you
+typed, as text, and, for each lit lens, the part of the screen inside the loop with everything
+outside it blacked out, or, when you tapped the whole-screen button for that question, one picture
+of the whole screen instead. Nothing else of the screen is sent. What you type is not stored or logged. To have something to light up, the accessibility service takes one picture
+of the screen as the canvas opens (before the canvas dims it). That picture is kept only in memory,
+never written to storage or the logs, and dropped when the canvas closes. Without Ask the Page on,
+no picture is taken.
+
+So Claude knows where you are, the question also carries one line of text naming the app under the
+canvas and its screen title, such as `The reader is in the app "Modes and Routines"
+(com.samsung.android.app.routines), on the screen "Driving".` The page's hint says **Asking about**
+that app, so you can see it is shared. Only the app's name, package and window title are read,
+never anything written in the app; they are kept in memory with the picture and dropped with it.
+Opened from the Quick Settings tile, the canvas takes no picture and names no app, since the shade
+could still be in the way. Each question is one request to Claude Sonnet 5.5 with a few small images,
+billed to your Anthropic account.
 
 ## Settings
 
@@ -325,7 +400,7 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Languages | empty (auto-detect) | Two-letter codes, such as `en, es`. Sent as hints so mixed-language dictation is recognized. |
 | Vocabulary | empty | Names and terms to spell exactly, one per line or comma-separated; a whole list can be pasted in. Put the ones you say most first: the transcription model gets the first ones that fit about 800 characters (its hint is short), and the cleanup and grammar-fix instructions get all of them, with an instruction never to swap one for a word that sounds like it ("bun", not "bon"). |
 | Cleanup service | OpenAI | **Claude, by Anthropic** sends cleanup and grammar fixes to Claude instead. Speech to text always stays on OpenAI. See [Claude for cleanup](#claude-for-cleanup). |
-| Anthropic API key | none | Shown when Claude is the cleanup service. Stored encrypted like the OpenAI key. |
+| Anthropic API key | none | Shown when Claude is the cleanup service, and under Ask the Page when it is on. One key for both. Stored encrypted like the OpenAI key. |
 | Cleanup model | `gpt-6-luna`, or `claude-sonnet-5-5` for Claude | Also used for grammar fixes, with the lowest reasoning effort for speed. The picker lists the models the selected service's key can use. |
 | Clean up transcript | on | Fixes grammar, punctuation, and filler words after transcription. |
 | Cleanup prompt | Simple | **Dev** also turns spoken commands into shell commands; **Custom** is your own text. |
@@ -338,7 +413,9 @@ pill**. A swipe down on the mic itself is not a trigger, because any drag there 
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
-| Show the Glyph pill | on | Hidden anyway while Glyph is not installed. See [Glyph pill](#glyph-pill). |
+| Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
+| Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
+| Ask the Page | off | Shown while the built-in canvas is on. Draw ? and write a question; Claude answers on the page. See [Ask the Page](#ask-the-page). |
 
 ### Claude for cleanup
 
@@ -366,6 +443,9 @@ licenses** shows the app's license and the notices for the software it includes.
   when Claude is the cleanup service.
 - **No backend.** Requests go straight to OpenAI (and Anthropic, if you chose Claude) with your
   keys, with `store: false` on OpenAI cleanup and grammar-fix requests. No analytics, no accounts.
+- **Ask the Page:** your handwriting or the question you typed, the circled parts of the screen
+  (or the whole screen, when you tap the whole-screen button for that question), and the name and screen title of the app under the canvas (as text) go to Anthropic. The one picture of the screen it
+  takes when the canvas opens stays in memory and is gone when the canvas closes.
 - **The wake word and the arrows keyboard send nothing anywhere.**
 - **Logs** contain sizes, timings and error messages only, never your audio or text.
 
@@ -481,6 +561,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
 | `GlyphPillView.kt`, `GlyphGesture.kt` | The Glyph pill below the button, its tap and pull-down, and the sparkle |
+| `glyph/` | The built-in Glyph canvas: the canvas, shape recognizer (`recognizer/`), actions, Shapes and settings, the launcher icon alias and `GlyphTileService.kt`, and Ask the Page (lenses, the screen picture, the images sent, the cursive answer) |
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |

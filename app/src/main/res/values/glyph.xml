@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The built-in Glyph canvas (package .glyph), moved from the Glyph app. Its own dark palette,
+     whatever the system theme; the views are built in code (glyph/Ui.kt). -->
+<resources>
+    <string name="glyph_settings_label">Glyph settings</string>
+
+    <color name="glyph_page">#121316</color>
+    <color name="glyph_gold">#F2C46D</color>
+
+    <style name="Base.Theme.Glyph" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@color/glyph_page</item>
+        <item name="android:colorAccent">@color/glyph_gold</item>
+        <item name="android:colorPrimary">@color/glyph_gold</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <!-- Shapes and settings, and teaching a shape. -->
+    <style name="Theme.Glyph" parent="Base.Theme.Glyph" />
+
+    <!-- The canvas: a see-through window over whatever is open, no open/close animation. -->
+    <style name="Base.Theme.Glyph.Canvas" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+        <item name="android:colorAccent">@color/glyph_gold</item>
+    </style>
+
+    <style name="Theme.Glyph.Canvas" parent="Base.Theme.Glyph.Canvas" />
+
+    <!-- The undo sheet: like the canvas, see-through over the app a match opened. -->
+    <style name="Theme.Glyph.Sheet" parent="Base.Theme.Glyph.Canvas" />
+</resources>

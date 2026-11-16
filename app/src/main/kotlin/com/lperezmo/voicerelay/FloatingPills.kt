@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
+import com.lperezmo.voicerelay.glyph.CanvasActivity
 
 /**
  * The two optional pills that ride with the dictate button: the volume pill
@@ -241,9 +242,13 @@ class FloatingPills(
 
     // --- Glyph pill ---
 
-    /** Shows the Glyph pill when the setting is on and Glyph is installed, else hides it. Safe to call at any time. */
+    /**
+     * Shows the Glyph pill when the setting is on and Glyph is installed (or the built-in
+     * canvas is on, which needs no Glyph app), else hides it. Safe to call at any time.
+     */
     fun refreshGlyph() {
-        if (settings.glyphPillEnabled && !buttonsHidden() && GlyphPillView.glyphInstalled(service)) showGlyphPill() else hideGlyphPill()
+        val canvasThere = settings.glyphBuiltIn || GlyphPillView.glyphInstalled(service)
+        if (settings.glyphPillEnabled && !buttonsHidden() && canvasThere) showGlyphPill() else hideGlyphPill()
     }
 
     private fun showGlyphPill() {
@@ -270,9 +275,20 @@ class FloatingPills(
         glyphParams = null
     }
 
-    /** Opens Glyph's canvas in its own task, over whatever is on screen. */
+    /**
+     * Opens Glyph's canvas in its own task, over whatever is on screen: the built-in one
+     * when [AppSettings.glyphBuiltIn] is on, else the Glyph app's.
+     */
     private fun openGlyph() {
         hideTrack()
+        if (settings.glyphBuiltIn) {
+            service.startActivity(
+                Intent(service, CanvasActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            )
+            glyphView?.sparkle()
+            return
+        }
         try {
             service.startActivity(GlyphPillView.openCanvasIntent())
             glyphView?.sparkle()

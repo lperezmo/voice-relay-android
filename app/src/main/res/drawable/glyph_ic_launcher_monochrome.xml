@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer: the spiral stroke alone, white; the launcher tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.88"
+        android:scaleY="0.88"
+        android:translateX="12.64"
+        android:translateY="4.72">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="6.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M50,50 c3,-3 8,-1 8,4 c0,7 -9,11 -16,8 c-9,-4 -12,-16 -6,-25 c8,-11 25,-12 35,-3 c12,11 11,31 -1,42 c-14,13 -38,10 -49,-6" />
+    </group>
+</vector>

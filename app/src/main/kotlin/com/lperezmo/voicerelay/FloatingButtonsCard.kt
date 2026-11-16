@@ -3,7 +3,10 @@ package com.lperezmo.voicerelay
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.view.View
 import android.widget.LinearLayout
+import com.lperezmo.voicerelay.glyph.GlyphTileService
+import com.lperezmo.voicerelay.glyph.SettingsActivity as GlyphSettingsActivity
 
 /** The extra floating buttons beside the mic: the arrow joystick, the volume presets pill and the Glyph pill. */
 class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : SettingsCard {
@@ -16,6 +19,10 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     private val dndRow: SettingsUi.StatusRow
     private val exactRow: SettingsUi.StatusRow
     private val glyphRow: SettingsUi.SwitchRow
+    private val glyphBuiltInRow: SettingsUi.SwitchRow
+    private val glyphShapesRow: SettingsUi.Row
+    private val askPageRow: SettingsUi.SwitchRow
+    private val askPageKeyRow: SettingsUi.Row
 
     init {
         val ui = env.ui
@@ -61,6 +68,26 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             env.refresh()
         }
         card.addView(glyphRow.view)
+        glyphBuiltInRow = ui.switchRow("Use the built-in canvas", "") {
+            settings.glyphBuiltIn = !settings.glyphBuiltIn
+            GlyphTileService.setEnabled(activity, settings.glyphBuiltIn)
+            WhisperAccessibilityService.instance?.refreshGlyphPill()
+            env.refresh()
+        }
+        card.addView(glyphBuiltInRow.view)
+        glyphShapesRow = ui.row(
+            "Shapes and settings",
+            "Teach shapes, pick what each one does, and tune recognition.",
+        ) { env.open(Intent(activity, GlyphSettingsActivity::class.java)) }
+        card.addView(glyphShapesRow.view)
+        askPageRow = ui.switchRow("Ask the Page", "") {
+            settings.askPageEnabled = !settings.askPageEnabled
+            env.refresh()
+            if (settings.askPageEnabled && env.secrets.getAnthropicKey().isBlank()) env.dialogs.promptAnthropicKey()
+        }
+        card.addView(askPageRow.view)
+        askPageKeyRow = ui.row("Anthropic API key", "") { env.dialogs.promptAnthropicKey() }
+        card.addView(askPageKeyRow.view)
     }
 
     override fun refresh() {
@@ -84,11 +111,39 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         else "Off: DND may end up to 10 minutes late. Tap to allow alarms.")
 
         val glyphInstalled = GlyphPillView.glyphInstalled(activity)
+        val builtIn = settings.glyphBuiltIn
         glyphRow.switch.isChecked = settings.glyphPillEnabled
         glyphRow.subtitle.text = when {
+            builtIn && settings.glyphPillEnabled -> "Tap the pill below the mic, or pull it down, to open the shape canvas and draw a shape."
+            builtIn -> "Off. A pill below the mic that opens the shape canvas."
             !glyphInstalled -> "Glyph is not installed, so the pill is hidden."
             settings.glyphPillEnabled -> "Tap the pill below the mic, or pull it down, to open Glyph's canvas and draw a shape."
             else -> "Off. A pill below the mic that opens Glyph's shape canvas."
+        }
+        glyphBuiltInRow.switch.isChecked = builtIn
+        glyphBuiltInRow.subtitle.text = if (builtIn)
+            "On (the default). The pill opens Voice Relay's own canvas; the Glyph app is not needed."
+        else "Off. The pill opens the Glyph app's canvas. Turn on to draw shapes without it."
+        glyphShapesRow.view.visibility = if (builtIn) View.VISIBLE else View.GONE
+        // The launcher icon and the tile follow the switch; this also catches installs
+        // where the switch was turned on before they existed.
+        GlyphTileService.setEnabled(activity, builtIn)
+
+        val askPage = settings.askPageEnabled
+        val anthropicKey = env.secrets.getAnthropicKey()
+        askPageRow.view.visibility = if (builtIn) View.VISIBLE else View.GONE
+        askPageRow.switch.isChecked = askPage
+        askPageRow.subtitle.text = when {
+            !askPage -> "Off. Draw ? on the canvas and write a question; Claude answers on the page."
+            anthropicKey.isBlank() -> "On, but it needs your Anthropic API key below."
+            else -> "Draw ? on the canvas, write a question and circle what it is about. " +
+                "Your handwriting, the circled parts of the screen (or the whole screen, if you tap its button) and the app's name go to Anthropic."
+        }
+        askPageKeyRow.view.visibility = if (builtIn && askPage) View.VISIBLE else View.GONE
+        askPageKeyRow.subtitle.text = when {
+            anthropicKey.isBlank() -> "Tap to set. Ask the Page uses your own Anthropic key."
+            anthropicKey.length > 12 -> "${anthropicKey.take(7)}...${anthropicKey.takeLast(4)}"
+            else -> "Set"
         }
     }
 }

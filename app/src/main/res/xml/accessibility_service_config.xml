@@ -3,6 +3,7 @@
     android:accessibilityEventTypes="typeViewFocused|typeViewTextSelectionChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:notificationTimeout="100"
     android:description="@string/accessibility_description" />

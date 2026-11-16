@@ -15,8 +15,9 @@ Contents:
 2. [Wake word model](#2-wake-word-model)
 3. [Wake word pronunciation dictionary (CMUdict)](#3-wake-word-pronunciation-dictionary-cmudict)
 4. [Java and Kotlin libraries](#4-java-and-kotlin-libraries)
-5. [Upstream project](#5-upstream-project)
-6. [License texts](#6-license-texts)
+5. [Dancing Script font](#5-dancing-script-font)
+6. [Upstream project](#6-upstream-project)
+7. [License texts](#7-license-texts)
 
 ## 1. Wake word native library (sherpa-onnx)
 
@@ -223,13 +224,27 @@ All of these are licensed under the Apache License, Version 2.0 (full text in
 OkHttp contains a copy of the Public Suffix List (https://publicsuffix.org/), which is licensed
 under the Mozilla Public License, version 2.0 ([`licenses/MPL-2.0.txt`](licenses/MPL-2.0.txt)).
 
-## 5. Upstream project
+## 5. Dancing Script font
+
+Ask the Page writes its answers in **Dancing Script**, bundled as
+`app/src/main/res/font/glyph_dancing_script.ttf`. It is the variable-weight file
+`ofl/dancingscript/DancingScript[wght].ttf` from the Google Fonts repository
+(https://github.com/google/fonts/tree/7380f7cebbf2250460c23fd301b51bcbab162edf/ofl/dancingscript,
+built from https://github.com/googlefonts/DancingScript at commit `291f87c`), renamed because
+Android resource names must be lowercase, and otherwise unmodified.
+
+- Copyright 2016 The Dancing Script Project Authors (https://github.com/googlefonts/DancingScript),
+  with Reserved Font Name 'Dancing Script'.
+- License: SIL Open Font License, Version 1.1. Its full text, as published with the font, is in
+  [`licenses/DancingScript-OFL.txt`](licenses/DancingScript-OFL.txt).
+
+## 6. Upstream project
 
 Voice Relay is a modified version of Phone Whisper by kafkasl
 (https://github.com/kafkasl/phone-whisper), licensed under the Apache License, Version 2.0. See
 [NOTICE](NOTICE).
 
-## 6. License texts
+## 7. License texts
 
 | File | Used by |
 |---|---|
@@ -238,3 +253,4 @@ Voice Relay is a modified version of Phone Whisper by kafkasl
 | [`licenses/MPL-2.0.txt`](licenses/MPL-2.0.txt) | Eigen, the Public Suffix List in OkHttp |
 | [`licenses/kaldifst-LICENSE.txt`](licenses/kaldifst-LICENSE.txt) | kaldifst |
 | [`licenses/cmudict-LICENSE.txt`](licenses/cmudict-LICENSE.txt) | The CMU Pronouncing Dictionary |
+| [`licenses/DancingScript-OFL.txt`](licenses/DancingScript-OFL.txt) | The Dancing Script font |

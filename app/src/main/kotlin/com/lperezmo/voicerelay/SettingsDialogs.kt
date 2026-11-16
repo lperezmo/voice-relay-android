@@ -57,6 +57,11 @@ class SettingsDialogs(
                     "To know where to type, it watches which text field is focused, in every app. " +
                     "It reads a field's text only when you dictate into it, fix its grammar, or undo " +
                     "a change there. It does not record or store screen content.\n\n" +
+                    "If you turn on Ask the Page, it takes one picture of the screen when the Glyph canvas " +
+                    "opens. The picture stays in memory, only the parts you circle (or the whole screen, when you " +
+                    "tap the whole-screen button for that question) go to Anthropic with your " +
+                    "handwriting, and it is gone when the canvas closes. The name of the app under the canvas " +
+                    "and its screen title go with the question, as text.\n\n" +
                     "Your audio goes only to OpenAI. The text it cleans up or fixes goes to OpenAI too, or to " +
                     "Anthropic if you choose Claude for cleanup. Both use your own API keys."
             )
@@ -93,7 +98,8 @@ class SettingsDialogs(
         val input = editText("sk-ant-...", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         AlertDialog.Builder(activity)
             .setTitle("Anthropic API key")
-            .setMessage("Used only for Claude cleanup and the grammar fix; speech to text still uses your OpenAI key. " +
+            .setMessage("Used only for Claude cleanup, the grammar fix and Ask the Page on the Glyph canvas; " +
+                "speech to text still uses your OpenAI key. " +
                 "Stored encrypted on this device. Leave empty and save to remove the stored key.")
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
