@@ -20,6 +20,10 @@
 
     <!-- Wake word: open Claude's assistant with ACTION_VOICE_ASSIST (package visibility). -->
     <queries>
+        <!-- "Hey timer": the phone's text-to-speech engine, to say the answer out loud. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VOICE_ASSIST" />
         </intent>
@@ -108,6 +112,9 @@
                 <action android:name="com.lperezmo.voicerelay.WAKE_OFF" />
                 <action android:name="com.lperezmo.voicerelay.CLAUDE_VOICE" />
                 <action android:name="com.lperezmo.voicerelay.WAKE_TOGGLE" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_ON" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_OFF" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_TOGGLE" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_HIDE" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_SHOW" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_TOGGLE" />

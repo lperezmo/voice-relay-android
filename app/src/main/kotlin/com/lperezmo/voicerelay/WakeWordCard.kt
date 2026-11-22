@@ -10,7 +10,12 @@ import com.google.android.material.slider.Slider
  * resuming music and the overlay permission. [onToggle] asks for permissions
  * first, so the activity owns it.
  */
-class WakeWordCard(private val env: SettingsEnv, parent: LinearLayout, onToggle: () -> Unit) : SettingsCard {
+class WakeWordCard(
+    private val env: SettingsEnv,
+    parent: LinearLayout,
+    onToggle: () -> Unit,
+    onToggleTimer: () -> Unit,
+) : SettingsCard {
     private val settings = env.settings
     private val activity = env.activity
 
@@ -21,6 +26,11 @@ class WakeWordCard(private val env: SettingsEnv, parent: LinearLayout, onToggle:
     private val slider: Slider
     private val resumeRow: SettingsUi.SwitchRow
     private val overlayRow: SettingsUi.StatusRow
+    private val listeningTitle: View
+    private val timerRow: SettingsUi.SwitchRow
+    private val timerPhraseRow: SettingsUi.Row
+    private val timerModelRow: SettingsUi.Row
+    private val timerKeysRow: SettingsUi.StatusRow
 
     init {
         val ui = env.ui
@@ -31,9 +41,36 @@ class WakeWordCard(private val env: SettingsEnv, parent: LinearLayout, onToggle:
         container = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         phraseRow = ui.row("Wake phrase", "") { env.dialogs.promptWakePhrase() }
         container.addView(phraseRow.view)
+        resumeRow = ui.switchRow(
+            "Resume music after Claude",
+            "If music was playing when you said the wake word, press play again once Claude is done.",
+        ) {
+            settings.wakeResumeMedia = !settings.wakeResumeMedia
+            env.refresh()
+        }
+        container.addView(resumeRow.view)
+        overlayRow = ui.statusRow("Display over other apps", "") { env.dialogs.showOverlayDisclosure() }
+        container.addView(overlayRow.view)
+        card.addView(container)
+
+        card.addView(ui.sectionTitle("Timers"))
+        timerRow = ui.switchRow("Timers by voice", "") { onToggleTimer() }
+        card.addView(timerRow.view)
+        timerPhraseRow = ui.row("Timer phrase", "") { env.dialogs.promptTimerPhrase() }
+        card.addView(timerPhraseRow.view)
+        timerModelRow = ui.row("Timer model", "") { env.dialogs.pickTimerModel() }
+        card.addView(timerModelRow.view)
+        timerKeysRow = ui.statusRow("API keys", "") {
+            if (env.secrets.getApiKey().isBlank()) env.dialogs.promptApiKey() else env.dialogs.promptAnthropicKey()
+        }
+        card.addView(timerKeysRow.view)
+
+        // One listener hears both phrases, so one sensitivity serves both.
+        listeningTitle = ui.sectionTitle("Listening")
+        card.addView(listeningTitle)
         sensitivityRow = ui.row("Sensitivity", "")
         sensitivityRow.view.setPadding(ui.dp(SettingsUi.PAD_H), ui.dp(12), ui.dp(SettingsUi.PAD_H), 0)
-        container.addView(sensitivityRow.view)
+        card.addView(sensitivityRow.view)
         slider = Slider(activity).apply {
             valueFrom = WakeWord.MIN_SENSITIVITY.toFloat()
             valueTo = WakeWord.MAX_SENSITIVITY.toFloat()
@@ -51,21 +88,10 @@ class WakeWordCard(private val env: SettingsEnv, parent: LinearLayout, onToggle:
                 override fun onStopTrackingTouch(slider: Slider) = WakeWordService.reload(activity)
             })
         }
-        container.addView(slider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+        card.addView(slider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginStart = ui.dp(4)
             marginEnd = ui.dp(4)
         })
-        resumeRow = ui.switchRow(
-            "Resume music after Claude",
-            "If music was playing when you said the wake word, press play again once Claude is done.",
-        ) {
-            settings.wakeResumeMedia = !settings.wakeResumeMedia
-            env.refresh()
-        }
-        container.addView(resumeRow.view)
-        overlayRow = ui.statusRow("Display over other apps", "") { env.dialogs.showOverlayDisclosure() }
-        container.addView(overlayRow.view)
-        card.addView(container)
     }
 
     /** The service reports in a moment after it starts; show that in the subtitle. */
@@ -95,6 +121,44 @@ class WakeWordCard(private val env: SettingsEnv, parent: LinearLayout, onToggle:
             "\"$phrase\": ${keywords.first().phones.joinToString(" ")}" +
             (if (keywords.size > 1) " and ${keywords.size - 1} more way${if (keywords.size > 2) "s" else ""} to say it" else "") +
             (if (!wake.fellBack && settings.wakePhones.isNotEmpty()) ", phones typed by hand" else "") + ". Tap to change."
+        val timerOn = settings.timerWakeEnabled
+        val timer = WakeWordService.effectiveTimer(activity)
+        val openAiKey = env.secrets.getApiKey().isNotBlank()
+        val anthropicKey = env.secrets.getAnthropicKey().isNotBlank()
+        timerRow.switch.isChecked = timerOn
+        timerRow.title.text = "Timers by voice: ${timer.phrase}"
+        timerRow.subtitle.text = when {
+            timerOn && WakeWord.shadowed(if (on) keywords else null, timer.keywords) ->
+                "On, but ${timer.phrase} sounds the same as the wake phrase, so it opens Claude. Pick a different timer phrase below."
+            !timerOn -> "Off. Say ${timer.phrase}, wait for the tone, then ask for a timer any way you like: " +
+                "\"10 minutes\", \"for 10:50\", \"the pasta, 9 minutes\". The phone answers out loud."
+            !openAiKey || !anthropicKey -> "On, but it needs both API keys below."
+            WakeWordService.running -> "On. After the tone, what you say goes to OpenAI to be written down and to Claude to " +
+                "work out the timer. Works with the screen locked."
+            else -> "On, but not listening right now. Turn it off and on again to restart."
+        }
+        val timerDetail = if (timerOn) View.VISIBLE else View.GONE
+        timerPhraseRow.view.visibility = timerDetail
+        timerPhraseRow.subtitle.text = (if (timer.fellBack) "\"${settings.timerPhrase}\" no longer fits the wake word model, " +
+            "so it listens for ${timer.phrase}. " else "") +
+            "\"${timer.phrase}\": ${timer.keywords.first().phones.joinToString(" ")}" +
+            (if (timer.keywords.size > 1) " and ${timer.keywords.size - 1} more way${if (timer.keywords.size > 2) "s" else ""} to say it" else "") +
+            ". Tap to change."
+        timerModelRow.view.visibility = timerDetail
+        timerModelRow.subtitle.text = "${AnthropicClient.displayName(settings.timerModel)}. Claude works out how long the timer runs."
+        timerKeysRow.view.visibility = timerDetail
+        timerKeysRow.show(
+            openAiKey && anthropicKey,
+            when {
+                !openAiKey -> "Needs your OpenAI key, to write down what you say. Tap to set it."
+                !anthropicKey -> "Needs your Anthropic key, for Claude. Tap to set it."
+                else -> "Both keys are set. At most ${DailyCap.TIMER_REQUESTS_PER_DAY} requests a day; the cost shows under Usage."
+            },
+        )
+        val listening = if (on || timerOn) View.VISIBLE else View.GONE
+        listeningTitle.visibility = listening
+        sensitivityRow.view.visibility = listening
+        slider.visibility = listening
         val level = settings.wakeSensitivity
         sensitivityRow.subtitle.text = "Level $level of ${WakeWord.MAX_SENSITIVITY} (threshold %.2f). ".format(WakeWord.threshold(level)) +
             "Higher catches more, and triggers by mistake more."

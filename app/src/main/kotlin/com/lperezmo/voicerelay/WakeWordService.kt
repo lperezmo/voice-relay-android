@@ -118,6 +118,18 @@ class WakeWordService : Service() {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
+        /**
+         * Makes the service match the two switches after one of them changed: running (and
+         * listening for the phrases that are on) while either is on, stopped when both are off.
+         */
+        fun sync(context: Context, reason: String) {
+            when {
+                !AppSettings(context).anyWakeEnabled -> stop(context)
+                running -> reload(context)
+                else -> start(context, reason)
+            }
+        }
+
         @Volatile private var tokensCache: Set<String>? = null
 
         /** The model's phones, from tokens.txt (read once). Empty if the model is missing. */
@@ -138,6 +150,24 @@ class WakeWordService : Service() {
         fun effectiveWake(context: Context): WakeWord.Effective {
             val settings = AppSettings(context)
             return WakeWord.effective(settings.wakePhrase, settings.wakeKeywords, modelTokens(context))
+        }
+
+        /** The timer phrase and its keywords, the same way: the saved ones, or "hey timer" when they no longer fit. */
+        fun effectiveTimer(context: Context): WakeWord.Effective {
+            val settings = AppSettings(context)
+            return WakeWord.effective(
+                settings.timerPhrase, settings.timerKeywords, modelTokens(context),
+                WakeWord.TIMER_PHRASE, WakeWord.TIMER_KEYWORDS,
+            )
+        }
+
+        /** The phrases that are switched on, as the notification names them: "hey claude or hey timer". */
+        fun listeningPhrases(context: Context): String {
+            val settings = AppSettings(context)
+            return listOfNotNull(
+                if (settings.wakeWordEnabled) effectiveWake(context).phrase else null,
+                if (settings.timerWakeEnabled) effectiveTimer(context).phrase else null,
+            ).joinToString(" or ")
         }
 
         /**
@@ -172,14 +202,14 @@ class WakeWordService : Service() {
                 context, 1,
                 // The non-exported alias, so this works even when other apps may not control Voice Relay.
                 Intent().setClassName(context, WakeControlActivity.INTERNAL_ALIAS)
-                    .setAction(WakeControlActivity.ACTION_WAKE_ON)
+                    .setAction(WakeControlActivity.ACTION_WAKE_RESUME)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_voice_mark)
                 .setContentTitle("Wake word is off")
-                .setContentText("Android stopped it. Tap to listen for ${effectiveWake(context).phrase} again.")
+                .setContentText("Android stopped it. Tap to listen for ${listeningPhrases(context)} again.")
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build()
@@ -216,13 +246,43 @@ class WakeWordService : Service() {
     private var spotter: KeywordSpotter? = null
     private val spotterLock = Any()
 
-    /** What to listen for; see [effectiveWake]. */
+    /**
+     * What to listen for: both phrases' keywords in the one spotter, for the phrases that
+     * are on, the timer phrase's tagged so a detection says which fired ([WakeWord.listenFor]).
+     */
     private fun currentKeywords(): List<WakeWord.Keyword> {
-        val wake = effectiveWake(this)
-        if (wake.fellBack) {
+        val wake = if (settings.wakeWordEnabled) effectiveWake(this) else null
+        val timer = if (settings.timerWakeEnabled) effectiveTimer(this) else null
+        if (wake?.fellBack == true) {
             Log.w(TAG, "Wake word: the saved phrase does not fit the model, using ${WakeWord.DEFAULT_PHRASE}")
         }
-        return wake.keywords
+        if (timer?.fellBack == true) {
+            Log.w(TAG, "Wake word: the saved timer phrase does not fit the model, using ${WakeWord.TIMER_PHRASE}")
+        }
+        return WakeWord.listenFor(wake?.keywords, timer?.keywords)
+    }
+
+    /** "hey timer": made the first time the timer phrase fires. */
+    private var timerFlow: TimerVoiceFlow? = null
+    /** What the timer flow is doing now, for the notification; null when it is not running. */
+    private var timerStatus: String? = null
+
+    private fun startTimerFlow() {
+        val flow = timerFlow ?: TimerVoiceFlow(
+            this, settings,
+            onStatus = { text ->
+                if (running && controller.state == WakeWordController.State.TIMER) {
+                    timerStatus = text
+                    updateNotification()
+                }
+            },
+            onDone = {
+                timerStatus = null
+                if (running) apply(controller.onTimerDone(now(), micBusy()))
+            },
+        ).also { timerFlow = it }
+        timerStatus = "Listening for your timer"
+        if (!flow.start()) Log.w(TAG, "Wake word: a timer request is already running")
     }
 
     private val tick = object : Runnable {
@@ -263,6 +323,7 @@ class WakeWordService : Service() {
             ACTION_STOP -> {
                 Log.i(TAG, "Wake word: stopped from the notification")
                 settings.wakeWordEnabled = false
+                settings.timerWakeEnabled = false
                 stopEverything()
                 return START_NOT_STICKY
             }
@@ -279,7 +340,7 @@ class WakeWordService : Service() {
             }
         }
         // ACTION_START, or a null intent when Android restarts a sticky service.
-        if (!settings.wakeWordEnabled) {
+        if (!settings.anyWakeEnabled) {
             stopEverything()
             return START_NOT_STICKY
         }
@@ -290,7 +351,7 @@ class WakeWordService : Service() {
             registerCallbacks()
             Log.i(
                 TAG,
-                "Wake word: service up, phrase \"${effectiveWake(this).phrase}\", sensitivity ${settings.wakeSensitivity} " +
+                "Wake word: service up, listening for \"${listeningPhrases(this)}\", sensitivity ${settings.wakeSensitivity} " +
                     "(threshold %.2f), overlay permission %s, accessibility %s".format(
                         WakeWord.threshold(settings.wakeSensitivity),
                         if (Settings.canDrawOverlays(this)) "yes" else "no",
@@ -354,7 +415,8 @@ class WakeWordService : Service() {
     }
 
     private fun notificationText(): String = when (controller.state) {
-        WakeWordController.State.LISTENING -> MicHearing.listeningText(effectiveWake(this).phrase, hearing.deaf)
+        WakeWordController.State.LISTENING -> MicHearing.listeningText(listeningPhrases(this), hearing.deaf)
+        WakeWordController.State.TIMER -> timerStatus ?: "Listening for your timer"
         WakeWordController.State.WAITING -> "Opening Claude"
         WakeWordController.State.BUSY -> "Paused while the microphone is in use"
         WakeWordController.State.OFF -> "Starting"
@@ -379,6 +441,9 @@ class WakeWordService : Service() {
         running = false
         stopped = true
         apply(controller.stop())
+        timerFlow?.shutdown()
+        timerFlow = null
+        timerStatus = null
         stopMic()
         unregisterCallbacks()
         if (foreground) {
@@ -419,6 +484,7 @@ class WakeWordService : Service() {
                 WakeWordController.Action.StartMic -> startMic()
                 WakeWordController.Action.StopMic -> stopMic()
                 WakeWordController.Action.LaunchAssistant -> launchAssistant()
+                WakeWordController.Action.StartTimerFlow -> startTimerFlow()
                 WakeWordController.Action.ResumeMedia -> resumeMedia()
                 is WakeWordController.Action.Note -> Log.i(TAG, "Wake word: ${action.message}")
             }
@@ -463,7 +529,11 @@ class WakeWordService : Service() {
 
     private fun onKeyword(label: String, seconds: Float) {
         val musicActive = audio.isMusicActive
-        val actions = controller.onKeyword(now(), musicActive, settings.wakeResumeMedia)
+        // The label says which phrase it was: the timer phrase stays inside Voice Relay.
+        // A detection that was already on its way when that phrase was switched off is dropped.
+        val timerLabel = WakeWord.isTimerLabel(label)
+        if (if (timerLabel) !settings.timerWakeEnabled else !settings.wakeWordEnabled) return
+        val actions = controller.onKeyword(now(), musicActive, settings.wakeResumeMedia, timer = timerLabel)
         if (actions.isEmpty()) return
         Log.i(
             TAG,
@@ -525,6 +595,13 @@ class WakeWordService : Service() {
         ownSessions += rec.audioSessionId
         hearing.reset()
         val keywords = currentKeywords()
+        if (keywords.isEmpty()) {
+            // Both phrases are off: there is nothing to listen for.
+            ownSessions -= rec.audioSessionId
+            rec.release()
+            stopEverything()
+            return
+        }
         mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords), lastStartedMic.get()).also {
             lastStartedMic.set(it)
             liveThreads.incrementAndGet()

@@ -9,6 +9,24 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.Base64
 
+/**
+ * One turn Claude took in a conversation with tools: its [content] blocks exactly as the
+ * API sent them, and why it stopped ("tool_use" when it wants tools run, "end_turn" when
+ * it is done). A failed request has [error] set and no content; [httpCode] 0 with an
+ * error means the request never got an answer (no network).
+ */
+class Turn(
+    val content: JSONArray = JSONArray(),
+    val stopReason: String = "",
+    val error: String? = null,
+    val httpCode: Int = 0,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+)
+
+/** A tool Claude asked the app to run. */
+class ToolUse(val id: String, val name: String, val input: JSONObject)
+
 /** One finished Ask the Page exchange, sent back as plain text so a follow-up keeps the conversation. */
 class Exchange(val question: String, val answer: String)
 
@@ -64,6 +82,45 @@ class AnthropicClient(
             return post(askBody(images, history, model, system, userText, null, false), false)
         }
         return first
+    }
+
+    /**
+     * One step of a conversation with tools: sends [messages] (the whole conversation so
+     * far, as [TimerAssistant] keeps it) with the [tools] Claude may call, and returns its
+     * turn. Same effort setting, fallback opt-in and one 400 retry as [ask]. Blocking; run
+     * off the main thread.
+     */
+    fun toolTurn(messages: JSONArray, model: String, system: String, tools: JSONArray): Turn {
+        val fallback = model in FALLBACK_MODELS
+        val first = postTurn(toolsBody(messages, model, system, tools, TOOL_EFFORT, fallback), fallback)
+        val about = first.error.orEmpty().lowercase()
+        if (first.httpCode == 400 && RETRY_HINTS.any { it in about }) {
+            return postTurn(toolsBody(messages, model, system, tools, null, false), false)
+        }
+        return first
+    }
+
+    private fun postTurn(json: JSONObject, fallback: Boolean): Turn {
+        val body = json.toString().toRequestBody("application/json".toMediaType())
+        return try {
+            val builder = Request.Builder().url("$baseUrl/messages").headers().post(body)
+            if (fallback) builder.header("anthropic-beta", FALLBACK_BETA)
+            http.newCall(builder.build()).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) return@use parseTurn(raw)
+                // The API's own message when the body carries one; a gateway's plain-text error has none.
+                val message = try {
+                    JSONObject(raw).optJSONObject("error")?.optString("message")?.ifBlank { null }
+                } catch (_: Exception) {
+                    null
+                }
+                Turn(error = message ?: "HTTP ${resp.code}", httpCode = resp.code)
+            }
+        } catch (e: IOException) {
+            Turn(error = e.message ?: "Network error")
+        } catch (_: IllegalArgumentException) {
+            Turn(error = "The Anthropic API key has a character it cannot have")
+        }
     }
 
     /** Model ids visible to this key, sorted. */
@@ -218,6 +275,96 @@ class AnthropicClient(
         } catch (e: Exception) {
             OpenAiClient.Result(null, e.message ?: "Parse error")
         }
+
+        /** Effort for a turn with tools: low, like the rest, so a spoken request is answered quickly. */
+        private const val TOOL_EFFORT = "low"
+
+        /**
+         * The Messages request for [toolTurn]. [messages] goes in as it is: user turns,
+         * Claude's earlier turns echoed back ([echoTurn]) and the tool results. Claude
+         * decides for itself whether to call a tool (these models refuse a forced choice).
+         */
+        fun toolsBody(
+            messages: JSONArray, model: String, system: String, tools: JSONArray,
+            effort: String?, fallback: Boolean,
+        ): JSONObject = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", MAX_TOKENS)
+            put("system", system)
+            put("tools", tools)
+            put("messages", messages)
+            if (effort != null) put("output_config", JSONObject().put("effort", effort))
+            if (fallback) put("fallbacks", "default")
+        }
+
+        /** One tool Claude may call: its name, what it is for, and the JSON schema of its input. */
+        fun tool(name: String, description: String, inputSchema: JSONObject): JSONObject =
+            JSONObject().put("name", name).put("description", description).put("input_schema", inputSchema)
+
+        /** A Messages response as a [Turn]: its content blocks untouched, why it stopped, and token usage. */
+        fun parseTurn(json: String): Turn = try {
+            val obj = JSONObject(json)
+            val content = obj.optJSONArray("content")
+            if (content == null) {
+                Turn(error = obj.optJSONObject("error")?.optString("message", "Unknown error") ?: "Unknown response")
+            } else {
+                val usage = obj.optJSONObject("usage")
+                Turn(
+                    content = content,
+                    stopReason = obj.optString("stop_reason"),
+                    inputTokens = usage?.optInt("input_tokens") ?: 0,
+                    outputTokens = usage?.optInt("output_tokens") ?: 0,
+                )
+            }
+        } catch (e: Exception) {
+            Turn(error = e.message ?: "Parse error")
+        }
+
+        /** Where the answer starts: after the last `fallback` block, when a server-side fallback ran. */
+        private fun answerStart(content: JSONArray): Int {
+            var start = 0
+            for (i in 0 until content.length()) {
+                if (content.getJSONObject(i).optString("type") == "fallback") start = i + 1
+            }
+            return start
+        }
+
+        /** The text Claude wrote in this turn, thinking left out. */
+        fun turnText(content: JSONArray): String = (answerStart(content) until content.length())
+            .map { content.getJSONObject(it) }
+            .filter { it.optString("type") == "text" }
+            .joinToString("") { it.optString("text") }
+            .trim()
+
+        /** The tools Claude asked for in this turn, in order. */
+        fun toolUses(content: JSONArray): List<ToolUse> = (answerStart(content) until content.length())
+            .map { content.getJSONObject(it) }
+            .filter { it.optString("type") == "tool_use" }
+            .map { ToolUse(it.optString("id"), it.optString("name"), it.optJSONObject("input") ?: JSONObject()) }
+
+        /**
+         * Claude's turn as the next request must send it back: every block unchanged,
+         * thinking included, since the API checks them. After a server-side fallback the
+         * `fallback` block stays where it was, and the thinking and tool calls of the model
+         * that declined, before that block, are left out as the API asks.
+         */
+        fun echoTurn(content: JSONArray): JSONObject {
+            val start = answerStart(content)
+            val dropped = setOf("thinking", "redacted_thinking", "tool_use")
+            val out = JSONArray()
+            for (i in 0 until content.length()) {
+                val block = content.getJSONObject(i)
+                if (i < start - 1 && block.optString("type") in dropped) continue
+                out.put(block)
+            }
+            return JSONObject().put("role", "assistant").put("content", out)
+        }
+
+        /** What a tool answered, for the user turn that follows Claude's tool calls. */
+        fun toolResult(toolUseId: String, text: String, isError: Boolean = false): JSONObject =
+            JSONObject().put("type", "tool_result").put("tool_use_id", toolUseId).put("content", text).apply {
+                if (isError) put("is_error", true)
+            }
 
         /** Claude models worth offering for cleanup. */
         fun cleanupModels(ids: List<String>): List<String> = ids.filter { it.startsWith("claude-") }

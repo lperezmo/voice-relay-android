@@ -24,6 +24,10 @@ It also has a few extras, all off until you turn them on:
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
 - **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
+- **"Hey timer"**, a second wake phrase, for timers with your hands busy. Say it, wait for the
+  tone, then ask any way you like ("for 10:50 AM", "the pasta, 9 minutes"). OpenAI writes down
+  what you said, Claude (with your own Anthropic key) works out the timer, and the phone answers
+  out loud: "Timer set for 10:50, 23 minutes from now."
 - **Timer pill**: kitchen timers without the clock app. Hold the pill and slide to 5, 10, 15 or
   30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
@@ -93,14 +97,14 @@ repository's releases (see [Signing](#signing-and-forks)).
 
 | Permission | Needed for | Asked when |
 |---|---|---|
-| Microphone | Dictation and the wake word | First launch |
+| Microphone | Dictation, the wake word, and recording a timer request after the timer phrase | First launch |
 | Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
-| Notifications | The wake word's "listening" notification, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word or the timer pill |
+| Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word, the timer phrase or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
 | Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time | Granted at install on Android 13 and up. On Android 12, tapping the row in the Volume presets or Timers section (optional) |
 | Input method (Voice Relay arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
-| Internet | Requests to OpenAI, and to Anthropic for Claude cleanup and Ask the Page | Granted at install |
+| Internet | Requests to OpenAI, and to Anthropic for Claude cleanup, Ask the Page and the timer phrase | Granted at install |
 
 Why a keyboard, and why accessibility: see [Why does it register a keyboard?](#why-does-it-register-a-keyboard)
 and [SECURITY.md](SECURITY.md).
@@ -210,6 +214,45 @@ After a reboot or an app update it comes back on its own when Android reconnects
 accessibility service. If Android refuses to start it at that moment, a notification says so, and
 one tap turns it back on.
 
+### Timers by voice
+
+Off by default. **Timers by voice** (in the Wake word card) turns on a second wake phrase with
+its own switch, "hey timer" until you change it under **Timer phrase**. The wake word keeps opening Claude;
+this one does the work inside Voice Relay. Both are heard by the same listener at the same time,
+with the same sensitivity, and either can be on without the other. It works with the screen
+locked.
+
+> "Hey timer." (tone) "Set a timer for 10:50 AM."
+> A few seconds later: "Timer set for 10:50, 23 minutes from now."
+
+1. The phone plays a short tone and records what you say next, until you have been quiet for
+   about a second and a half (15 seconds at most). Music pauses while it works.
+2. The recording goes to OpenAI's transcription, the same one dictation uses, with your speech
+   model.
+3. The text goes to Claude (**Timer model**, Opus 5.5 unless you change it) together with the
+   phone's date, time and time zone. Claude works out how long the timer must run and sets it;
+   the app itself never reads times. So any wording works: "10 minutes", "an hour and a half",
+   "until quarter past", "the pasta, 9 minutes" (which names the timer Pasta).
+4. The answer is said out loud and shown in a notification. The timer shows in the
+   [timer pill](#timer-pill) with the others, where you can add a minute or stop it.
+
+A time that has already passed today means tomorrow, so the phone asks first ("That's tomorrow at
+10:50, 23 hours from now. Set it?"), plays the tone again and waits for your yes or no. If it
+hears no time, or nothing at all for six seconds, it says "I didn't catch a time" and sets
+nothing; with no internet it says so. Saying the phrase again while it is still working on a
+request does nothing.
+
+Each phrase has its own Tasker intents: `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` for the wake word
+and `TIMER_ON` / `TIMER_OFF` / `TIMER_TOGGLE` for the timer phrase. Turning one off leaves the
+other listening, so send both off intents to close the microphone. **Stop** on the notification
+turns both off. Like the wake word, the timer phrase must be turned on once in the app before an
+intent can turn it on.
+
+It needs both keys: OpenAI for the speech and Anthropic for Claude. With one missing it does
+nothing, and tells you once in a notification. Each request is one transcription and a few short
+Claude requests, counted in **Settings > Usage**, and there is a limit of 100 requests a day so a
+phrase that misfires cannot run up a bill.
+
 ### Turning it on and off from Tasker
 
 Use **Send Intent** with **Target: Activity** (an activity, not a broadcast, because Android only
@@ -218,7 +261,7 @@ finishes at once, including over the lock screen):
 
 | Field | Value |
 |---|---|
-| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, `com.lperezmo.voicerelay.WAKE_TOGGLE`, `com.lperezmo.voicerelay.CLAUDE_VOICE` (opens Claude straight into voice mode, as the wake word does), or `BUTTONS_HIDE` / `BUTTONS_SHOW` / `BUTTONS_TOGGLE` (same prefix; hides or shows every floating button) |
+| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, `com.lperezmo.voicerelay.WAKE_TOGGLE`, `com.lperezmo.voicerelay.TIMER_ON`, `com.lperezmo.voicerelay.TIMER_OFF`, `com.lperezmo.voicerelay.TIMER_TOGGLE` (the same three for the timer phrase), `com.lperezmo.voicerelay.CLAUDE_VOICE` (opens Claude straight into voice mode, as the wake word does), or `BUTTONS_HIDE` / `BUTTONS_SHOW` / `BUTTONS_TOGGLE` (same prefix; hides or shows every floating button) |
 | Package | `com.lperezmo.voicerelay` |
 | Class | `com.lperezmo.voicerelay.WakeControlActivity` |
 | Target | Activity |
@@ -439,6 +482,9 @@ billed to your Anthropic account.
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
+| Timers by voice | off | The second wake phrase, "hey timer": sets a timer by voice. Needs both API keys. See [Timers by voice](#timers-by-voice). |
+| Timer phrase | hey timer | Same editor and checks as the wake phrase. |
+| Timer model | Opus 5.5 | The Claude model that works out how long the timer runs. |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Allow other apps to control Voice Relay | on | Whether Tasker, adb and other apps may send the [control intents](#turning-it-on-and-off-from-tasker). |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
@@ -465,7 +511,8 @@ key is set, dictation inserts the raw transcript with a note, as it does when Op
 the transcript is not sent to OpenAI's text model instead. Switch back to **OpenAI** at any time.
 
 The **Usage** section counts dictations, minutes of audio, cleanup and grammar-fix calls, and an
-estimated cost for this month and since the last reset (tap it to reset). **About > Open-source
+estimated cost for this month and since the last reset (tap it to reset). Timer requests by voice
+are counted too: each recording as a dictation and each Claude request with the cleanups. **About > Open-source
 licenses** shows the app's license and the notices for the software it includes.
 
 ## Privacy and security
@@ -593,6 +640,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
+| `TimerAssistant.kt`, `TimerVoice.kt`, `TimerVoiceFlow.kt` | "Hey timer": Claude's tools and the loop that runs them, when the speaker has stopped, the daily limit, and the glue to the mic, the network and the speaker |
 | `Timers.kt`, `TimerController.kt` | The timers Voice Relay runs itself: the list and its rules, saving, alarms, ringing |
 | `TimerPillView.kt`, `TimerFanView.kt`, `TimerCards.kt`, `PillSkin.kt` | The timer pill, its fan of times and its two cards; the look all pills share |
 | `GlyphPillView.kt`, `GlyphGesture.kt` | The Glyph pill below the button, its tap and pull-down, and the sparkle |
@@ -601,7 +649,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
-| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `TIMER_ON` / `TIMER_OFF` / `TIMER_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen (wiring and permission requests), and the open-source licenses screen |
 | `SettingsUi.kt`, `SettingsCard.kt` | The settings screen's view builders (cards, rows, switch, radio and status rows) and what each card is given |

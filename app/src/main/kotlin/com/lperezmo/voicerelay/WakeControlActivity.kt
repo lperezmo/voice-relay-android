@@ -37,8 +37,13 @@ class WakeControlActivity : Activity() {
         /** Non-exported alias of this activity for the app's own PendingIntents. See the manifest. */
         const val INTERNAL_ALIAS = "com.lperezmo.voicerelay.WakeControlInternal"
         const val ACTION_WAKE_ON = "com.lperezmo.voicerelay.WAKE_ON"
+        /** From the "tap to resume" notification: start listening again for whichever phrases are on. */
+        const val ACTION_WAKE_RESUME = "com.lperezmo.voicerelay.WAKE_RESUME"
         const val ACTION_WAKE_OFF = "com.lperezmo.voicerelay.WAKE_OFF"
         const val ACTION_WAKE_TOGGLE = "com.lperezmo.voicerelay.WAKE_TOGGLE"
+        const val ACTION_TIMER_ON = "com.lperezmo.voicerelay.TIMER_ON"
+        const val ACTION_TIMER_OFF = "com.lperezmo.voicerelay.TIMER_OFF"
+        const val ACTION_TIMER_TOGGLE = "com.lperezmo.voicerelay.TIMER_TOGGLE"
         const val ACTION_CLAUDE_VOICE = "com.lperezmo.voicerelay.CLAUDE_VOICE"
         const val ACTION_BUTTONS_HIDE = "com.lperezmo.voicerelay.BUTTONS_HIDE"
         const val ACTION_BUTTONS_SHOW = "com.lperezmo.voicerelay.BUTTONS_SHOW"
@@ -65,6 +70,10 @@ class WakeControlActivity : Activity() {
         }
         when (action) {
             ACTION_WAKE_ON -> on(settings)
+            ACTION_TIMER_ON -> timerOn(settings)
+            ACTION_TIMER_OFF -> timerOff(settings)
+            ACTION_TIMER_TOGGLE -> if (settings.timerWakeEnabled) timerOff(settings) else timerOn(settings)
+            ACTION_WAKE_RESUME -> WakeWordService.sync(this, "resume notification")
             ACTION_WAKE_OFF -> off(settings)
             ACTION_WAKE_TOGGLE -> if (settings.wakeWordEnabled) off(settings) else on(settings)
             ACTION_CLAUDE_VOICE -> claudeVoice()
@@ -87,12 +96,37 @@ class WakeControlActivity : Activity() {
             return
         }
         settings.wakeWordEnabled = true
-        WakeWordService.start(this, "control intent")
+        // Starts the listener, or has a running one (on for the timer phrase) pick the wake phrase up too.
+        WakeWordService.sync(this, "control intent")
+    }
+
+    /** The timer phrase ("hey timer"), with the same conditions as [on]. */
+    private fun timerOn(settings: AppSettings) {
+        if (!settings.timerWakeSetUp) {
+            Log.w(TAG, "Wake word: external TIMER_ON ignored, not set up in the app yet")
+            toast("Turn on Timers by voice in Voice Relay first")
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "Wake word: external TIMER_ON ignored, no microphone permission")
+            toast("Voice Relay needs the microphone permission")
+            return
+        }
+        settings.timerWakeEnabled = true
+        WakeWordService.sync(this, "control intent")
+    }
+
+    private fun timerOff(settings: AppSettings) {
+        settings.timerWakeEnabled = false
+        // The wake word has its own switch: the listener keeps going for it.
+        WakeWordService.sync(this, "control intent")
+        Log.i(TAG, "Wake word: timer phrase turned off by control intent")
     }
 
     private fun off(settings: AppSettings) {
         settings.wakeWordEnabled = false
-        WakeWordService.stop(this)
+        // The timer phrase has its own switch: the listener keeps going for it.
+        WakeWordService.sync(this, "control intent")
         Log.i(TAG, "Wake word: turned off by control intent")
     }
 

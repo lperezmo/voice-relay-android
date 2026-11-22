@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity() {
         val column = ui.column()
         column.addView(ui.titleRow(getString(R.string.app_name), "v${BuildConfig.VERSION_NAME}"))
         val top = listOf(StatusCards(env, column), SpeechCard(env, column), CleanupCard(env, column))
-        wakeCard = WakeWordCard(env, column) { toggleWakeWord() }
+        wakeCard = WakeWordCard(env, column, onToggle = { toggleWakeWord() }, onToggleTimer = { toggleTimerWake() })
         cards = top + wakeCard + listOf(
             FloatingButtonsCard(env, column),
             OtherAppsCard(env, column),
@@ -86,6 +86,10 @@ class MainActivity : AppCompatActivity() {
             if (env.hasPerm(Manifest.permission.RECORD_AUDIO)) enableWakeWord()
             else env.ui.toast("The wake word needs the microphone")
         }
+        if (c == REQ_TIMER_WAKE) {
+            if (env.hasPerm(Manifest.permission.RECORD_AUDIO)) enableTimerWake()
+            else env.ui.toast("The timer phrase needs the microphone")
+        }
         refresh()
     }
 
@@ -99,8 +103,10 @@ class MainActivity : AppCompatActivity() {
         val settings = env.settings
         if (settings.wakeWordEnabled) {
             settings.wakeWordEnabled = false
-            WakeWordService.stop(this)
+            // The timer phrase has its own switch: the listener keeps going for it.
+            WakeWordService.sync(this, "settings switch")
             refresh()
+            wakeCard.refreshSoon()
             return
         }
         val missing = buildList {
@@ -119,13 +125,46 @@ class MainActivity : AppCompatActivity() {
     private fun enableWakeWord() {
         env.settings.wakeWordEnabled = true
         env.settings.wakeWordSetUp = true
-        WakeWordService.start(this, "settings switch")
+        WakeWordService.sync(this, "settings switch")
         if (!Settings.canDrawOverlays(this)) env.dialogs.showOverlayDisclosure()
+        refresh()
+        wakeCard.refreshSoon()
+    }
+
+    // --- Timer phrase ---
+
+    private fun toggleTimerWake() {
+        val settings = env.settings
+        if (settings.timerWakeEnabled) {
+            settings.timerWakeEnabled = false
+            WakeWordService.sync(this, "timer phrase switch")
+            refresh()
+            wakeCard.refreshSoon()
+            return
+        }
+        val missing = buildList {
+            if (!env.hasPerm(Manifest.permission.RECORD_AUDIO)) add(Manifest.permission.RECORD_AUDIO)
+            if (android.os.Build.VERSION.SDK_INT >= 33 && !env.hasPerm(Manifest.permission.POST_NOTIFICATIONS)) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_TIMER_WAKE)
+            return
+        }
+        enableTimerWake()
+    }
+
+    private fun enableTimerWake() {
+        env.settings.timerWakeEnabled = true
+        env.settings.timerWakeSetUp = true
+        WakeWordService.sync(this, "timer phrase switch")
         refresh()
         wakeCard.refreshSoon()
     }
 
     companion object {
         private const val REQ_WAKE = 2
+        private const val REQ_TIMER_WAKE = 3
     }
 }

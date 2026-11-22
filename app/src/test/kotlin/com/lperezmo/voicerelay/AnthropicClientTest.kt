@@ -3,10 +3,13 @@ package com.lperezmo.voicerelay
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -251,6 +254,251 @@ class AnthropicClientTest {
         assertNull(result.text)
         assertTrue(result.error!!.contains("Anthropic API key"))
         assertNull(broken.listModels())
+        assertEquals(0, server.requestCount)
+    }
+
+    // ---- conversations with tools ----
+
+    private val toolUseJson =
+        """{"id":"msg_1","type":"message","role":"assistant","content":[""" +
+            """{"type":"thinking","thinking":"","signature":"sig"},""" +
+            """{"type":"tool_use","id":"toolu_1","name":"set_timer","input":{"seconds":600,"label":"Pasta"}}],""" +
+            """"stop_reason":"tool_use","usage":{"input_tokens":321,"output_tokens":45}}"""
+
+    private fun sampleTools() = JSONArray().put(
+        AnthropicClient.tool("get_time", "The time.", JSONObject().put("type", "object").put("properties", JSONObject())),
+    )
+
+    private fun sampleMessages() = JSONArray().put(JSONObject().put("role", "user").put("content", "10 minutes"))
+
+    private fun block(type: String, vararg pairs: Pair<String, Any>) =
+        JSONObject().put("type", type).apply { pairs.forEach { (k, v) -> put(k, v) } }
+
+    private fun array(vararg blocks: JSONObject) = JSONArray().apply { blocks.forEach { put(it) } }
+
+    @Test fun `toolsBody carries model, tokens, system, tools and messages, and never forces a tool`() {
+        val messages = sampleMessages()
+        val tools = sampleTools()
+        val body = AnthropicClient.toolsBody(messages, "claude-sonnet-5-5", "Sys", tools, "low", true)
+        assertEquals("claude-sonnet-5-5", body.getString("model"))
+        assertTrue(body.getInt("max_tokens") >= 16_000)
+        assertEquals("Sys", body.getString("system"))
+        assertEquals(tools.toString(), body.getJSONArray("tools").toString())
+        assertEquals(messages.toString(), body.getJSONArray("messages").toString())
+        assertEquals("low", body.getJSONObject("output_config").getString("effort"))
+        assertEquals("default", body.getString("fallbacks"))
+        assertFalse(body.has("tool_choice"))
+        assertFalse(body.has("temperature"))
+
+        val plain = AnthropicClient.toolsBody(messages, "claude-haiku-5-5", "Sys", tools, null, false)
+        assertFalse(plain.has("output_config"))
+        assertFalse(plain.has("fallbacks"))
+        assertFalse(plain.has("tool_choice"))
+        assertTrue(plain.has("tools"))
+    }
+
+    @Test fun `tool has a name, a description and an input schema`() {
+        val schema = JSONObject().put("type", "object")
+        val tool = AnthropicClient.tool("get_time", "The time.", schema)
+        assertEquals("get_time", tool.getString("name"))
+        assertEquals("The time.", tool.getString("description"))
+        assertEquals(schema.toString(), tool.getJSONObject("input_schema").toString())
+        assertEquals(3, tool.length())
+    }
+
+    @Test fun `parseTurn keeps the content as sent, the stop reason and the usage`() {
+        val turn = AnthropicClient.parseTurn(toolUseJson)
+        assertNull(turn.error)
+        assertEquals("tool_use", turn.stopReason)
+        assertEquals(321, turn.inputTokens)
+        assertEquals(45, turn.outputTokens)
+        assertEquals(JSONObject(toolUseJson).getJSONArray("content").toString(), turn.content.toString())
+        assertEquals("sig", turn.content.getJSONObject(0).getString("signature"))
+        val uses = AnthropicClient.toolUses(turn.content)
+        assertEquals(1, uses.size)
+        assertEquals("toolu_1", uses[0].id)
+        assertEquals("set_timer", uses[0].name)
+        assertEquals(600, uses[0].input.getInt("seconds"))
+        assertEquals("Pasta", uses[0].input.getString("label"))
+    }
+
+    @Test fun `parseTurn reads an API error and survives garbage`() {
+        val error = AnthropicClient.parseTurn("""{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}""")
+        assertEquals("Overloaded", error.error)
+        assertEquals(0, error.content.length())
+
+        assertEquals("Unknown response", AnthropicClient.parseTurn("""{"type":"message"}""").error)
+
+        val garbage = AnthropicClient.parseTurn("<html>bad gateway</html>")
+        assertNotNull(garbage.error)
+        assertEquals(0, garbage.content.length())
+        assertNotNull(AnthropicClient.parseTurn("").error)
+    }
+
+    @Test fun `turnText and toolUses read only what follows the last fallback block`() {
+        val content = array(
+            block("text", "text" to "partial"),
+            block("tool_use", "id" to "toolu_0", "name" to "set_timer", "input" to JSONObject().put("seconds", 1)),
+            block("fallback", "model" to "claude-opus-5"),
+            block("thinking", "thinking" to "", "signature" to "sig2"),
+            block("text", "text" to " Final "),
+            block("text", "text" to "answer. "),
+            block("tool_use", "id" to "toolu_1", "name" to "get_time"),
+        )
+        assertEquals("Final answer.", AnthropicClient.turnText(content))
+        val uses = AnthropicClient.toolUses(content)
+        assertEquals(listOf("toolu_1"), uses.map { it.id })
+        assertEquals(0, uses[0].input.length())
+
+        val plain = array(
+            block("thinking", "thinking" to ""),
+            block("text", "text" to "One "),
+            block("tool_use", "id" to "a", "name" to "x", "input" to JSONObject()),
+            block("tool_use", "id" to "b", "name" to "y", "input" to JSONObject()),
+        )
+        assertEquals("One", AnthropicClient.turnText(plain))
+        assertEquals(listOf("a", "b"), AnthropicClient.toolUses(plain).map { it.id })
+        assertEquals("", AnthropicClient.turnText(JSONArray()))
+        assertTrue(AnthropicClient.toolUses(JSONArray()).isEmpty())
+    }
+
+    @Test fun `echoTurn sends the turn back unchanged when no fallback ran`() {
+        val content = JSONObject(toolUseJson).getJSONArray("content")
+        val echo = AnthropicClient.echoTurn(content)
+        assertEquals("assistant", echo.getString("role"))
+        assertEquals(content.toString(), echo.getJSONArray("content").toString())
+    }
+
+    @Test fun `echoTurn after a fallback drops the declined model's thinking and tool calls`() {
+        val content = array(
+            block("thinking", "thinking" to "", "signature" to "sig1"),
+            block("redacted_thinking", "data" to "xyz"),
+            block("text", "text" to "before"),
+            block("tool_use", "id" to "toolu_0", "name" to "set_timer", "input" to JSONObject()),
+            block("fallback", "model" to "claude-opus-5"),
+            block("thinking", "thinking" to "", "signature" to "sig2"),
+            block("text", "text" to "after"),
+            block("tool_use", "id" to "toolu_1", "name" to "get_time", "input" to JSONObject()),
+        )
+        val echoed = AnthropicClient.echoTurn(content).getJSONArray("content")
+        val expected = array(
+            content.getJSONObject(2),
+            content.getJSONObject(4),
+            content.getJSONObject(5),
+            content.getJSONObject(6),
+            content.getJSONObject(7),
+        )
+        assertEquals(expected.toString(), echoed.toString())
+    }
+
+    @Test fun `toolResult names the call and marks errors only when asked`() {
+        val ok = AnthropicClient.toolResult("toolu_1", "done")
+        assertEquals("tool_result", ok.getString("type"))
+        assertEquals("toolu_1", ok.getString("tool_use_id"))
+        assertEquals("done", ok.getString("content"))
+        assertFalse(ok.has("is_error"))
+
+        val bad = AnthropicClient.toolResult("toolu_2", "nope", isError = true)
+        assertEquals("toolu_2", bad.getString("tool_use_id"))
+        assertEquals("nope", bad.getString("content"))
+        assertTrue(bad.getBoolean("is_error"))
+    }
+
+    @Test fun `toolTurn sends the key, the version, the tools and the conversation`() {
+        server.enqueue(MockResponse().setBody(toolUseJson))
+        val messages = sampleMessages()
+        val tools = sampleTools()
+        val turn = client.toolTurn(messages, "claude-opus-5-5", "Sys", tools)
+        assertNull(turn.error)
+        assertEquals("tool_use", turn.stopReason)
+        assertEquals(321, turn.inputTokens)
+        assertEquals("toolu_1", AnthropicClient.toolUses(turn.content).single().id)
+
+        val req = server.takeRequest()
+        assertEquals("/v1/messages", req.path)
+        assertEquals("sk-ant-test", req.getHeader("x-api-key"))
+        assertEquals(AnthropicClient.API_VERSION, req.getHeader("anthropic-version"))
+        assertEquals("server-side-fallback-2026-07-01", req.getHeader("anthropic-beta"))
+        val body = JSONObject(req.body.readUtf8())
+        assertEquals("claude-opus-5-5", body.getString("model"))
+        assertEquals("Sys", body.getString("system"))
+        assertEquals(tools.toString(), body.getJSONArray("tools").toString())
+        assertEquals(messages.toString(), body.getJSONArray("messages").toString())
+        assertEquals("low", body.getJSONObject("output_config").getString("effort"))
+        assertEquals("default", body.getString("fallbacks"))
+        assertFalse(body.has("tool_choice"))
+    }
+
+    @Test fun `toolTurn does not opt Haiku in to the fallback`() {
+        server.enqueue(MockResponse().setBody(toolUseJson))
+        client.toolTurn(sampleMessages(), "claude-haiku-5-5", "Sys", sampleTools())
+        val req = server.takeRequest()
+        assertNull(req.getHeader("anthropic-beta"))
+        val body = JSONObject(req.body.readUtf8())
+        assertFalse(body.has("fallbacks"))
+        assertEquals("low", body.getJSONObject("output_config").getString("effort"))
+    }
+
+    @Test fun `toolTurn retries a 400 about effort once without effort and fallback`() {
+        server.enqueue(MockResponse().setResponseCode(400)
+            .setBody("""{"type":"error","error":{"type":"invalid_request_error","message":"output_config.effort: not supported"}}"""))
+        server.enqueue(MockResponse().setBody(toolUseJson))
+        val turn = client.toolTurn(sampleMessages(), "claude-opus-5-5", "Sys", sampleTools())
+        assertNull(turn.error)
+        assertEquals("tool_use", turn.stopReason)
+        assertEquals(2, server.requestCount)
+        server.takeRequest()
+        val retry = server.takeRequest()
+        assertNull(retry.getHeader("anthropic-beta"))
+        val body = JSONObject(retry.body.readUtf8())
+        assertFalse(body.has("output_config"))
+        assertFalse(body.has("fallbacks"))
+        assertTrue(body.has("tools"))
+        assertEquals(1, body.getJSONArray("messages").length())
+    }
+
+    @Test fun `toolTurn does not retry a 400 about something else`() {
+        server.enqueue(MockResponse().setResponseCode(400)
+            .setBody("""{"type":"error","error":{"type":"invalid_request_error","message":"messages: tool_result block missing"}}"""))
+        val turn = client.toolTurn(sampleMessages(), "claude-opus-5-5", "Sys", sampleTools())
+        assertEquals(400, turn.httpCode)
+        assertEquals("messages: tool_result block missing", turn.error)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun `toolTurn surfaces a 401 without a retry`() {
+        server.enqueue(MockResponse().setResponseCode(401)
+            .setBody("""{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"""))
+        val turn = client.toolTurn(sampleMessages(), "claude-haiku-5-5", "Sys", sampleTools())
+        assertEquals("invalid x-api-key", turn.error)
+        assertEquals(401, turn.httpCode)
+        assertEquals(0, turn.content.length())
+        assertEquals(1, server.requestCount)
+
+        server.enqueue(MockResponse().setResponseCode(529).setBody("overloaded"))
+        val busy = client.toolTurn(sampleMessages(), "claude-haiku-5-5", "Sys", sampleTools())
+        assertEquals("HTTP 529", busy.error)
+        assertEquals(529, busy.httpCode)
+    }
+
+    @Test fun `toolTurn with a dropped connection has no HTTP code`() {
+        val noRetry = AnthropicClient(
+            "sk-ant-test", server.url("/v1").toString().trimEnd('/'),
+            OkHttpClient.Builder().retryOnConnectionFailure(false).build(),
+        )
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        val turn = noRetry.toolTurn(sampleMessages(), "claude-haiku-5-5", "Sys", sampleTools())
+        assertNotNull(turn.error)
+        assertEquals(0, turn.httpCode)
+        assertEquals(0, turn.content.length())
+    }
+
+    @Test fun `toolTurn with a broken key fails instead of throwing`() {
+        val broken = AnthropicClient("sk-ant-te\nst", server.url("/v1").toString().trimEnd('/'), OkHttpClient())
+        val turn = broken.toolTurn(sampleMessages(), "claude-haiku-5-5", "Sys", sampleTools())
+        assertTrue(turn.error!!.contains("Anthropic API key"))
+        assertEquals(0, turn.httpCode)
         assertEquals(0, server.requestCount)
     }
 }

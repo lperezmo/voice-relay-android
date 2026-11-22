@@ -24,6 +24,15 @@ class SettingsDialogs(
 
     fun promptWakePhrase() = WakePhraseDialog(activity, settings, secrets, usage, ui, refresh).show()
 
+    /** The same editor and checks, for the phrase that sets a timer by voice. */
+    fun promptTimerPhrase() =
+        WakePhraseDialog(activity, settings, secrets, usage, ui, refresh, WakePhraseDialog.Slot.TIMER).show()
+
+    /** The Claude model that works out a spoken timer request. */
+    fun pickTimerModel() = pickClaudeModel("Timer model", settings.timerModel, AppSettings.DEFAULT_TIMER_MODEL) {
+        settings.timerModel = it
+    }
+
     /** Explains the overlay permission before sending the user to system settings. */
     fun showOverlayDisclosure() {
         if (Settings.canDrawOverlays(activity)) {
@@ -134,7 +143,9 @@ class SettingsDialogs(
 
     fun pickCleanupModel() {
         if (settings.claudeCleanup) {
-            pickClaudeModel()
+            pickClaudeModel("Claude model", settings.claudeModel, AppSettings.DEFAULT_CLAUDE_MODEL) {
+                settings.claudeModel = it
+            }
         } else {
             pickModel("Cleanup model", AppSettings.DEFAULT_CLEANUP_MODEL, OpenAiClient::cleanupModels) {
                 settings.cleanupModel = it
@@ -143,20 +154,18 @@ class SettingsDialogs(
     }
 
     /** Haiku, Sonnet or Opus in one tap; the last row lists every Claude model the key can use. */
-    private fun pickClaudeModel() {
+    private fun pickClaudeModel(title: String, current: String, default: String, onPick: (String) -> Unit) {
         val tiers = AnthropicClient.TIERS
         val labels = tiers.map { it.label } + "Another Claude model..."
         AlertDialog.Builder(activity)
-            .setTitle("Claude model")
-            .setSingleChoiceItems(labels.toTypedArray(), tiers.indexOfFirst { it.id == settings.claudeModel }) { dialog, which ->
+            .setTitle(title)
+            .setSingleChoiceItems(labels.toTypedArray(), tiers.indexOfFirst { it.id == current }) { dialog, which ->
                 dialog.dismiss()
                 if (which < tiers.size) {
-                    settings.claudeModel = tiers[which].id
+                    onPick(tiers[which].id)
                     refresh()
                 } else {
-                    pickModel("Claude model", AppSettings.DEFAULT_CLAUDE_MODEL, AnthropicClient::cleanupModels, claude = true) {
-                        settings.claudeModel = it
-                    }
+                    pickModel(title, default, AnthropicClient::cleanupModels, claude = true, onPick = onPick)
                 }
             }
             .setNegativeButton("Cancel", null)

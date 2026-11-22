@@ -409,4 +409,219 @@ class WakeWordTest {
         assertFalse(WakeWord.isVoiceModeLabel("Start speech input"))
         assertFalse(WakeWord.isVoiceModeLabel(null))
     }
+
+    // --- The timer phrase ---
+
+    @Test fun `the dictionary spells the timer phrase as the built-in timer keywords`() {
+        val r = ready(WakeWord.fromDictionary(WakeWord.TIMER_PHRASE, dictionary("hey", "timer"), arpabet))
+        assertEquals(WakeWord.TIMER_PHRASE, r.phrase)
+        assertEquals(WakeWord.TIMER_KEYWORDS, r.keywords)
+    }
+
+    @Test fun `both phrases are heard together, only the timer's labels tagged`() {
+        val all = WakeWord.listenFor(WakeWord.DEFAULT_KEYWORDS, WakeWord.TIMER_KEYWORDS)
+        assertEquals(WakeWord.DEFAULT_KEYWORDS + WakeWord.TIMER_KEYWORDS.map { it.copy(label = WakeWord.TIMER_TAG + it.label) }, all)
+        assertEquals("TIMER__HEY_TIMER", all.last().label)
+        assertEquals(listOf(false, false, false, true), all.map { WakeWord.isTimerLabel(it.label) })
+        assertFalse(WakeWord.isTimerLabel("HEY_TIMER"))
+        assertFalse(WakeWord.isTimerLabel("HEY_CLAUDE"))
+    }
+
+    @Test fun `a phrase that is off is left out`() {
+        assertEquals(WakeWord.DEFAULT_KEYWORDS, WakeWord.listenFor(WakeWord.DEFAULT_KEYWORDS, null))
+        val timerOnly = WakeWord.listenFor(null, WakeWord.TIMER_KEYWORDS)
+        assertEquals(listOf("TIMER__HEY_TIMER"), timerOnly.map { it.label })
+        assertEquals(WakeWord.TIMER_KEYWORDS.map { it.phones }, timerOnly.map { it.phones })
+        assertTrue(WakeWord.listenFor(null, null).isEmpty())
+    }
+
+    @Test fun `a timer keyword that sounds exactly like a claude one is dropped`() {
+        val clash = WakeWord.Keyword(WakeWord.DEFAULT_KEYWORDS[1].phones, "HEY_TIMER_2")
+        val all = WakeWord.listenFor(WakeWord.DEFAULT_KEYWORDS, WakeWord.TIMER_KEYWORDS + clash)
+        assertEquals(4, all.size)
+        assertEquals(listOf("TIMER__HEY_TIMER"), all.filter { WakeWord.isTimerLabel(it.label) }.map { it.label })
+        assertEquals("HEY_CLOUD", all.single { it.phones == clash.phones }.label)
+    }
+
+    private fun many(prefix: String, n: Int) = List(n) { WakeWord.Keyword(listOf("AA1", "$prefix$it"), "$prefix$it") }
+
+    @Test fun `together the phrases never pass the keyword limit, each keeping its first ones`() {
+        fun split(claude: Int, timer: Int): Pair<List<String>, List<String>> {
+            val all = WakeWord.listenFor(many("C", claude), many("T", timer))
+            assertTrue(all.size <= WakeWord.MAX_KEYWORDS)
+            val (t, c) = all.partition { WakeWord.isTimerLabel(it.label) }
+            return c.map { it.label } to t.map { it.label.removePrefix(WakeWord.TIMER_TAG) }
+        }
+        assertEquals(many("C", 8).map { it.label } to many("T", 8).map { it.label }, split(16, 16))
+        assertEquals(many("C", 3).map { it.label } to many("T", 13).map { it.label }, split(3, 16))
+        assertEquals(many("C", 14).map { it.label } to many("T", 2).map { it.label }, split(16, 2))
+        assertEquals(many("C", 16).map { it.label } to emptyList<String>(), split(16, 0))
+        assertEquals(emptyList<String>() to many("T", 16).map { it.label }, split(0, 16))
+    }
+
+    @Test fun `the stream for both phrases parses back with the tagged labels`() {
+        val all = WakeWord.listenFor(WakeWord.DEFAULT_KEYWORDS, WakeWord.TIMER_KEYWORDS)
+        val lines = WakeWord.streamKeywords(all).split('/').joinToString("\n")
+        assertEquals(all, WakeWord.parseKeywords(lines))
+    }
+
+    @Test fun `the timer phrase falls back to its own defaults`() {
+        fun effective(phrase: String, keywords: String) =
+            WakeWord.effective(phrase, keywords, arpabet, WakeWord.TIMER_PHRASE, WakeWord.TIMER_KEYWORDS)
+        assertEquals(WakeWord.Effective(WakeWord.TIMER_PHRASE, WakeWord.TIMER_KEYWORDS, fellBack = false), effective("", ""))
+        val fellBack = WakeWord.Effective(WakeWord.TIMER_PHRASE, WakeWord.TIMER_KEYWORDS, fellBack = true)
+        assertEquals(fellBack, effective("hey oven", "HH EY9 @X"))
+        assertEquals(fellBack, effective("hey oven", "S @X"))
+        assertEquals(fellBack, effective("hey oven", "HH EY1 no label"))
+        // A usable saved phrase still wins.
+        val saved = "HH EY1 AH1 V AH0 N @HEY_OVEN"
+        assertEquals(
+            WakeWord.Effective("hey oven", WakeWord.parseKeywords(saved), fellBack = false),
+            effective("hey oven", saved),
+        )
+    }
+
+    // --- Controller and the timer phrase ---
+
+    @Test fun `a timer keyword hands the mic to the timer flow instead of opening the assistant`() {
+        c.start(0, false)
+        assertEquals(listOf(Action.StopMic, Action.StartTimerFlow), c.onKeyword(1_000, false, true, timer = true))
+        assertEquals(State.TIMER, c.state)
+        assertTrue(c.needsTicks)
+        // Already in the flow: a second keyword does nothing.
+        assertTrue(c.onKeyword(1_100, false, true, timer = true).isEmpty())
+        assertTrue(c.onKeyword(1_200, false, true).isEmpty())
+        assertEquals(State.TIMER, c.state)
+    }
+
+    @Test fun `a timer keyword is ignored when not listening`() {
+        val off = WakeWordController()
+        assertTrue(off.onKeyword(0, false, true, timer = true).isEmpty())
+        assertEquals(State.OFF, off.state)
+
+        val busy = WakeWordController()
+        busy.start(0, micBusy = true)
+        assertTrue(busy.onKeyword(100, false, true, timer = true).isEmpty())
+        assertEquals(State.BUSY, busy.state)
+
+        c.start(0, false)
+        c.onKeyword(1_000, false, true)
+        assertTrue(c.onKeyword(1_100, false, true, timer = true).isEmpty())
+        assertEquals(State.WAITING, c.state)
+    }
+
+    @Test fun `during the timer flow the busy mic is its own, so update waits`() {
+        c.start(0, false)
+        c.onKeyword(1_000, false, true, timer = true)
+        assertTrue(c.update(2_000, micBusy = true, musicActive = false).isEmpty())
+        assertTrue(c.update(60_000, micBusy = false, musicActive = true).isEmpty())
+        assertEquals(State.TIMER, c.state)
+        assertTrue(c.needsTicks)
+    }
+
+    @Test fun `when the timer flow is done, listening comes back, or waits for a busy mic`() {
+        c.start(0, false)
+        c.onKeyword(1_000, false, true, timer = true)
+        assertEquals(listOf(Action.StartMic), c.onTimerDone(5_000, micBusy = false))
+        assertEquals(State.LISTENING, c.state)
+        assertFalse(c.needsTicks)
+
+        val busy = WakeWordController()
+        busy.start(0, false)
+        busy.onKeyword(1_000, false, true, timer = true)
+        assertTrue(busy.onTimerDone(5_000, micBusy = true).withoutNotes().isEmpty())
+        assertEquals(State.BUSY, busy.state)
+        busy.update(6_000, micBusy = false, musicActive = false)
+        assertEquals(listOf(Action.StartMic), busy.update(7_000, micBusy = false, musicActive = false))
+    }
+
+    @Test fun `timer done does nothing outside the timer flow`() {
+        val off = WakeWordController()
+        assertTrue(off.onTimerDone(0, false).isEmpty())
+        assertEquals(State.OFF, off.state)
+
+        val listening = WakeWordController()
+        listening.start(0, false)
+        assertTrue(listening.onTimerDone(100, false).isEmpty())
+        assertEquals(State.LISTENING, listening.state)
+
+        val waiting = WakeWordController()
+        waiting.start(0, false)
+        waiting.onKeyword(1_000, false, true)
+        assertTrue(waiting.onTimerDone(1_100, false).isEmpty())
+        assertEquals(State.WAITING, waiting.state)
+
+        val busy = WakeWordController()
+        busy.start(0, micBusy = true)
+        assertTrue(busy.onTimerDone(100, false).isEmpty())
+        assertEquals(State.BUSY, busy.state)
+    }
+
+    @Test fun `a timer flow that never finishes gives the mic back after the timeout`() {
+        c.start(0, false)
+        c.onKeyword(10_000, false, true, timer = true)
+        assertTrue(c.update(189_999, micBusy = false, musicActive = false).isEmpty())
+        assertEquals(listOf(Action.StartMic), c.update(190_000, micBusy = false, musicActive = false).withoutNotes())
+        assertEquals(State.LISTENING, c.state)
+
+        val short = WakeWordController(timerTimeoutMs = 30_000)
+        short.start(0, false)
+        short.onKeyword(1_000, false, true, timer = true)
+        assertTrue(short.update(30_999, micBusy = true, musicActive = false).isEmpty())
+        assertEquals(listOf(Action.StartMic), short.update(31_000, micBusy = true, musicActive = false).withoutNotes())
+        assertEquals(State.LISTENING, short.state)
+        // A late done from the flow changes nothing.
+        assertTrue(short.onTimerDone(32_000, false).isEmpty())
+    }
+
+    @Test fun `music playing at a timer keyword is not resumed by a media key`() {
+        c.start(0, false)
+        c.onKeyword(10_000, musicActive = true, resumeMediaEnabled = true, timer = true)
+        assertEquals(listOf(Action.StartMic), c.onTimerDone(20_000, micBusy = false))
+
+        // Nor later, after a Claude keyword with no music.
+        c.onKeyword(30_000, musicActive = false, resumeMediaEnabled = true)
+        c.update(30_300, micBusy = true, musicActive = false)
+        c.update(40_000, micBusy = false, musicActive = false)
+        assertEquals(listOf(Action.StartMic), c.update(41_000, micBusy = false, musicActive = false))
+
+        // Nor through the busy path or the timeout.
+        val busy = WakeWordController()
+        busy.start(0, false)
+        busy.onKeyword(10_000, musicActive = true, resumeMediaEnabled = true, timer = true)
+        busy.onTimerDone(20_000, micBusy = true)
+        busy.update(21_000, micBusy = false, musicActive = false)
+        assertEquals(listOf(Action.StartMic), busy.update(22_000, micBusy = false, musicActive = false))
+
+        val timedOut = WakeWordController(timerTimeoutMs = 30_000)
+        timedOut.start(0, false)
+        timedOut.onKeyword(1_000, musicActive = true, resumeMediaEnabled = true, timer = true)
+        assertEquals(listOf(Action.StartMic), timedOut.update(31_000, micBusy = false, musicActive = false).withoutNotes())
+    }
+
+    @Test fun `a claude keyword still opens the assistant, with or without the timer flag`() {
+        c.start(0, false)
+        assertEquals(listOf(Action.StopMic, Action.LaunchAssistant), c.onKeyword(1_000, false, true, timer = false))
+        assertEquals(State.WAITING, c.state)
+
+        val after = WakeWordController()
+        after.start(0, false)
+        after.onKeyword(1_000, false, true, timer = true)
+        after.onTimerDone(2_000, false)
+        assertEquals(listOf(Action.StopMic, Action.LaunchAssistant), after.onKeyword(3_000, musicActive = true, resumeMediaEnabled = true))
+        after.update(3_300, micBusy = true, musicActive = false)
+        after.update(10_000, micBusy = false, musicActive = false)
+        assertEquals(listOf(Action.StartMic, Action.ResumeMedia), after.update(11_000, micBusy = false, musicActive = false))
+    }
+
+    @Test fun `a timer phrase that sounds just like the Claude phrase is reported as shadowed`() {
+        val claude = WakeWord.DEFAULT_KEYWORDS
+        // Every way of saying it is taken: it would never fire.
+        assertTrue(WakeWord.shadowed(claude, listOf(WakeWord.Keyword(claude[0].phones, "SAME"))))
+        // One way of its own is enough.
+        assertFalse(WakeWord.shadowed(claude, WakeWord.TIMER_KEYWORDS + WakeWord.Keyword(claude[1].phones, "SAME")))
+        // With the Claude phrase off, nothing is in the way.
+        assertFalse(WakeWord.shadowed(null, listOf(WakeWord.Keyword(claude[0].phones, "SAME"))))
+        assertFalse(WakeWord.shadowed(claude, emptyList()))
+    }
 }

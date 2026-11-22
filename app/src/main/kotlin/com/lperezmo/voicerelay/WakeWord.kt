@@ -98,6 +98,47 @@ object WakeWord {
         Keyword(listOf("HH", "EY1", "K", "L", "AA1", "D"), "HEY_CLOD"),
     )
 
+    /** The second phrase the app ships with: it starts the timer flow inside Voice Relay instead of opening Claude. */
+    const val TIMER_PHRASE = "hey timer"
+
+    /** The keywords for [TIMER_PHRASE], built in like [DEFAULT_KEYWORDS]; a test checks them against the dictionary. */
+    val TIMER_KEYWORDS = listOf(
+        Keyword(listOf("HH", "EY1", "T", "AY1", "M", "ER0"), "HEY_TIMER"),
+    )
+
+    /** Put before a keyword's label when it belongs to the timer phrase, so a detection says which phrase fired. */
+    const val TIMER_TAG = "TIMER__"
+
+    /** True when a detected keyword's label belongs to the timer phrase. */
+    fun isTimerLabel(label: String): Boolean = label.startsWith(TIMER_TAG)
+
+    /**
+     * Everything the one spotter listens for: the Claude phrase's keywords as they are and
+     * the timer phrase's with [TIMER_TAG] on their labels; null means that phrase is off.
+     * Together they stay within [MAX_KEYWORDS]: when there are too many, each phrase keeps
+     * its first ones (the likeliest pronunciations), at least half the room each. A timer
+     * keyword that sounds exactly like a Claude one is dropped, so that sound opens Claude.
+     */
+    fun listenFor(claude: List<Keyword>?, timer: List<Keyword>?): List<Keyword> {
+        val first = claude.orEmpty()
+        val taken = first.map { it.phones }.toSet()
+        val second = timer.orEmpty().filter { it.phones !in taken }
+        val half = MAX_KEYWORDS / 2
+        val firstRoom = maxOf(half, MAX_KEYWORDS - second.size)
+        val keptFirst = first.take(firstRoom)
+        val keptSecond = second.take(MAX_KEYWORDS - keptFirst.size)
+        return keptFirst + keptSecond.map { Keyword(it.phones, TIMER_TAG + it.label) }
+    }
+
+    /**
+     * True when every way of saying the timer phrase is also a way of saying the Claude
+     * phrase: [listenFor] then keeps none of it, and the timer phrase would never fire.
+     */
+    fun shadowed(claude: List<Keyword>?, timer: List<Keyword>): Boolean {
+        val taken = claude.orEmpty().map { it.phones }.toSet()
+        return timer.isNotEmpty() && timer.all { it.phones in taken }
+    }
+
     /**
      * Pronunciations CMUdict does not list but accents produce. "Claude" comes
      * out as "cloud" or "clod" for many speakers, in any phrase that uses it.
@@ -287,14 +328,17 @@ object WakeWord {
      * unreadable, a phone the model lacks, a keyword without a vowel, more
      * than [MAX_KEYWORDS] lines, or no phrase to show.
      */
-    fun effective(savedPhrase: String, savedKeywords: String, tokens: Set<String>): Effective {
-        if (savedKeywords.isBlank()) return Effective(DEFAULT_PHRASE, DEFAULT_KEYWORDS, fellBack = false)
+    fun effective(
+        savedPhrase: String, savedKeywords: String, tokens: Set<String>,
+        defaultPhrase: String = DEFAULT_PHRASE, defaultKeywords: List<Keyword> = DEFAULT_KEYWORDS,
+    ): Effective {
+        if (savedKeywords.isBlank()) return Effective(defaultPhrase, defaultKeywords, fellBack = false)
         val parsed = parseKeywordsOrEmpty(savedKeywords)
         val usable = parsed.isNotEmpty() && parsed.size <= MAX_KEYWORDS &&
             parsed.all { k -> syllables(k.phones) > 0 && k.phones.all { p -> p in tokens } }
         val phrase = tidy(savedPhrase)
         return if (usable && phrase.isNotEmpty()) Effective(phrase, parsed, fellBack = false)
-        else Effective(DEFAULT_PHRASE, DEFAULT_KEYWORDS, fellBack = true)
+        else Effective(defaultPhrase, defaultKeywords, fellBack = true)
     }
 
     /** True when the keywords include the [ACCENT_VARIANTS] ("hey cloud", "hey clod"). */
@@ -346,6 +390,8 @@ object WakeWord {
  *   OFF --start--> LISTENING --keyword--> WAITING (mic off, Claude launched)
  *   WAITING --mic busy--> BUSY          WAITING --nobody took the mic in time--> LISTENING
  *   LISTENING --mic busy--> BUSY        BUSY --free for [releaseDelayMs], cooldown over--> LISTENING
+ *   LISTENING --timer keyword--> TIMER (mic off, the timer flow records, asks Claude and speaks)
+ *   TIMER --flow done, or [timerTimeoutMs] passed--> LISTENING
  *
  * "Mic busy" means another recorder is active or the audio mode is not normal.
  * Claude's voice mode holds MODE_IN_COMMUNICATION for the whole conversation
@@ -360,13 +406,16 @@ class WakeWordController(
     private val releaseDelayMs: Long = 1_000,
     private val assistantTimeoutMs: Long = 10_000,
     private val micRetryMs: Long = 5_000,
+    private val timerTimeoutMs: Long = 180_000,
 ) {
-    enum class State { OFF, LISTENING, WAITING, BUSY }
+    enum class State { OFF, LISTENING, WAITING, BUSY, TIMER }
 
     sealed interface Action {
         data object StartMic : Action
         data object StopMic : Action
         data object LaunchAssistant : Action
+        /** The timer phrase fired: record what is said next and hand it to Claude. */
+        data object StartTimerFlow : Action
         data object ResumeMedia : Action
         data class Note(val message: String) : Action
     }
@@ -381,7 +430,7 @@ class WakeWordController(
     private var resumeMediaPending = false
 
     /** The service polls [update] while this is true; LISTENING relies on callbacks. */
-    val needsTicks get() = state == State.WAITING || state == State.BUSY
+    val needsTicks get() = state == State.WAITING || state == State.BUSY || state == State.TIMER
 
     fun start(now: Long, micBusy: Boolean): List<Action> {
         if (state != State.OFF) return emptyList()
@@ -403,9 +452,20 @@ class WakeWordController(
         return if (wasListening) listOf(Action.StopMic) else emptyList()
     }
 
-    /** A keyword fired. [musicActive] is whether media was playing at that moment. */
-    fun onKeyword(now: Long, musicActive: Boolean, resumeMediaEnabled: Boolean): List<Action> {
+    /**
+     * A keyword fired. [musicActive] is whether media was playing at that moment. With
+     * [timer] it was the timer phrase: the mic goes to the timer flow, which holds the
+     * audio focus itself, so there is no music to resume afterwards.
+     */
+    fun onKeyword(now: Long, musicActive: Boolean, resumeMediaEnabled: Boolean, timer: Boolean = false): List<Action> {
         if (state != State.LISTENING) return emptyList()
+        if (timer) {
+            state = State.TIMER
+            triggeredAt = now
+            quietUntil = now + cooldownMs
+            freeSince = null
+            return listOf(Action.StopMic, Action.StartTimerFlow)
+        }
         state = State.WAITING
         triggeredAt = now
         quietUntil = now + cooldownMs
@@ -413,6 +473,19 @@ class WakeWordController(
         // A second trigger while music is still paused from the first keeps the plan to resume it.
         resumeMediaPending = resumeMediaPending || (resumeMediaEnabled && musicActive)
         return listOf(Action.StopMic, Action.LaunchAssistant)
+    }
+
+    /** The timer flow finished (or gave up): listen again, or wait if someone else has the mic now. */
+    fun onTimerDone(now: Long, micBusy: Boolean): List<Action> {
+        if (state != State.TIMER) return emptyList()
+        freeSince = null
+        return if (micBusy) {
+            state = State.BUSY
+            listOf(Action.Note("timer flow done, mic in use, waiting"))
+        } else {
+            state = State.LISTENING
+            listOf(Action.StartMic)
+        }
     }
 
     /** The mic could not be opened. Back off and retry. */
@@ -443,6 +516,12 @@ class WakeWordController(
                     resume(musicActive)
             else -> emptyList()
         }
+        // The flow's own recorder is the busy mic here, so the mic state says nothing.
+        State.TIMER -> if (now - triggeredAt >= timerTimeoutMs) {
+            state = State.LISTENING
+            freeSince = null
+            listOf(Action.Note("timer flow did not finish within ${timerTimeoutMs / 1000} s"), Action.StartMic)
+        } else emptyList()
         State.BUSY -> when {
             micBusy -> {
                 freeSince = null
