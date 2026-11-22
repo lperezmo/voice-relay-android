@@ -62,6 +62,13 @@ class TimerFanView(context: Context) : View(context) {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
+    /** Where bubble [index]'s middle is on the screen, once the view is laid out; null before that. */
+    fun centresOnScreen(): List<PillLayout.Spot>? {
+        if (!isLaidOut) return null
+        val at = IntArray(2).also { getLocationOnScreen(it) }
+        return centres.map { PillLayout.Spot(it.x + at[0], it.y + at[1]) }
+    }
+
     /** Places the bubbles for [fan], whose window this view fills. */
     fun place(fan: PillLayout.Fan) {
         centres = fan.centres.map { PillLayout.Spot(it.x - fan.window.x, it.y - fan.window.y) }
@@ -121,6 +128,8 @@ class TimerFanView(context: Context) : View(context) {
             if (x > 0f && x + w > maxW) {
                 x = 0f
                 y += h + gap
+                // Two rows is the room there is above the bubbles; the pill's list shows the rest.
+                if (y + h > CHIP_ROWS * (h + gap)) return
             }
             val left = if (chipsFromRight) width - x - w else x
             rect.set(left, y, left + w, y + h)
@@ -141,6 +150,7 @@ class TimerFanView(context: Context) : View(context) {
         const val GROW_MS = 120L
         const val CHIP_H_DP = 26f
         const val CHIPS_W_DP = 250f
+        const val CHIP_ROWS = 2
         /** #1C1C1E at 92%. */
         const val COLOR_BUBBLE = 0xEB1C1C1E.toInt()
         /** White at 28%. */

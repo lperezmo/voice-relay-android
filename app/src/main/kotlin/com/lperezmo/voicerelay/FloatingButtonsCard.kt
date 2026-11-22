@@ -66,7 +66,7 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         }
         card.addView(dndRow.view)
         exactRow = ui.statusRow("End the DND hour on time", "") {
-            env.open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
+            openExactAlarms()
         }
         card.addView(exactRow.view)
 
@@ -102,7 +102,7 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         }
         card.addView(timerNotifyRow.view)
         timerExactRow = ui.statusRow("Ring on time", "") {
-            env.open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
+            openExactAlarms()
         }
         card.addView(timerExactRow.view)
 
@@ -169,10 +169,10 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         val timers = TimerController.get(activity)
         timerNotifyRow.view.visibility = timerDetail
         timerNotifyRow.show(timers.canNotify, if (timers.canNotify) "On: a finished timer rings until you tap Stop"
-        else "Notifications are off, so a finished timer only rings for a minute. Tap to allow them.")
+        else "Notifications are off or silenced for timers, so a finished one only rings for a minute. Tap to allow them.")
         timerExactRow.view.visibility = timerDetail
         timerExactRow.show(timers.exactAlarms, if (timers.exactAlarms) "On: timers ring right when they end"
-        else "Off: a timer may ring a few minutes late while the phone sleeps. Tap to allow alarms.")
+        else "Off: with the screen off a timer may ring late, by many minutes for a long one. Tap to allow alarms.")
 
         val glyphInstalled = GlyphPillView.glyphInstalled(activity)
         val builtIn = settings.glyphBuiltIn
@@ -208,6 +208,15 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             anthropicKey.isBlank() -> "Tap to set. Ask the Page uses your own Anthropic key."
             anthropicKey.length > 12 -> "${anthropicKey.take(7)}...${anthropicKey.takeLast(4)}"
             else -> "Set"
+        }
+    }
+
+    /** The system screen that allows exact alarms. Only Android 12 has anything to allow; later it is already on. */
+    private fun openExactAlarms() {
+        if (TimerController.get(activity).exactAlarms) return
+        try {
+            env.open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
+        } catch (_: android.content.ActivityNotFoundException) {
         }
     }
 

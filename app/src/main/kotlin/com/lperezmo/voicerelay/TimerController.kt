@@ -41,11 +41,19 @@ class TimerController private constructor(private val context: Context) {
         ringtone = null
     }
 
-    /** False when Android has not allowed exact alarms: a timer may then ring a few minutes late in deep sleep. */
+    /** False when Android has not allowed exact alarms: a timer may then ring late while the phone sleeps. */
     val exactAlarms: Boolean get() = alarms.canScheduleExactAlarms()
 
-    /** False when notifications are off for the app: a finished timer then has no Stop notification. */
-    val canNotify: Boolean get() = notifications.areNotificationsEnabled()
+    /**
+     * False when notifications are off for the app, or the Timers kind is turned off or
+     * silenced: a finished timer then has no ringing Stop notification.
+     */
+    val canNotify: Boolean
+        get() {
+            if (!notifications.areNotificationsEnabled()) return false
+            val channel = notifications.getNotificationChannel(CHANNEL) ?: return true
+            return channel.importance >= NotificationManager.IMPORTANCE_DEFAULT && channel.sound != null
+        }
 
     private fun now() = System.currentTimeMillis()
 
@@ -137,6 +145,8 @@ class TimerController private constructor(private val context: Context) {
             return
         }
         ensureChannel()
+        // Swiping the notification away, or its ten minutes running out, only silences it:
+        // the timer stays in the list as done, and the pill stays gold, until it is dismissed.
         val stop = receiverIntent(ACTION_STOP, entry.id)
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_voice_mark)
@@ -144,7 +154,6 @@ class TimerController private constructor(private val context: Context) {
             .setContentText("Tap Stop to silence it.")
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setDeleteIntent(stop)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setTimeoutAfter(RING_MS)
             .build()
@@ -220,11 +229,13 @@ class TimerController private constructor(private val context: Context) {
     }
 }
 
-/** A timer's alarm went off, or Stop was tapped on its notification. */
+/** A timer's alarm went off, Stop was tapped on its notification, or the permission for exact alarms changed. */
 class TimerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val timers = TimerController.get(context)
         when (intent.action) {
+            // Exact alarms were just allowed or taken away: set every alarm again the way that is allowed now.
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> timers.resume()
             TimerController.ACTION_FIRE -> timers.checkDue()
             TimerController.ACTION_STOP -> timers.stop(intent.getIntExtra(TimerController.EXTRA_ID, -1))
         }

@@ -63,6 +63,13 @@ class TimerListCard(context: Context) : LinearLayout(context) {
     var onStop: ((id: Int) -> Unit)? = null
     var onOutside: (() -> Unit)? = null
 
+    /** The most timers listed; the rest are counted in a last line. Lower on a short screen, so the card fits. */
+    var maxRows = MAX_ROWS
+        set(v) {
+            field = v.coerceIn(1, MAX_ROWS)
+            shownIds = null
+        }
+
     private val dp = resources.displayMetrics.density
     private var shownIds: List<Int>? = null
     private val countdowns = mutableListOf<TextView>()
@@ -77,7 +84,7 @@ class TimerListCard(context: Context) : LinearLayout(context) {
 
     /** Shows [sorted] as they stand at [now]. Rows are rebuilt only when the set of timers changes. */
     fun show(sorted: List<TimerEntry>, now: Long) {
-        val shown = sorted.take(MAX_ROWS)
+        val shown = sorted.take(maxRows)
         val ids = shown.map { it.id }
         if (ids != shownIds) rebuild(shown, sorted.size - shown.size, now)
         shownIds = ids
@@ -155,7 +162,10 @@ class TimerListCard(context: Context) : LinearLayout(context) {
 
     companion object {
         const val W_DP = 272
-        private const val MAX_ROWS = 6
+        const val MAX_ROWS = 6
+        /** One row with the space under it, and the card's own padding plus the "more" line. */
+        const val ROW_DP = 52
+        const val EXTRA_DP = 56
         /** #1C1C1E at 96%. */
         private const val COLOR_CARD = 0xF51C1C1E.toInt()
     }
@@ -265,7 +275,9 @@ class TimerOwnCard(context: Context, startMinutes: Int) : LinearLayout(context) 
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-            onCancel?.invoke()
+            // While the minutes are being typed, the keyboard's keys are touches outside
+            // this card too: only Cancel, Start or Back close it then.
+            if (!input.hasFocus()) onCancel?.invoke()
             return true
         }
         return super.dispatchTouchEvent(event)

@@ -379,6 +379,10 @@ class FloatingPills(
         val view = TimerPillView(service).apply {
             stacked = timerStacked
             onPress = { action, rawX, rawY -> onTimerPress(action, rawX, rawY) }
+            onTap = {
+                hidePopups()
+                showListCard()
+            }
         }
         timerView = view
         timerParams = params
@@ -465,7 +469,11 @@ class FloatingPills(
             }
             MotionEvent.ACTION_MOVE -> {
                 val was = press.hot
-                if (press.move(x, y, fan?.centres.orEmpty())) {
+                // Once the fan is on screen, the finger is matched against where its bubbles
+                // really are, in case Android nudged the window from where it was asked for.
+                val shown = fanView?.centresOnScreen()
+                val opened = if (shown != null) press.move(rawX, rawY, shown) else press.move(x, y, fan?.centres.orEmpty())
+                if (opened) {
                     handler.removeCallbacks(holdTimer)
                     openFan()
                 }
@@ -546,6 +554,8 @@ class FloatingPills(
             onPlus = { id -> timers.addMinute(id) }
             onStop = { id -> stopTimer(id) }
             onOutside = { hideTimerCards() }
+            // As many rows as the screen has room for (few in landscape), six at most.
+            maxRows = ((screenH / dp).toInt() - 2 * PillLayout.TIMER_CARD_MARGIN_DP - TimerListCard.EXTRA_DP) / TimerListCard.ROW_DP
             show(timers.timers(), System.currentTimeMillis())
         }
         val params = cardParams(

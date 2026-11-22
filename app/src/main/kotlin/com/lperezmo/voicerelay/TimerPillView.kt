@@ -20,6 +20,9 @@ import android.view.View
  */
 class TimerPillView(context: Context) : View(context) {
 
+    /** The pill was clicked without a touch (a screen reader's double tap): show what is running. */
+    var onTap: (() -> Unit)? = null
+
     /** Every touch on the pill, with where it is on the screen. */
     var onPress: ((action: Int, rawX: Float, rawY: Float) -> Unit)? = null
 
@@ -52,6 +55,7 @@ class TimerPillView(context: Context) : View(context) {
 
     init {
         isHapticFeedbackEnabled = true
+        isClickable = true
         contentDescription = "Timer. Hold, then slide to a time."
     }
 
@@ -72,6 +76,12 @@ class TimerPillView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                 onPress?.invoke(event.actionMasked, event.rawX, event.rawY)
         }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        onTap?.invoke()
         return true
     }
 

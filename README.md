@@ -98,7 +98,7 @@ repository's releases (see [Signing](#signing-and-forks)).
 | Notifications | The wake word's "listening" notification, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
-| Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time (optional) | Tapping the row in the Volume presets or Timers section |
+| Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time | Granted at install on Android 13 and up. On Android 12, tapping the row in the Volume presets or Timers section (optional) |
 | Input method (Voice Relay arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
 | Internet | Requests to OpenAI, and to Anthropic for Claude cleanup and Ask the Page | Granted at install |
 
@@ -334,8 +334,10 @@ over the app; it takes the volume pill's spot when that pill is off).
 Timers are kept on the phone and survive the buttons being hidden, the service restarting and a
 reboot (after a reboot they come back once the phone is unlocked). Two optional rows help them
 ring properly: **Ring with a Stop button** needs notifications allowed (without them a finished
-timer only rings for a minute), and **Ring on time** allows exact alarms (without it a timer can
-ring a few minutes late while the phone sleeps).
+timer only rings for a minute), and **Ring on time** shows whether exact alarms are allowed. On
+Android 13 and up they are, from install; on Android 12 tap the row to allow them, or a timer can
+ring late while the phone sleeps. A finished timer rings for up to ten minutes; swiping its
+notification away silences it, and it stays in the pill's list until you dismiss it there.
 
 ## Glyph pill
 

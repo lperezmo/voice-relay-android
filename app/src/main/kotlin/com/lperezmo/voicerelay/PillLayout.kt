@@ -193,7 +193,7 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         const val TIMER_FAN_CLEAR_DP = 4f
         const val TIMER_FAN_W_DP = 267
         /** Room over the fan for the running timers' chips. */
-        const val TIMER_CHIPS_H_DP = 52
+        const val TIMER_CHIPS_H_DP = 58
 
         /** Space between a timer card and the button's window, and between the card and the screen edge. */
         const val TIMER_CARD_GAP_DP = 38

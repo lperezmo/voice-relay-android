@@ -6,7 +6,11 @@
     <!-- Volume presets: DND on and off, and the ringer in and out of silent. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Ends the Silent + DND hour on time, and rings timers on time. Optional: without it, they can be late. -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <!-- The same on Android 13 and up, where an app with timers gets it without asking. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Wake word: an always-on microphone foreground service with a notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
@@ -214,7 +218,11 @@
         <!-- A timer's alarm, and the Stop button on its notification. -->
         <receiver
             android:name=".TimerReceiver"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".WhisperAccessibilityService"
