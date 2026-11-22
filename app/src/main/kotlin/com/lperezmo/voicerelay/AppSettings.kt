@@ -121,7 +121,7 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("volume_pill", false)
         set(v) = prefs.edit().putBoolean("volume_pill", v).apply()
 
-    /** The timer pill: hold it to start a timer, tap it to see what is running. */
+    /** The timer pill: tap it to see what is running and start a timer with a V on its track. */
     var timerPillEnabled: Boolean
         get() = prefs.getBoolean("timer_pill", true)
         set(v) = prefs.edit().putBoolean("timer_pill", v).apply()

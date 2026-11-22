@@ -141,9 +141,12 @@ data class Timers(
 
 /** The words and numbers the timer pill, its cards and its confirmations show. */
 object TimerText {
-    /** The times on the fan, in minutes; 0 is "···", your own time. */
-    val FAN_MINUTES = listOf(5, 10, 15, 30, 0)
-    const val OWN_LABEL = "···"
+    /** The stops on the timer track, in minutes; 0 is "Own", your own time. */
+    val TRACK_MINUTES = listOf(5, 10, 15, 30, 0)
+    const val OWN_LABEL = "Own"
+
+    /** A track stop's name: "10m", or "Own" for 0. */
+    fun trackLabel(minutes: Int): String = if (minutes == 0) OWN_LABEL else "${minutes}m"
     const val MIN_MINUTES = 1
     const val MAX_MINUTES = 1440
     const val DEFAULT_OWN_MINUTES = 12
@@ -215,11 +218,11 @@ object TimerText {
 
     /** For screen readers. */
     fun describe(sorted: List<TimerEntry>, now: Long): String {
-        val first = sorted.firstOrNull() ?: return "Timer. Hold, then slide to a time."
+        val first = sorted.firstOrNull() ?: return "Timer. Tap to see timers and start one."
         val count = if (sorted.size == 1) "1 timer running" else "${sorted.size} timers running"
         val next = if (first.done(now)) "${first.label} is done"
         else "${first.label} ends first, in ${clock(first.secondsLeft(now))}"
-        return "$count. $next. Tap to see them, hold to start another."
+        return "$count. $next. Tap to see them."
     }
 
     /** "Timer · 10 min", or "Timer · 1:30" when it is not whole minutes. */
@@ -234,90 +237,39 @@ object TimerText {
 }
 
 /**
- * One press on the timer pill. A quick tap shows what is running; holding still
- * for the hold time ([held], timed by the caller) or dragging past [slop] opens
- * the fan, and letting go on a bubble picks it. Distances are in px.
+ * Whether a press on the timer pill is a tap: let go within [maxMs] of landing, never having
+ * moved past [slop] px. Holding or dragging the pill does nothing. Kept free of Android so it
+ * can be unit tested.
  */
-class TimerPress(private val slop: Float, private val reach: Float) {
-    sealed interface Outcome {
-        /** A tap: show the running timers. */
-        data object Tap : Outcome
-        /** Let go on bubble [index] of the fan. */
-        data class Pick(val index: Int) : Outcome
-        /** Let go anywhere else, or the press was cancelled: nothing happens. */
-        data object None : Outcome
-    }
-
+class TimerTap(private val slop: Float, private val maxMs: Long) {
     private var pressing = false
     private var downX = 0f
     private var downY = 0f
-    var fanOpen = false
-        private set
-    /** The bubble under the finger, or -1. */
-    var hot = -1
-        private set
+    private var downAt = 0L
 
-    fun down(x: Float, y: Float) {
+    fun down(x: Float, y: Float, at: Long) {
         pressing = true
-        fanOpen = false
-        hot = -1
         downX = x
         downY = y
+        downAt = at
     }
 
-    /** The hold time passed. True when this opens the fan. */
-    fun held(): Boolean {
-        if (!pressing || fanOpen) return false
-        fanOpen = true
-        return true
+    fun move(x: Float, y: Float) {
+        if (pressing && hypot(x - downX, y - downY) > slop) pressing = false
     }
 
-    /**
-     * The finger moved; [centres] are the fan's bubbles in the same coordinates.
-     * True when this move opens the fan.
-     */
-    fun move(x: Float, y: Float, centres: List<PillLayout.Spot>): Boolean {
-        if (!pressing) return false
-        var opened = false
-        if (!fanOpen && hypot(x - downX, y - downY) > slop) {
-            fanOpen = true
-            opened = true
-        }
-        if (fanOpen) {
-            var best = reach
-            hot = -1
-            centres.forEachIndexed { i, c ->
-                val d = hypot(x - c.x, y - c.y)
-                if (d < best) {
-                    best = d
-                    hot = i
-                }
-            }
-        }
-        return opened
-    }
-
-    fun up(): Outcome {
-        if (!pressing) return Outcome.None
-        val outcome = when {
-            !fanOpen -> Outcome.Tap
-            hot >= 0 -> Outcome.Pick(hot)
-            else -> Outcome.None
-        }
-        cancel()
-        return outcome
+    /** True when this press was a tap. */
+    fun up(at: Long): Boolean {
+        val tap = pressing && at - downAt <= maxMs
+        pressing = false
+        return tap
     }
 
     fun cancel() {
         pressing = false
-        fanOpen = false
-        hot = -1
     }
 
     companion object {
-        const val HOLD_MS = 180L
         const val SLOP_DP = 8f
-        /** How close to a bubble's middle the finger must be to pick it. */
-        const val REACH_DP = 30f
     }
 }

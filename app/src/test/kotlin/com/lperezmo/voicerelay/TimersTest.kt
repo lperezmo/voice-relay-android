@@ -269,13 +269,13 @@ class TimersTest {
     }
 
     @Test fun `describe with no timers says how to start one`() {
-        assertEquals("Timer. Hold, then slide to a time.", TimerText.describe(emptyList(), now))
+        assertEquals("Timer. Tap to see timers and start one.", TimerText.describe(emptyList(), now))
     }
 
     @Test fun `describe names the timer that ends first`() {
         val sorted = listOf(timer(1, "Pasta", now + 552_000), timer(2, "Tea", now + 900_000))
         assertEquals(
-            "2 timers running. Pasta ends first, in 9:12. Tap to see them, hold to start another.",
+            "2 timers running. Pasta ends first, in 9:12. Tap to see them.",
             TimerText.describe(sorted, now),
         )
     }
@@ -283,146 +283,57 @@ class TimersTest {
     @Test fun `describe says when the first timer is done`() {
         val sorted = listOf(timer(1, "Pasta", now - 1))
         assertEquals(
-            "1 timer running. Pasta is done. Tap to see them, hold to start another.",
+            "1 timer running. Pasta is done. Tap to see them.",
             TimerText.describe(sorted, now),
         )
     }
 
-    // ---- TimerPress ----
-
-    // Slop 10 px, reach 30 px. The press starts at (100, 100); bubbles above it.
-    private fun press() = TimerPress(slop = 10f, reach = 30f)
-    private val bubbles = listOf(PillLayout.Spot(100, 0), PillLayout.Spot(200, 0))
-
-    @Test fun `a quick tap is a Tap`() {
-        val p = press()
-        p.down(100f, 100f)
-        assertEquals(TimerPress.Outcome.Tap, p.up())
+    @Test fun `the track's stops are 5, 10, 15 and 30 minutes and Own`() {
+        assertEquals(listOf(5, 10, 15, 30, 0), TimerText.TRACK_MINUTES)
+        assertEquals(listOf("5m", "10m", "15m", "30m", "Own"), TimerText.TRACK_MINUTES.map { TimerText.trackLabel(it) })
+        assertEquals(TrackStops.TIMER.count, TimerText.TRACK_MINUTES.size)
     }
 
-    @Test fun `a small move is still a Tap`() {
-        val p = press()
-        p.down(100f, 100f)
-        assertFalse(p.move(106f, 108f, bubbles)) // 10 px away: not past the slop
-        assertFalse(p.fanOpen)
-        assertEquals(TimerPress.Outcome.Tap, p.up())
+    // ---- TimerTap ----
+
+    // Slop 10 px, 500 ms at most. The press starts at (100, 100) at time 0.
+    private fun tap() = TimerTap(slop = 10f, maxMs = 500)
+
+    @Test fun `a quick press and release is a tap`() {
+        val t = tap()
+        t.down(100f, 100f, 0)
+        t.move(104f, 103f)
+        assertTrue(t.up(200))
     }
 
-    @Test fun `holding opens the fan once`() {
-        val p = press()
-        p.down(100f, 100f)
-        assertTrue(p.held())
-        assertTrue(p.fanOpen)
-        assertFalse(p.held())
+    @Test fun `holding the pill does nothing`() {
+        val t = tap()
+        t.down(100f, 100f, 0)
+        assertFalse(t.up(501))
     }
 
-    @Test fun `held does nothing when not pressing`() {
-        val p = press()
-        assertFalse(p.held())
-        p.down(100f, 100f)
-        p.up()
-        assertFalse(p.held())
-        assertFalse(p.fanOpen)
+    @Test fun `dragging the pill does nothing, even back to where it started`() {
+        val t = tap()
+        t.down(100f, 100f, 0)
+        t.move(100f, 120f)
+        t.move(100f, 100f)
+        assertFalse(t.up(100))
     }
 
-    @Test fun `a drag past the slop opens the fan, once`() {
-        val p = press()
-        p.down(100f, 100f)
-        assertTrue(p.move(100f, 89f, bubbles))
-        assertTrue(p.fanOpen)
-        assertFalse(p.move(100f, 80f, bubbles))
-        assertFalse(p.held())
+    @Test fun `a cancelled press or an up without a down is not a tap`() {
+        val t = tap()
+        assertFalse(t.up(10))
+        t.down(100f, 100f, 0)
+        t.cancel()
+        assertFalse(t.up(10))
     }
 
-    @Test fun `move does nothing when not pressing`() {
-        val p = press()
-        assertFalse(p.move(100f, 0f, bubbles))
-        assertFalse(p.fanOpen)
-        assertEquals(-1, p.hot)
-    }
-
-    @Test fun `hot is the nearest bubble within reach`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(110f, 5f, bubbles)
-        assertEquals(0, p.hot)
-        p.move(190f, 10f, bubbles)
-        assertEquals(1, p.hot)
-    }
-
-    @Test fun `hot is -1 when no bubble is within reach`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(150f, 0f, bubbles) // 50 px from both
-        assertEquals(-1, p.hot)
-        p.move(100f, 30f, bubbles) // exactly at reach does not count
-        assertEquals(-1, p.hot)
-    }
-
-    @Test fun `hot is found after a hold without moving past the slop`() {
-        val p = press()
-        p.down(100f, 10f)
-        p.held()
-        assertFalse(p.move(100f, 10f, bubbles))
-        assertEquals(0, p.hot)
-    }
-
-    @Test fun `hot leaves a bubble when the finger moves off it`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(100f, 0f, bubbles)
-        assertEquals(0, p.hot)
-        p.move(150f, 100f, bubbles)
-        assertEquals(-1, p.hot)
-    }
-
-    @Test fun `letting go on a bubble picks it`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(200f, 0f, bubbles)
-        assertEquals(TimerPress.Outcome.Pick(1), p.up())
-    }
-
-    @Test fun `letting go elsewhere with the fan open does nothing`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.held()
-        assertEquals(TimerPress.Outcome.None, p.up())
-    }
-
-    @Test fun `up resets the press`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(100f, 0f, bubbles)
-        p.up()
-        assertFalse(p.fanOpen)
-        assertEquals(-1, p.hot)
-        assertEquals(TimerPress.Outcome.None, p.up())
-    }
-
-    @Test fun `after cancel the next up is None`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(100f, 0f, bubbles)
-        p.cancel()
-        assertFalse(p.fanOpen)
-        assertEquals(-1, p.hot)
-        assertEquals(TimerPress.Outcome.None, p.up())
-    }
-
-    @Test fun `up without down is None`() {
-        assertEquals(TimerPress.Outcome.None, press().up())
-    }
-
-    @Test fun `a new down starts fresh`() {
-        val p = press()
-        p.down(100f, 100f)
-        p.move(100f, 0f, bubbles)
-        p.down(300f, 300f)
-        assertFalse(p.fanOpen)
-        assertEquals(-1, p.hot)
-        // The slop is measured from the new down.
-        assertFalse(p.move(305f, 305f, bubbles))
-        assertEquals(TimerPress.Outcome.Tap, p.up())
+    @Test fun `each press starts fresh`() {
+        val t = tap()
+        t.down(100f, 100f, 0)
+        t.move(200f, 100f)
+        assertFalse(t.up(50))
+        t.down(100f, 100f, 1000)
+        assertTrue(t.up(1100))
     }
 }

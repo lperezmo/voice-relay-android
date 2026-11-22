@@ -115,4 +115,59 @@ class VolumePresetsTest {
         assertEquals(PillState.BARS, PillState.LOUD.bars)
         for (s in PillState.entries) assert(s.bars in 0..PillState.BARS)
     }
+
+    // --- Track stops ---
+
+    @Test fun `the volume track's stops sit where they always did`() {
+        val v = TrackStops.VOLUME
+        assertEquals(VolumePreset.entries.size, v.count)
+        assertEquals(listOf(41f, 101f, 161f, 221f), (0 until v.count).map { v.xDp(it) })
+        // The same stop as the old ((x - 41) / 60) rounded and clamped, everywhere on the track.
+        for (x in 0..262) assertEquals("x $x", Math.round((x - 41f) / 60f).coerceIn(0, 3), v.at(x.toFloat()))
+    }
+
+    @Test fun `the timer track's five stops are centred on the 262 dp track`() {
+        val t = TrackStops.TIMER
+        assertEquals(5, t.count)
+        assertEquals(listOf(35f, 83f, 131f, 179f, 227f), (0 until t.count).map { t.xDp(it) })
+        assertEquals(262f - t.xDp(t.count - 1), t.xDp(0), 0f)
+    }
+
+    @Test fun `the stop under the finger is the nearest one, and the end stops past the ends`() {
+        val t = TrackStops.TIMER
+        assertEquals(0, t.at(-50f))
+        assertEquals(0, t.at(35f))
+        assertEquals(0, t.at(58f))
+        assertEquals(1, t.at(60f))
+        assertEquals(3, t.at(179f))
+        assertEquals(4, t.at(204f))
+        assertEquals(4, t.at(400f))
+    }
+
+    @Test fun `the rail's ticks land on every stop`() {
+        for (stops in listOf(TrackStops.VOLUME, TrackStops.TIMER)) {
+            val perStop = stops.stepDp / stops.railStepDp
+            assertEquals(Math.round(perStop).toFloat(), perStop, 1e-4f)
+        }
+    }
+
+    @Test fun `a V on the timer track from the first stop to the third picks 15 minutes`() {
+        val t = TrackStops.TIMER
+        val g = VGesture(dip = 20f, rise = 16f, slop = 8f) { x -> t.at(x) }
+        g.down(35f, 20f, 0)
+        assertNull(g.move(35f, 45f))
+        assertNull(g.move(131f, 50f))
+        assertEquals(2, g.move(131f, 30f))
+        assertEquals(VGesture.End.COMMITTED, g.up())
+        assertEquals(15, TimerText.TRACK_MINUTES[2])
+    }
+
+    @Test fun `a tap or a press and release on the timer track starts nothing`() {
+        val g = VGesture(dip = 20f, rise = 16f, slop = 8f) { x -> TrackStops.TIMER.at(x) }
+        g.down(83f, 20f, 0)
+        assertEquals(VGesture.End.TAP, g.up())
+        g.down(83f, 20f, 0)
+        assertNull(g.move(83f, 30f))
+        assertEquals(VGesture.End.CANCELLED, g.up())
+    }
 }

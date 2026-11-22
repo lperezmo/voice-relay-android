@@ -1,8 +1,5 @@
 package com.lperezmo.voicerelay
 
-import kotlin.math.cos
-import kotlin.math.sin
-
 /**
  * Where the pills ([VolumePillView] above the dictate button, [VolumeTrackView]
  * above that, [GlyphPillView] below, [TimerPillView] upright beside the button,
@@ -56,7 +53,7 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
     /**
      * The timer pill's touch window: beside the button on the side facing the middle of the
      * screen, level with it, its inner edge on the button's edge (the button's window lies over
-     * that strip and keeps its own touches). The stub is drawn [timerStubInset] in from that
+     * that strip and keeps its own touches). The tab is drawn [timerStubInset] in from that
      * inner edge, so it sits [TIMER_STUB_GAP_DP] from the button.
      */
     fun timerPill(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, screenH: Int): Spot {
@@ -68,10 +65,10 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         )
     }
 
-    /** How far the stub's middle is from the touch window's inner edge (the edge on the button's side), in px. */
+    /** How far the tab's middle is from the touch window's inner edge (the edge on the button's side), in px. */
     fun timerStubInset(): Float = (TIMER_STUB_GAP_DP + TIMER_STUB_W_DP / 2) * dp
 
-    /** The middle of the drawn stub, on the screen, for a button whose ring window is at (bubbleX, bubbleY). */
+    /** The middle of the drawn tab, on the screen, for a button whose ring window is at (bubbleX, bubbleY). */
     fun timerStubCentre(bubbleX: Int, bubbleY: Int, screenW: Int, screenH: Int): Spot {
         val w = (TIMER_W_DP * dp).toInt()
         val h = (TIMER_H_DP * dp).toInt()
@@ -82,52 +79,13 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
     }
 
     /**
-     * The fan of times that opens while the timer pill is held: a see-through window at
-     * [window], [width] x [height], with the bubbles' [centres] in screen px (5, 10, 15, 30
-     * and your own, top to bottom). The top [chipsHeight] of the window is for the chips
-     * that list the running timers.
+     * The timer panel (the running timers over the timer track) or the minutes card, [width] x
+     * [height]. It opens toward the middle of the screen with its bottom at the top of the
+     * button, or under the button when there is no room above, never reaches the button's
+     * column, and leaves the timer pill uncovered even where a narrow screen pushes it over
+     * the pill's column.
      */
-    class Fan(
-        val window: Spot, val width: Int, val height: Int,
-        val centres: List<Spot>, val chipsHeight: Int, val onRight: Boolean,
-    )
-
-    /**
-     * The fan for the timer pill of a button whose ring window is at (bubbleX, bubbleY). It
-     * opens from the stub's middle toward the middle of the screen, slides down or up to stay
-     * on screen, and keeps every bubble clear of the button.
-     */
-    fun timerFan(bubbleX: Int, bubbleY: Int, screenW: Int, screenH: Int): Fan {
-        val right = onRight(bubbleX, screenW)
-        val buttonCx = bubbleX + ring / 2
-        val r = TIMER_FAN_RADIUS_DP * dp
-        // The bubbles nearest the button's column are the outer two, at 60 degrees.
-        val clear = button / 2 + ((TIMER_FAN_HOT_DP / 2 + TIMER_FAN_CLEAR_DP) * dp - r * cos(FAN_EDGE)).toInt()
-        val stub = timerStubCentre(bubbleX, bubbleY, screenW, screenH)
-        val originX = if (right) minOf(stub.x, buttonCx - clear) else maxOf(stub.x, buttonCx + clear)
-
-        val reach = (r * sin(FAN_EDGE) + TIMER_FAN_HOT_DP / 2 * dp).toInt() + 1
-        val chips = (TIMER_CHIPS_H_DP * dp).toInt()
-        val height = chips + reach * 2
-        val top = (stub.y - reach - chips).coerceIn(margin, maxOf(margin, screenH - height - margin))
-        val originY = top + chips + reach
-        val width = (TIMER_FAN_W_DP * dp).toInt()
-        val left = (if (right) originX - width else originX).coerceIn(0, maxOf(0, screenW - width))
-        val centres = TIMER_FAN_ANGLES.map { degrees ->
-            val a = Math.toRadians(degrees.toDouble())
-            val dx = (r * cos(a)).toInt()
-            Spot(if (right) originX - dx else originX + dx, originY + (r * sin(a)).toInt())
-        }
-        return Fan(Spot(left, top), width, height, centres, chips, right)
-    }
-
-    /**
-     * A timer card (the running list, or "your own time"), [width] x [height]. It opens
-     * toward the middle of the screen with its bottom at the top of the button, or under
-     * the button when there is no room above, never reaches the button's column, and leaves
-     * the timer pill uncovered even where a narrow screen pushes it over the pill's column.
-     */
-    fun timerCard(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, screenH: Int): Spot {
+    fun timerPanel(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, screenH: Int): Spot {
         val gap = (TIMER_CARD_GAP_DP * dp).toInt()
         val edge = (TIMER_CARD_MARGIN_DP * dp).toInt()
         val x = if (onRight(bubbleX, screenW)) bubbleX - gap - width else bubbleX + ring + gap
@@ -178,48 +136,29 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         const val TRACK_GAP_DP = 12
 
         /**
-         * The timer pill's touch window, beside the button. The drawn pill is an upright stub
-         * as thick as the other pills: a round dot while nothing runs, growing to
-         * [TIMER_GROWN_H_DP] tall for the countdown while a timer runs or rings.
+         * The timer pill's touch window, beside the button, at least 44 dp each way. The drawn
+         * pill is an upright tab [TIMER_STUB_W_DP] wide and [TIMER_TAB_H_DP] tall.
          */
         const val TIMER_W_DP = 44
         const val TIMER_H_DP = 60
-        const val TIMER_STUB_W_DP = PillSkin.PILL_H_DP
-        const val TIMER_STUB_H_DP = PillSkin.PILL_H_DP
-        const val TIMER_GROWN_H_DP = 54f
-        /** The tallest the stub grows: the button's ring window's height, so it never reaches the volume or Glyph pill. */
+        const val TIMER_STUB_W_DP = 20f
+        const val TIMER_TAB_H_DP = 54f
+        /** The tallest the tab gets for a long countdown: the button's ring window's height, so it never reaches the volume or Glyph pill. */
         const val TIMER_STUB_MAX_H_DP = 56f
-        /** Room kept at each end of the grown stub, past its text. */
+        /** Room kept at each end of the tab, past its content. */
         const val TIMER_END_PAD_DP = 7f
 
         /**
-         * The stub's height in dp: a dot while [idle], otherwise tall enough for its
-         * countdown and badge ([contentDp] long), at least [TIMER_GROWN_H_DP] and at most
-         * [TIMER_STUB_MAX_H_DP].
+         * The tab's height in dp for content [contentDp] long (dot or countdown, and badge):
+         * [TIMER_TAB_H_DP], or taller when that does not fit, at most [TIMER_STUB_MAX_H_DP].
          */
-        fun timerStubHeightDp(idle: Boolean, contentDp: Float): Float =
-            if (idle) TIMER_STUB_H_DP
-            else maxOf(TIMER_GROWN_H_DP, contentDp + 2 * TIMER_END_PAD_DP).coerceAtMost(TIMER_STUB_MAX_H_DP)
-        /** Space between the stub and the button. */
+        fun timerTabHeightDp(contentDp: Float): Float =
+            maxOf(TIMER_TAB_H_DP, contentDp + 2 * TIMER_END_PAD_DP).coerceAtMost(TIMER_STUB_MAX_H_DP)
+        /** Space between the tab and the button. */
         const val TIMER_STUB_GAP_DP = 5f
-        /** How long the stub takes to grow or shrink. */
-        const val TIMER_GROW_MS = 250L
 
-        /** The fan: bubbles on an arc around the pill, bigger under the finger. */
-        const val TIMER_FAN_RADIUS_DP = 92f
-        const val TIMER_FAN_BUBBLE_DP = 44f
-        const val TIMER_FAN_HOT_DP = 52f
-        val TIMER_FAN_ANGLES = listOf(-60, -30, 0, 30, 60)
-        /** Space kept between a bubble and the button. */
-        const val TIMER_FAN_CLEAR_DP = 4f
-        const val TIMER_FAN_W_DP = 267
-        /** Room over the fan for the running timers' chips. */
-        const val TIMER_CHIPS_H_DP = 58
-
-        /** Space between a timer card and the button's window, and between the card and the screen edge. */
+        /** Space between the timer panel and the button's window, and between the panel and the screen edge. */
         const val TIMER_CARD_GAP_DP = 38
         const val TIMER_CARD_MARGIN_DP = 16
-
-        private val FAN_EDGE = Math.toRadians(60.0)
     }
 }
