@@ -355,8 +355,8 @@ touched.
 
 ## Timer pill
 
-Off by default. Turn on **Timer pill** (Settings, Floating buttons, Timers) and a third small pill
-rides with the dictate button. Voice Relay runs these timers itself, so it can list them, extend
+On by default: a third small pill rides with the dictate button (turn it off with **Timer pill**
+in Settings, Floating buttons, Timers). Voice Relay runs these timers itself, so it can list them, extend
 them and stop them; they are not the clock app's timers.
 
 - **Hold the pill** (or drag from it) and five bubbles fan out toward the middle of the screen:
@@ -490,7 +490,7 @@ billed to your Anthropic account.
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
-| Timer pill | off | See [Timer pill](#timer-pill). |
+| Timer pill | on | See [Timer pill](#timer-pill). |
 | Timer pill position | Beside the button | Or **Above the volume pill**. Changing it moves the pill straight away. |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
 | Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
