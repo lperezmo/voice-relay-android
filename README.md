@@ -242,9 +242,11 @@ hears no time, or nothing at all for six seconds, it says "I didn't catch a time
 nothing; with no internet it says so. Saying the phrase again while it is still working on a
 request does nothing.
 
-The Tasker intents only switch the wake word. With Timers by voice on, `WAKE_OFF` stops
-listening for "hey claude" but the microphone stays on for the timer phrase; turn that off in
-Settings or with **Stop** on the notification, which turns both off.
+Each phrase has its own Tasker intents: `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` for the wake word
+and `TIMER_ON` / `TIMER_OFF` / `TIMER_TOGGLE` for the timer phrase. Turning one off leaves the
+other listening, so send both off intents to close the microphone. **Stop** on the notification
+turns both off. Like the wake word, the timer phrase must be turned on once in the app before an
+intent can turn it on.
 
 It needs both keys: OpenAI for the speech and Anthropic for Claude. With one missing it does
 nothing, and tells you once in a notification. Each request is one transcription and a few short
@@ -259,7 +261,7 @@ finishes at once, including over the lock screen):
 
 | Field | Value |
 |---|---|
-| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, `com.lperezmo.voicerelay.WAKE_TOGGLE`, `com.lperezmo.voicerelay.CLAUDE_VOICE` (opens Claude straight into voice mode, as the wake word does), or `BUTTONS_HIDE` / `BUTTONS_SHOW` / `BUTTONS_TOGGLE` (same prefix; hides or shows every floating button) |
+| Action | `com.lperezmo.voicerelay.WAKE_ON`, `com.lperezmo.voicerelay.WAKE_OFF`, `com.lperezmo.voicerelay.WAKE_TOGGLE`, `com.lperezmo.voicerelay.TIMER_ON`, `com.lperezmo.voicerelay.TIMER_OFF`, `com.lperezmo.voicerelay.TIMER_TOGGLE` (the same three for the timer phrase), `com.lperezmo.voicerelay.CLAUDE_VOICE` (opens Claude straight into voice mode, as the wake word does), or `BUTTONS_HIDE` / `BUTTONS_SHOW` / `BUTTONS_TOGGLE` (same prefix; hides or shows every floating button) |
 | Package | `com.lperezmo.voicerelay` |
 | Class | `com.lperezmo.voicerelay.WakeControlActivity` |
 | Target | Activity |
@@ -647,7 +649,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `WakeWordAi.kt` | Generate with AI: the prompt and schema for suggested pronunciations, and the checks on the answer |
 | `WakeWordService.kt` | Wake word foreground service: mic, keyword spotter, opening Claude, resuming music |
 | `MicHearing.kt` | Whether the wake word's mic hears anything (silenced by Android, or only zeros), for its notification |
-| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
+| `WakeControlActivity.kt` | Invisible activity behind the Tasker `WAKE_ON` / `WAKE_OFF` / `WAKE_TOGGLE` / `TIMER_ON` / `TIMER_OFF` / `TIMER_TOGGLE` / `CLAUDE_VOICE` / `BUTTONS_*` intents, off when other apps may not control Voice Relay |
 | `assets/wake/cmudict.txt.gzip` | CMUdict, to spell a typed wake phrase as the model's phones (`HH EY1 K L AO1 D`); built by `scripts/build_cmudict.py` |
 | `MainActivity.kt`, `LicensesActivity.kt` | Settings screen (wiring and permission requests), and the open-source licenses screen |
 | `SettingsUi.kt`, `SettingsCard.kt` | The settings screen's view builders (cards, rows, switch, radio and status rows) and what each card is given |

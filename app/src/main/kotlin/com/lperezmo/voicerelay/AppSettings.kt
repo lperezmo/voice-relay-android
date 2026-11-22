@@ -227,6 +227,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("timer_wake", false)
         set(v) = prefs.edit().putBoolean("timer_wake", v).apply()
 
+    /** Set the first time the timer phrase is turned on in the app; until then other apps cannot turn it on. */
+    var timerWakeSetUp: Boolean
+        get() = prefs.getBoolean("timer_wake_set_up", false)
+        set(v) = prefs.edit().putBoolean("timer_wake_set_up", v).apply()
+
     /** True when either phrase is on, so the listening service should run. */
     val anyWakeEnabled: Boolean get() = wakeWordEnabled || timerWakeEnabled
 

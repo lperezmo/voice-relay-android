@@ -157,6 +157,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun enableTimerWake() {
         env.settings.timerWakeEnabled = true
+        env.settings.timerWakeSetUp = true
         WakeWordService.sync(this, "timer phrase switch")
         refresh()
         wakeCard.refreshSoon()

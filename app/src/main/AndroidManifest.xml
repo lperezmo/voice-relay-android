@@ -112,6 +112,9 @@
                 <action android:name="com.lperezmo.voicerelay.WAKE_OFF" />
                 <action android:name="com.lperezmo.voicerelay.CLAUDE_VOICE" />
                 <action android:name="com.lperezmo.voicerelay.WAKE_TOGGLE" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_ON" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_OFF" />
+                <action android:name="com.lperezmo.voicerelay.TIMER_TOGGLE" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_HIDE" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_SHOW" />
                 <action android:name="com.lperezmo.voicerelay.BUTTONS_TOGGLE" />
