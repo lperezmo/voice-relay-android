@@ -37,6 +37,8 @@ class WakeControlActivity : Activity() {
         /** Non-exported alias of this activity for the app's own PendingIntents. See the manifest. */
         const val INTERNAL_ALIAS = "com.lperezmo.voicerelay.WakeControlInternal"
         const val ACTION_WAKE_ON = "com.lperezmo.voicerelay.WAKE_ON"
+        /** From the "tap to resume" notification: start listening again for whichever phrases are on. */
+        const val ACTION_WAKE_RESUME = "com.lperezmo.voicerelay.WAKE_RESUME"
         const val ACTION_WAKE_OFF = "com.lperezmo.voicerelay.WAKE_OFF"
         const val ACTION_WAKE_TOGGLE = "com.lperezmo.voicerelay.WAKE_TOGGLE"
         const val ACTION_CLAUDE_VOICE = "com.lperezmo.voicerelay.CLAUDE_VOICE"
@@ -65,6 +67,7 @@ class WakeControlActivity : Activity() {
         }
         when (action) {
             ACTION_WAKE_ON -> on(settings)
+            ACTION_WAKE_RESUME -> WakeWordService.sync(this, "resume notification")
             ACTION_WAKE_OFF -> off(settings)
             ACTION_WAKE_TOGGLE -> if (settings.wakeWordEnabled) off(settings) else on(settings)
             ACTION_CLAUDE_VOICE -> claudeVoice()
@@ -92,7 +95,8 @@ class WakeControlActivity : Activity() {
 
     private fun off(settings: AppSettings) {
         settings.wakeWordEnabled = false
-        WakeWordService.stop(this)
+        // The timer phrase has its own switch: the listener keeps going for it.
+        WakeWordService.sync(this, "control intent")
         Log.i(TAG, "Wake word: turned off by control intent")
     }
 

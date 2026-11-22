@@ -31,7 +31,33 @@ class WakePhraseDialog(
     private val usage: UsageStore,
     private val ui: SettingsUi,
     private val refresh: () -> Unit,
+    private val slot: Slot = Slot.CLAUDE,
 ) {
+    /** Which of the two phrases is being edited: its name, its default, what it does, and where it is kept. */
+    class Slot(
+        val title: String,
+        val defaultPhrase: String,
+        val does: String,
+        val effective: (android.content.Context) -> WakeWord.Effective,
+        val phones: (AppSettings) -> String,
+        val save: (AppSettings, WakeWord.Result.Ready?, String) -> Unit,
+    ) {
+        companion object {
+            /** The wake phrase that opens Claude's voice assistant. */
+            val CLAUDE = Slot(
+                "Wake phrase", WakeWord.DEFAULT_PHRASE, "Either way it opens Claude's voice assistant.",
+                { WakeWordService.effectiveWake(it) }, { it.wakePhones },
+                { settings, ready, phones -> settings.setWakePhrase(ready, phones) },
+            )
+            /** The timer phrase that sets a timer by voice. */
+            val TIMER = Slot(
+                "Timer phrase", WakeWord.TIMER_PHRASE, "Either way it listens for a timer request next.",
+                { WakeWordService.effectiveTimer(it) }, { it.timerPhones },
+                { settings, ready, phones -> settings.setTimerPhrase(ready, phones) },
+            )
+        }
+    }
+
     private fun editText(hint: String, value: String, type: Int) = ui.editText(hint, value, type)
     private fun vertical(padH: Int, padV: Int = padH) = ui.vertical(padH, padV)
     private fun dp(n: Int) = ui.dp(n)
@@ -40,8 +66,8 @@ class WakePhraseDialog(
 
     fun show() = with(activity) {
         val tokens = WakeWordService.modelTokens(this)
-        val current = WakeWordService.effectiveWake(this)
-        val savedPhones = if (current.fellBack) "" else settings.wakePhones
+        val current = slot.effective(this)
+        val savedPhones = if (current.fellBack) "" else slot.phones(settings)
         // Word -> its pronunciations; an empty list means the dictionary lacks it.
         val known = mutableMapOf<String, List<List<String>>>()
         fun resolve(phrase: String, phones: String): WakeWord.Result = synchronized(known) {
@@ -60,7 +86,7 @@ class WakePhraseDialog(
 
         val secondary = attrColor(android.R.attr.textColorSecondary)
         val error = attrColor(com.google.android.material.R.attr.colorError)
-        val phraseInput = editText(WakeWord.DEFAULT_PHRASE, current.phrase, InputType.TYPE_CLASS_TEXT).apply {
+        val phraseInput = editText(slot.defaultPhrase, current.phrase, InputType.TYPE_CLASS_TEXT).apply {
             filters = arrayOf(android.text.InputFilter.LengthFilter(60))
         }
         val result = TextView(this).apply {
@@ -263,7 +289,7 @@ class WakePhraseDialog(
         val content = vertical(dp(20), dp(8)).apply {
             addView(TextView(activity).apply {
                 text = "2 to 4 syllables with distinct sounds recognize best. Very short or common phrases " +
-                    "trigger by accident. Either way it opens Claude's voice assistant."
+                    "trigger by accident. ${slot.does}"
                 textSize = 13f
                 setTextColor(secondary)
             })
@@ -274,14 +300,14 @@ class WakePhraseDialog(
         }
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Wake phrase")
+            .setTitle(slot.title)
             .setView(ScrollView(this).apply { addView(content) })
             .setPositiveButton("Save", null)
             .setNeutralButton("Reset to default") { _, _ ->
-                settings.setWakePhrase(null)
+                slot.save(settings, null, "")
                 WakeWordService.reload(this)
                 refresh()
-                toast("Wake phrase: ${WakeWord.DEFAULT_PHRASE}")
+                toast("${slot.title}: ${slot.defaultPhrase}")
             }
             .setNegativeButton("Cancel", null)
             .create()
@@ -290,11 +316,11 @@ class WakePhraseDialog(
                 handler.removeCallbacks(delayedCheck)
                 check { r, phones ->
                     if (r is WakeWord.Result.Ready && dialog.isShowing) {
-                        settings.setWakePhrase(r, phones)
+                        slot.save(settings, r, phones)
                         WakeWordService.reload(this)
                         dialog.dismiss()
                         refresh()
-                        toast(if (WakeWordService.running) "Now listening for ${r.phrase}" else "Wake phrase: ${r.phrase}")
+                        toast(if (WakeWordService.running) "Now listening for ${r.phrase}" else "${slot.title}: ${r.phrase}")
                     }
                 }
             }

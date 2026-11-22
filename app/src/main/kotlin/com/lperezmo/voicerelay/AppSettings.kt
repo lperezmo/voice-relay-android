@@ -197,6 +197,50 @@ class AppSettings(context: Context) {
         }.apply()
     }
 
+    /** The timer phrase as shown ("hey timer"); the same three values as the wake phrase, kept in step by [setTimerPhrase]. */
+    val timerPhrase: String
+        get() = prefs.getString("timer_phrase", null) ?: WakeWord.TIMER_PHRASE
+
+    val timerPhones: String
+        get() = prefs.getString("timer_phones", null) ?: ""
+
+    val timerKeywords: String
+        get() = prefs.getString("timer_keywords", null) ?: ""
+
+    /** Saves a checked timer phrase. Pass null to go back to [WakeWord.TIMER_PHRASE]. */
+    fun setTimerPhrase(ready: WakeWord.Result.Ready?, phones: String = "") {
+        prefs.edit().apply {
+            if (ready == null || (ready.keywords == WakeWord.TIMER_KEYWORDS && phones.isBlank())) {
+                remove("timer_phrase")
+                remove("timer_phones")
+                remove("timer_keywords")
+            } else {
+                putString("timer_phrase", ready.phrase)
+                putString("timer_phones", phones.trim())
+                putString("timer_keywords", ready.keywords.joinToString("\n") { it.line })
+            }
+        }.apply()
+    }
+
+    /** Listen for the timer phrase: record what is said next, and let Claude set the timer. */
+    var timerWakeEnabled: Boolean
+        get() = prefs.getBoolean("timer_wake", false)
+        set(v) = prefs.edit().putBoolean("timer_wake", v).apply()
+
+    /** True when either phrase is on, so the listening service should run. */
+    val anyWakeEnabled: Boolean get() = wakeWordEnabled || timerWakeEnabled
+
+    /** The Claude model that works out the timer. */
+    var timerModel: String
+        get() = prefs.getString("timer_model", null) ?: DEFAULT_TIMER_MODEL
+        set(v) = prefs.edit().putString("timer_model", v).apply()
+
+    /** The day ("2026-11-21") and how many timer requests it has had, for [DailyCap]. */
+    val timerCapDay: String get() = prefs.getString("timer_cap_day", null) ?: ""
+    val timerCapCount: Int get() = prefs.getInt("timer_cap_count", 0)
+    fun saveTimerCap(day: String, count: Int) =
+        prefs.edit().putString("timer_cap_day", day).putInt("timer_cap_count", count).apply()
+
     /** Listen for the wake phrase and open Claude's voice assistant. */
     var wakeWordEnabled: Boolean
         get() = prefs.getBoolean("wake_word", false)
@@ -260,6 +304,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
         const val DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
         const val DEFAULT_ASK_PAGE_MODEL = "claude-sonnet-5-5"
+        const val DEFAULT_TIMER_MODEL = "claude-opus-5-5"
         const val DEFAULT_LANGUAGES = ""
         const val DEFAULT_GLYPH_BUILT_IN = true
         const val DEFAULT_ASK_PAGE = false

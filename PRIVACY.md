@@ -63,13 +63,32 @@ When you turn on the wake word, the app keeps the microphone open in a foregroun
 notification you can stop it from) and runs a small keyword-spotting model on the phone to hear
 "hey claude", or the wake phrase you chose. This audio is processed in memory on the device and
 discarded as it goes: it is never recorded to storage, never sent to OpenAI or anywhere else, and
-never logged. A phrase you type is stored in the app's settings and turned into phones on the
+never logged. (The separate timer phrase, if you turn it on, records and sends what you say
+after it; see the next section.) A phrase you type is stored in the app's settings and turned into phones on the
 phone with a bundled pronunciation dictionary; it is not sent anywhere, unless you tap **Generate
 with AI** in the wake phrase dialog: then the phrase's text (no audio) is sent to OpenAI with your
 key and cleanup model (with `store: false`, like cleanup), which suggests pronunciations; the logs
 note only whether that worked and how many suggestions were kept. Beyond that, the logs record only the
 wake phrase, which keyword fired, and the detection settings. When the keyword is heard, the app
 opens the Claude app in voice mode (the Claude app then handles your speech under Anthropic's terms).
+
+## Timers by voice (optional, off by default)
+
+The timer phrase ("hey timer", or the one you chose) is heard the same way as the wake word: on
+the phone, with nothing recorded or sent while it only listens. What happens after it is heard is
+different, and it is the only time the wake word listener sends audio anywhere:
+
+- The app records what you say next, for 15 seconds at most, and sends that recording to OpenAI
+  with your key to be transcribed, exactly like a dictation. The recording is kept in memory and
+  discarded after the request.
+- The transcript goes to Anthropic with your key, together with the phone's current date, time
+  and time zone, so Claude can work out how long the timer runs. If Claude asks you a question
+  ("That's tomorrow. Set it?"), your spoken answer is recorded, transcribed and sent the same way.
+- The answer is read out by the phone's own text-to-speech engine and shown in a notification.
+
+Nothing is recorded or sent unless the timer phrase was heard. The timers themselves (label and
+end time) are kept only on the phone. The logs record timings, sizes and whether a timer was set,
+never what you said or what was answered. With either key missing, the phrase does nothing.
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
 audio mode, whether Android has silenced its own recording, and whether music is playing) to pause
