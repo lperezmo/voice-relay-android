@@ -70,128 +70,146 @@ class PillLayoutTest {
     private val screenH = 800
     private val right = 336
     private val left = 8
-    // The timer pill's touch window at 1x.
+    // The timer pill's touch window at 1x: 44 x 60.
     private val timerW = PillLayout.TIMER_W_DP
     private val timerH = PillLayout.TIMER_H_DP
 
-    private fun timer(x: Int, y: Int, stacked: Boolean, volumeShown: Boolean = true) =
-        layout.timerPill(x, y, timerW, timerH, screenW, stacked, volumeShown)
+    private fun timer(x: Int, y: Int, w: Int = screenW, h: Int = screenH) = layout.timerPill(x, y, timerW, timerH, w, h)
+    private fun stub(x: Int, y: Int, w: Int = screenW, h: Int = screenH) = layout.timerStubCentre(x, y, w, h)
+    private fun fan(x: Int, y: Int, w: Int = screenW, h: Int = screenH) = layout.timerFan(x, y, w, h)
 
-    private fun fan(x: Int, y: Int, stacked: Boolean, volumeShown: Boolean = true) =
-        layout.timerFan(timer(x, y, stacked, volumeShown), timerW, timerH, stacked, x, screenW, screenH)
-
-    /** Button heights to try: as high and as low as [BubbleBounds] lets it go with these pills, and the middle. */
-    private fun heights(stacked: Boolean): List<Int> {
-        val bounds = BubbleBounds(0, 0, screenW, screenH, 56, layout.above(true, stacked), layout.below(true))
-        return listOf(bounds.clampY(0), 372, bounds.clampY(screenH))
+    /** Button heights to try on a [h] px screen: as high and as low as [BubbleBounds] lets it go with every pill, and the middle. */
+    private fun heights(w: Int = screenW, h: Int = screenH): List<Int> {
+        val bounds = BubbleBounds(0, 0, w, h, 56, layout.above(true, true), layout.below(true, true))
+        return listOf(bounds.clampY(0), h / 2 - 28, bounds.clampY(h))
     }
 
-    @Test fun `beside the button the timer pill is on the side facing the middle, level with the button`() {
-        // Docked right: 2 px left of the ring window, 66 wide. The 44 px target is centred on the 56 px ring.
-        assertEquals(PillLayout.Spot(336 - 2 - 66, 406), timer(right, 400, stacked = false))
-        // Docked left: 2 px right of the ring window.
-        assertEquals(PillLayout.Spot(8 + 56 + 2, 406), timer(left, 400, stacked = false))
+    /** Screens to try: a phone, a narrow phone and a phone on its side, with the button docked on each edge. */
+    private val screens = listOf(400 to 800, 320 to 640, 800 to 360)
+    private fun docks(w: Int) = listOf(8, w - 64)
+
+    @Test fun `the timer pill's touch window sits beside the button, toward the middle, level with it`() {
+        // Docked right: the button is 342..386, so the 44 px window ends on its left edge, 2 px taller than the ring.
+        assertEquals(PillLayout.Spot(342 - 44, 398), timer(right, 400))
+        // Docked left: the button is 14..58, so the window starts on its right edge.
+        assertEquals(PillLayout.Spot(58, 398), timer(left, 400))
     }
 
-    @Test fun `beside the button the timer pill stays level with it near the top and the bottom`() {
-        for (x in listOf(left, right)) for (y in heights(stacked = false)) {
-            assertEquals(y + 6, timer(x, y, stacked = false).y)
-        }
+    @Test fun `the stub sits 5 px from the button, its middle 36 px from the button's`() {
+        // Button middle (364, 428): the 18 px stub is 364 - 22 - 5 - 9.
+        assertEquals(PillLayout.Spot(364 - 36, 428), stub(right, 400))
+        assertEquals(PillLayout.Spot(36 + 36, 428), stub(left, 400))
+        assertEquals(14f, layout.timerStubInset())
     }
 
-    @Test fun `stacked, the timer pill's touch area ends where the volume pill's starts`() {
+    @Test fun `the stub stays inside its touch window, grown or not`() {
         for (x in listOf(left, right)) {
-            val volume = volume(x, 400)
-            val timer = timer(x, 400, stacked = true)
-            // Volume touch area 360..404, so the timer's is 316..360: both keep 44 px and share no pixel.
-            assertEquals(360, volume.y)
-            assertEquals(volume.y, timer.y + timerH)
-            // Same column: both centred on the button.
-            assertEquals(x + 28, timer.x + timerW / 2)
+            val window = timer(x, 400)
+            val c = stub(x, 400)
+            val halfW = PillLayout.TIMER_STUB_W_DP / 2
+            assertTrue(c.x - halfW >= window.x && c.x + halfW <= window.x + timerW)
+            // However long the countdown, the stub grows at most this tall.
+            val tallest = PillLayout.timerStubHeightDp(idle = false, contentDp = 1000f)
+            assertTrue(c.y - tallest / 2 >= window.y)
+            assertTrue(c.y + tallest / 2 <= window.y + timerH)
+            // Grown it stays within the button's ring window's height (56), so it never reaches the volume or Glyph pill.
+            assertTrue(tallest <= 56f)
         }
     }
 
-    @Test fun `stacked with the volume pill off, the timer pill takes the volume pill's spot`() {
-        for (x in listOf(left, right)) {
-            assertEquals(volume(x, 400).y, timer(x, 400, stacked = true, volumeShown = false).y)
+    @Test fun `the stub is a dot when idle and grows with its countdown, up to a cap`() {
+        assertEquals(PillLayout.TIMER_STUB_H_DP, PillLayout.timerStubHeightDp(idle = true, contentDp = 40f), 0f)
+        assertEquals(PillLayout.TIMER_GROWN_H_DP, PillLayout.timerStubHeightDp(idle = false, contentDp = 10f), 0f)
+        assertEquals(55f, PillLayout.timerStubHeightDp(idle = false, contentDp = 55f - 2 * PillLayout.TIMER_END_PAD_DP), 1e-4f)
+        assertEquals(PillLayout.TIMER_STUB_MAX_H_DP, PillLayout.timerStubHeightDp(idle = false, contentDp = 80f), 0f)
+    }
+
+    @Test fun `the timer pill stays on screen and level with the button everywhere it can go`() {
+        for ((w, h) in screens) for (x in docks(w)) for (y in heights(w, h)) {
+            val where = "screen $w x $h, x $x, y $y"
+            val t = timer(x, y, w, h)
+            assertTrue(where, t.x >= 0 && t.x + timerW <= w)
+            assertTrue(where, t.y >= 0 && t.y + timerH <= h)
+            assertEquals(where, y + 28, stub(x, y, w, h).y)
+            // Toward the middle, never over the button's middle.
+            val buttonCx = x + 28
+            assertTrue(where, if (x > w / 2) t.x + timerW <= buttonCx - 22 else t.x >= buttonCx + 22)
         }
     }
 
-    @Test fun `the stack never goes off the top of the screen`() {
-        // Two pills above the button: the volume pill's 40 px and the timer pill's 44.
-        assertEquals(84, layout.above(volumeShown = true, timerStacked = true))
-        assertEquals(40, layout.above(volumeShown = false, timerStacked = true))
-        assertEquals(40, layout.above(volumeShown = true, timerStacked = false))
-        assertEquals(0, layout.above(volumeShown = false, timerStacked = false))
-        // As high as the button may go with both, the timer pill's touch area starts at the screen's top.
-        val top = heights(stacked = true).first()
-        assertEquals(84, top)
-        assertEquals(0, timer(right, top, stacked = true).y)
+    @Test fun `the timer pill's room above, below and beside the button`() {
+        // Its 60 px window is 2 px taller than the ring window at each end; the volume and Glyph pills reach further.
+        assertEquals(2, layout.above(volumeShown = false, timerShown = true))
+        assertEquals(2, layout.below(glyphShown = false, timerShown = true))
+        assertEquals(40, layout.above(volumeShown = true, timerShown = true))
+        assertEquals(40, layout.below(glyphShown = true, timerShown = true))
+        // Messages beside the button start past the window: 44 px, less the 6 px it shares with the ring window.
+        assertEquals(38, layout.beside(timerShown = true))
+        assertEquals(0, layout.beside(timerShown = false))
     }
 
-    @Test fun `with the timer pill stacked, the track opens above it`() {
-        assertEquals(394 - 44, layout.track(300, 500, 262, 76, 400, timerStacked = true).y)
-    }
-
-    @Test fun `messages beside the button start past a timer pill that sits there`() {
-        assertEquals(2 + 66, layout.beside(timerBeside = true))
-        assertEquals(0, layout.beside(timerBeside = false))
-    }
-
-    @Test fun `the fan has five bubbles on a 92 px arc from the pill toward the middle`() {
-        val f = fan(right, 372, stacked = false)
-        // The pill's middle is (301, 400); straight out is 92 px left, the outer two 60 degrees up and down.
-        assertEquals(PillLayout.Spot(301 - 92, 400), f.centres[2])
-        assertEquals(PillLayout.Spot(301 - 46, 400 - 79), f.centres[0])
-        assertEquals(PillLayout.Spot(301 - 46, 400 + 79), f.centres[4])
-        val mirrored = fan(left, 372, stacked = false)
-        assertEquals(PillLayout.Spot(99 + 92, 400), mirrored.centres[2])
+    @Test fun `the fan has five bubbles on a 92 px arc from the stub toward the middle`() {
+        val f = fan(right, 372)
+        // The stub's middle is (328, 400); straight out is 92 px left, the outer two 60 degrees up and down.
+        assertEquals(PillLayout.Spot(328 - 92, 400), f.centres[2])
+        assertEquals(PillLayout.Spot(328 - 46, 400 - 79), f.centres[0])
+        assertEquals(PillLayout.Spot(328 - 46, 400 + 79), f.centres[4])
+        val mirrored = fan(left, 372)
+        assertEquals(PillLayout.Spot(72 + 92, 400), mirrored.centres[2])
     }
 
     @Test fun `the fan opens toward the middle, stays on screen and never covers the button`() {
-        for (stacked in listOf(false, true)) for (x in listOf(left, right)) for (y in heights(stacked)) {
-            val f = fan(x, y, stacked)
-            val where = "stacked $stacked, x $x, y $y"
+        for ((w, h) in screens) for (x in docks(w)) for (y in heights(w, h)) {
+            val f = fan(x, y, w, h)
+            val where = "screen $w x $h, x $x, y $y"
             val buttonCx = x + 28
             val buttonCy = y + 28
             assertEquals(where, 5, f.centres.size)
             for (c in f.centres) {
                 // The bubble under the finger is 52 px across.
-                assertTrue(where, c.x - 26 >= 0 && c.x + 26 <= screenW)
-                assertTrue(where, c.y - 26 >= 0 && c.y + 26 <= screenH)
+                assertTrue(where, c.x - 26 >= 0 && c.x + 26 <= w)
+                assertTrue(where, c.y - 26 >= 0 && c.y + 26 <= h)
                 assertTrue(where, c.x - 26 >= f.window.x && c.x + 26 <= f.window.x + f.width)
                 assertTrue(where, c.y - 26 >= f.window.y + f.chipsHeight && c.y + 26 <= f.window.y + f.height)
                 // Toward the middle of the screen from the button.
-                assertTrue(where, if (x == right) c.x < buttonCx else c.x > buttonCx)
+                assertTrue(where, if (x > w / 2) c.x < buttonCx else c.x > buttonCx)
                 // Clear of the 44 px button: the two circles do not touch.
                 val dx = (c.x - buttonCx).toDouble()
                 val dy = (c.y - buttonCy).toDouble()
                 assertTrue(where, Math.hypot(dx, dy) > 22 + 26)
             }
-            assertTrue(where, f.window.y >= 0 && f.window.y + f.height <= screenH)
+            assertTrue(where, f.window.y >= 0 && f.window.y + f.height <= h)
         }
     }
 
     @Test fun `a timer card sits toward the middle with its bottom on the button's top`() {
-        // Docked right, 272 x 120: 38 px left of the ring window.
-        assertEquals(PillLayout.Spot(336 - 38 - 272, 400 - 120), layout.timerCard(right, 400, 272, 120, screenW, screenH))
-        assertEquals(PillLayout.Spot(8 + 56 + 38, 400 - 120), layout.timerCard(left, 400, 272, 120, screenW, screenH))
+        // Docked right, 272 x 120: 38 px left of the ring window, its bottom 2 px over it, where the timer pill's window starts.
+        assertEquals(PillLayout.Spot(336 - 38 - 272, 400 - 2 - 120), layout.timerCard(right, 400, 272, 120, screenW, screenH))
+        assertEquals(PillLayout.Spot(8 + 56 + 38, 400 - 2 - 120), layout.timerCard(left, 400, 272, 120, screenW, screenH))
     }
 
     @Test fun `a timer card goes under the button when there is no room above it`() {
-        assertEquals(40 + 56, layout.timerCard(right, 40, 272, 120, screenW, screenH).y)
+        assertEquals(40 + 56 + 2, layout.timerCard(right, 40, 272, 120, screenW, screenH).y)
     }
 
-    @Test fun `a timer card stays on screen and never covers the button`() {
-        // A narrow phone too: 360 px wide.
-        for (w in listOf(360, 400)) for (x in listOf(8, w - 64)) for (stacked in listOf(false, true)) for (y in heights(stacked)) {
+    @Test fun `a timer card stays on screen and never covers the button or the timer pill`() {
+        // Phones at least 360 px wide: the card is 272 px and needs room beside the button.
+        for ((w, h) in listOf(400 to 800, 360 to 640, 800 to 360)) for (x in docks(w)) for (y in heights(w, h)) {
             for (cardH in listOf(60, 120, 400)) {
-                val spot = layout.timerCard(x, y, 272, cardH, w, screenH)
-                val where = "screen $w, x $x, y $y, card $cardH"
-                assertTrue(where, spot.x >= 0 && spot.x + 272 <= w)
-                assertTrue(where, spot.y >= 0 && spot.y + cardH <= screenH)
+                val cardW = 272
+                val spot = layout.timerCard(x, y, cardW, cardH, w, h)
+                val where = "screen $w x $h, x $x, y $y, card $cardH"
+                assertTrue(where, spot.x >= 0 && spot.x + cardW <= w)
                 // The button is the 44 px in the middle of the ring window; the card is all to one side of it.
-                assertTrue(where, spot.x + 272 <= x + 6 || spot.x >= x + 50)
+                assertTrue(where, spot.x + cardW <= x + 6 || spot.x >= x + 50)
+                if (cardH + 32 <= h) assertTrue(where, spot.y >= 0 && spot.y + cardH <= h)
+                // The card leaves the timer pill's window alone, whenever it fits over or under the button.
+                if (y - 2 - cardH >= 16 || y + 58 + cardH <= h - 16) {
+                    val t = timer(x, y, w, h)
+                    val apart = spot.x + cardW <= t.x || spot.x >= t.x + timerW ||
+                        spot.y + cardH <= t.y || spot.y >= t.y + timerH
+                    assertTrue(where, apart)
+                }
             }
         }
     }

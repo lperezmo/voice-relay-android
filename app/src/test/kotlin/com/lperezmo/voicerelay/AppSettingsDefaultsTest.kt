@@ -15,4 +15,9 @@ class AppSettingsDefaultsTest {
         // it sends the circled screen to Anthropic, so it is only ever turned on by hand
         assertFalse(AppSettings.DEFAULT_ASK_PAGE)
     }
+
+    @Test fun `dim when idle stays off by default`() {
+        // the look is always on; only the fading is a choice
+        assertFalse(AppSettings.DEFAULT_DIM_WHEN_IDLE)
+    }
 }

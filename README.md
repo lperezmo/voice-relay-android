@@ -12,8 +12,11 @@
 **Dictate into any app on your Android phone, using your own OpenAI API key.** A small button
 floats over every app. Double-tap it, speak, tap again, and the text appears where you are typing,
 without switching away from your keyboard. Long-press it to fix the grammar of text you typed.
+The ring around the button is a small gauge that shows what Voice Relay is doing (see
+[The ring](#the-ring)).
 
-It also has a few extras, all off until you turn them on:
+It also has a few extras. The timer pill and the Glyph pill are there from the start; the rest
+are off until you turn them on:
 
 - **"Hey claude" wake word**, or a phrase of your own. Say it from anywhere, even with the screen
   off, and the Claude app's voice assistant opens, so you can talk to Claude hands-free and let it
@@ -28,7 +31,8 @@ It also has a few extras, all off until you turn them on:
   tone, then ask any way you like ("for 10:50 AM", "the pasta, 9 minutes"). OpenAI writes down
   what you said, Claude (with your own Anthropic key) works out the timer, and the phone answers
   out loud: "Timer set for 10:50, 23 minutes from now."
-- **Timer pill**: kitchen timers without the clock app. Hold the pill and slide to 5, 10, 15 or
+- **Timer pill**: kitchen timers without the clock app. A small upright pill beside the mic: a dot
+  with a clock while nothing runs, a countdown while a timer runs. Hold it and slide to 5, 10, 15 or
   30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
@@ -99,7 +103,7 @@ repository's releases (see [Signing](#signing-and-forks)).
 |---|---|---|
 | Microphone | Dictation, the wake word, and recording a timer request after the timer phrase | First launch |
 | Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
-| Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word, the timer phrase or the timer pill |
+| Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | The first time you open Voice Relay (for the timer pill, which is on from the start), and turning on the wake word, the timer phrase or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
 | Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time | Granted at install on Android 13 and up. On Android 12, tapping the row in the Volume presets or Timers section (optional) |
@@ -113,14 +117,36 @@ and [SECURITY.md](SECURITY.md).
 
 | Gesture on the floating button | What happens |
 |---|---|
-| **Double-tap** (idle) | Start recording. The button turns red and pulses. A single tap does nothing, so a stray finger cannot start one. |
+| **Double-tap** (idle) | Start recording. The mark turns red and a red arc fills the ring once a minute. A single tap does nothing, so a stray finger cannot start one. |
 | **Tap** (recording) | Stop. The audio is transcribed, cleaned up, and inserted at the cursor. |
 | **Long-press** (idle) | Fix the grammar of the selected text, or the whole focused field when nothing is selected. |
-| **Tap** (amber with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |
-| **Long-press** (gray, working) | Gives up on a transcription or grammar fix that is taking too long. The recording is kept: the button turns amber for a retry. |
+| **Tap** (amber arc with a warning badge, after a failure) | Retry the same recording. Nothing is lost on a network error, and the recording survives an app restart, update or reboot. |
+| **Long-press** (white arc spinning, working) | Gives up on a transcription or grammar fix that is taking too long. The recording is kept: the button turns amber for a retry. |
 | **Long-press** (amber) | Asks to discard the failed recording; tap the red bubble to confirm. |
 | **Drag** | Move the button; it snaps to the nearest edge. Its side and height are remembered, also across restarts, and kept on screen after a rotation. |
 | **Tap the undo chip** | A one-line chip ("Inserted", a hairline, an undo arrow) sits beside the button for 5 seconds after text is inserted or fixed. Tap it to put the field back as it was, unless you have edited it since. |
+
+### The ring
+
+The ring around the button shows what is going on, with no extra pixels:
+
+| Ring | Means |
+|---|---|
+| Plain, with 12 ticks | Idle. |
+| Red arc filling clockwise, red mark, a thin ring moving inside | Recording. The arc fills once a minute. |
+| Short white arc spinning | Transcribing (or fixing grammar). |
+| Green flash | The text landed. |
+| Amber arc, still, with a badge | The transcription failed; tap to retry. |
+| Whole ring glowing clay, clay mark | "Hey claude" was heard and Claude is opening. |
+| Blue flash, blue mark, a thin blue ring moving inside | "Hey timer" was heard and it is listening. |
+| White arc spinning, then a clay arc sweeping | "Hey timer" is writing down what you said, then Claude is working out the timer. |
+| Gold flash, then the whole ring glowing clay | The timer is set and the answer is being said out loud. |
+| Thin gold arc inside the ticks | The next timer to end; it shrinks as the time runs out. |
+| Whole ring flashing gold | A timer finished. It stays gold until you stop it (with the timer pill off, only while the timer rings, up to 10 minutes). |
+
+**Dim when idle** (Settings, Floating buttons, off by default) fades the button and its pills 3
+seconds after you last touch them, while nothing is going on. A touch or anything on the ring
+brings them back.
 
 Where the text goes:
 
@@ -331,7 +357,8 @@ That warning is generic and applies to every keyboard; this one has no code that
 ## Volume presets
 
 Off by default. Turn on **Show the volume pill** and a small oval rides on top of the dictate
-button, showing which preset is on. Tap it to open a four-stop track:
+button, showing which preset is on with its short name and four level bars (none lit for DND, one
+for Mute, two for Medium, all four for Loud). Tap it to open a four-stop track:
 
 | Stop | System, notifications, ringtone | Media | Ringer | Do Not Disturb |
 |---|---|---|---|---|
@@ -355,8 +382,9 @@ touched.
 
 ## Timer pill
 
-Off by default. Turn on **Timer pill** (Settings, Floating buttons, Timers) and a third small pill
-rides with the dictate button. Voice Relay runs these timers itself, so it can list them, extend
+On by default: a third small pill rides with the dictate button, upright beside it on the side
+facing the middle of the screen, between the volume and Glyph pills (turn it off with **Timer pill**
+in Settings, Floating buttons, Timers). Voice Relay runs these timers itself, so it can list them, extend
 them and stop them; they are not the clock app's timers.
 
 - **Hold the pill** (or drag from it) and five bubbles fan out toward the middle of the screen:
@@ -366,13 +394,11 @@ them and stop them; they are not the clock app's timers.
   +5, then Cancel or Start.
 - **Tap the pill** to see every timer, soonest first, with a **+1** button (a minute more) and an
   **×** button that stops it in one tap. A touch outside closes the card.
-- The pill shows "Timer" when nothing runs, else the countdown of the timer that ends first
-  ("9:12", "1h05") and how many there are. When one finishes the pill turns gold until you dismiss
-  it, the phone rings on the alarm volume, and a notification offers **Stop**.
-
-**Timer pill position** picks where it sits: **Beside the button** (the default, on the side facing
-the middle of the screen) or **Above the volume pill** (in the same column, so nothing sticks out
-over the app; it takes the volume pill's spot when that pill is off).
+- While nothing runs the pill is just a small dot with a clock, so it hardly covers the app. When
+  a timer starts it grows into a tall tab with the countdown of the timer that ends first ("9:12",
+  "1h05", read from the bottom up) and how many there are, with a thin gold line up its outer side
+  that shrinks as that timer runs out. When one finishes the pill turns gold and blinks until you
+  dismiss it, the phone rings on the alarm volume, and a notification offers **Stop**.
 
 Timers are kept on the phone and survive the buttons being hidden, the service restarting and a
 reboot (after a reboot they come back once the phone is unlocked). Two optional rows help them
@@ -487,11 +513,11 @@ billed to your Anthropic account.
 | Timer model | Opus 5.5 | The Claude model that works out how long the timer runs. |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Allow other apps to control Voice Relay | on | Whether Tasker, adb and other apps may send the [control intents](#turning-it-on-and-off-from-tasker). |
+| Dim when idle | off | Fades the button and its pills while nothing is going on. See [The ring](#the-ring). |
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
-| Timer pill | off | See [Timer pill](#timer-pill). |
-| Timer pill position | Beside the button | Or **Above the volume pill**. Changing it moves the pill straight away. |
+| Timer pill | on | See [Timer pill](#timer-pill). |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
 | Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
 | Ask the Page | off | Shown while the built-in canvas is on. Draw ? and write a question; Claude answers on the page. See [Ask the Page](#ask-the-page). |
@@ -626,6 +652,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | File | Role |
 |---|---|
 | `WhisperAccessibilityService.kt` | Floating button, gestures, and the dictation state machine |
+| `ButtonRing.kt`, `ButtonRingView.kt` | The ring around the button: which state shows when (dictation, wake words, "hey timer", timers), its colours and timings, dimming when idle; and the view that draws it |
 | `Recorder.kt` | 16 kHz mono microphone capture, 10-minute cap (lower on the lock screen) |
 | `LockScreenLimits.kt` | 2-minute and 5-recording limits while the phone is locked |
 | `AacEncoder.kt` | PCM to AAC `.m4a` for upload |

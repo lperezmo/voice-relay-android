@@ -21,9 +21,9 @@ private object TimerCardUi {
     const val COLOR_LIGHT = 0xFFE6E6EA.toInt()
     const val COLOR_OUTLINE = 0xFF74777F.toInt()
     const val COLOR_STOP = 0xFFF2B8B5.toInt()
-    /** White at 12%. */
-    const val COLOR_CARD_EDGE = 0x1FFFFFFF
-    val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    /** The pills' light edge, white at 20%. */
+    const val COLOR_CARD_EDGE = PillSkin.COLOR_EDGE
+    val MEDIUM: Typeface = PillSkin.MEDIUM
 
     fun cardBackground(dp: Float, radiusDp: Float, color: Int) = GradientDrawable().apply {
         cornerRadius = radiusDp * dp
@@ -77,7 +77,7 @@ class TimerListCard(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        background = TimerCardUi.cardBackground(dp, 24f, COLOR_CARD)
+        background = TimerCardUi.cardBackground(dp, 22f, COLOR_CARD)
         setPadding((16 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
         contentDescription = "Running timers"
     }

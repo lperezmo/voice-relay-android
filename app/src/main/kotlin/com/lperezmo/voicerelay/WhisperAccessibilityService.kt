@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
@@ -23,8 +22,8 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
+import android.os.SystemClock
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.lperezmo.voicerelay.DictationMachine.Fb
@@ -47,7 +46,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         var instance: WhisperAccessibilityService? = null
         private const val TAG = "VoiceRelay"
         private const val BTN_DP = 44
-        private const val PAD_DP = 10
         private const val MARGIN_DP = 8
         private const val TAP_THRESHOLD_DP = 10
         private const val RING_DP = 56
@@ -60,13 +58,14 @@ class WhisperAccessibilityService : AccessibilityService() {
         private const val FB_CHIP_RADIUS_DP = 18f
         private const val BADGE_DP = 20
 
-        private const val COLOR_IDLE = 0xDD1C1C1E.toInt()
-        private const val COLOR_RECORDING = 0xDDEF4444.toInt()
-        private const val COLOR_BUSY = 0xDD6B6B6B.toInt()
-        private const val COLOR_RETRY = 0xDDD97706.toInt()
+        /** How faded the button and pills are while dimmed when idle. */
+        private const val DIM_ALPHA = 0.45f
+        private const val DIM_FADE_MS = 600L
+        private const val WAKE_FADE_MS = 120L
+        /** While something keeps the cluster awake, how often dimming is looked at again. */
+        private const val DIM_RECHECK_MS = 1000L
         private const val COLOR_FEEDBACK_BG = 0xEE1C1C1E.toInt()
         private const val COLOR_CONFIRM_BG = 0xEE991B1B.toInt()
-        private const val COLOR_RING = 0xFFE8EAED.toInt()
     }
 
     /** The on-disk copy of the recording waiting for a retry, and of the recording being uploaded. */
@@ -93,8 +92,9 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     private var overlayView: FrameLayout? = null
-    private var button: ImageView? = null
-    private var spinner: ProgressBar? = null
+    /** What the ring around the button shows; [button] draws it. */
+    private val ring = ButtonRing()
+    private var button: ButtonRingView? = null
     private var retryBadge: ImageView? = null
     private var feedbackView: TextView? = null
     private lateinit var arrowPad: ArrowPad
@@ -140,8 +140,14 @@ class WhisperAccessibilityService : AccessibilityService() {
             ringDp = RING_DP, buttonDp = BTN_DP, marginDp = MARGIN_DP,
             bubble = { layoutParams },
             buttonsHidden = { buttonsHidden },
-            onPillAdded = { settleBubble(); raiseBubble() },
+            onPillAdded = { settleBubble(); raiseBubble(); refreshDim() },
             showFeedback = { text, ms -> showFeedback(text, ms) },
+            onTimers = { next, done ->
+                ring.timers(next, done, SystemClock.uptimeMillis())
+                button?.refresh()
+                refreshDim()
+            },
+            onActivity = { touched() },
         )
         showOverlay()
         machine.restorePending()
@@ -187,12 +193,15 @@ class WhisperAccessibilityService : AccessibilityService() {
             arrowPad.hide()
             pills.hide()
             overlayView?.visibility = View.GONE
+            // Hidden under a finger, the button may never see it lift.
+            ring.pressed(false, SystemClock.uptimeMillis())
         } else {
             overlayView?.visibility = View.VISIBLE
             refreshJoystick()
             refreshVolumePill()
             refreshGlyphPill()
             refreshTimerPill()
+            refreshDim()
         }
         Log.i(TAG, if (hide) "Buttons: hidden" else "Buttons: shown")
         ButtonsTileService.requestUpdate(this)
@@ -241,6 +250,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         arrowPad.destroy()
         pills.hide()
         removeOverlay()
+        handler.removeCallbacks(checkDim)
         ButtonsTileService.requestUpdate(this)
         super.onDestroy()
     }
@@ -348,6 +358,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         override fun showState(state: DictationMachine.State) = this@WhisperAccessibilityService.showState(state)
         override fun showFeedback(text: String, durationMs: Long, style: Fb, onClick: (() -> Unit)?) =
             this@WhisperAccessibilityService.showFeedback(text, durationMs, style, onClick)
+        override fun delivered() {
+            ring.delivered(SystemClock.uptimeMillis())
+            button?.refresh()
+            refreshDim()
+        }
         override fun haptic() {
             overlayView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         }
@@ -372,21 +387,87 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Draws [state] on the button. */
+    /** Draws [state] on the button: the ring shows it ([ButtonRing]), the badge marks a retry. */
     private fun showState(new: DictationMachine.State) {
-        stopPulse()
-        spinner?.visibility = if (new == State.WORKING) View.VISIBLE else View.GONE
-        button?.background = circle(
+        ring.dictation(
             when (new) {
-                State.IDLE -> COLOR_IDLE
-                State.RECORDING -> COLOR_RECORDING
-                State.WORKING -> COLOR_BUSY
-                State.RETRY -> COLOR_RETRY
-            }
+                State.IDLE -> ButtonRing.Dictation.IDLE
+                State.RECORDING -> ButtonRing.Dictation.RECORDING
+                State.WORKING -> ButtonRing.Dictation.WORKING
+                State.RETRY -> ButtonRing.Dictation.FAILED
+            },
+            SystemClock.uptimeMillis(),
         )
+        button?.refresh()
         retryBadge?.visibility = if (new == State.RETRY) View.VISIBLE else View.GONE
-        button?.contentDescription = if (new == State.RETRY) "Retry transcription" else "Dictate"
-        if (new == State.RECORDING) startPulse()
+        button?.contentDescription = when (new) {
+            State.RETRY -> "Retry transcription"
+            State.RECORDING -> "Dictating. Tap to stop."
+            State.WORKING -> "Transcribing"
+            State.IDLE -> "Dictate"
+        }
+        refreshDim()
+    }
+
+    // --- The ring: wake words and "hey timer" ---
+
+    /** A wake word was heard: the ring shows which one. Main thread. */
+    fun onWake(timer: Boolean) {
+        ring.wake(timer, SystemClock.uptimeMillis())
+        button?.refresh()
+        refreshDim()
+    }
+
+    /** A step of a "hey timer" request: listening, transcribing, thinking, speaking. Main thread. */
+    fun onTimerVoice(stage: ButtonRing.Voice) {
+        ring.voice(stage, SystemClock.uptimeMillis())
+        button?.refresh()
+        refreshDim()
+    }
+
+    /** The "hey timer" request is over. Main thread. */
+    fun onTimerVoiceDone() {
+        ring.voiceDone(SystemClock.uptimeMillis())
+        button?.refresh()
+        refreshDim()
+    }
+
+    // --- Dim when idle ---
+
+    private var dimmed = false
+    private val checkDim = Runnable { refreshDim() }
+
+    private fun touched() {
+        ring.touched(SystemClock.uptimeMillis())
+        refreshDim()
+    }
+
+    /** A finger went down on the button or came up: it stays bright while held or dragged. */
+    private fun pressed(down: Boolean) {
+        ring.pressed(down, SystemClock.uptimeMillis())
+        refreshDim()
+    }
+
+    /**
+     * Fades the button and pills when [AppSettings.dimWhenIdle] is on and nothing has
+     * happened for a few seconds, and brings them back at once otherwise. Safe to call at any time.
+     */
+    fun refreshDim() {
+        if (!::settings.isInitialized || !::pills.isInitialized || overlayView == null) return
+        handler.removeCallbacks(checkDim)
+        val now = SystemClock.uptimeMillis()
+        val enabled = settings.dimWhenIdle && !buttonsHidden
+        val dim = ring.dimmed(now, enabled, pills.popupsOpen())
+        if (dim != dimmed) {
+            dimmed = dim
+            val alpha = if (dim) DIM_ALPHA else 1f
+            val ms = if (dim) DIM_FADE_MS else WAKE_FADE_MS
+            overlayView?.animate()?.alpha(alpha)?.setDuration(ms)?.start()
+            pills.fade(alpha, ms)
+        }
+        // Only something that ends on its own needs a later look; every other change calls this itself.
+        val due = ring.dimDueIn(now)
+        if (enabled && !dim && due != null) handler.postDelayed(checkDim, due.coerceAtLeast(DIM_RECHECK_MS))
     }
 
     // --- Overlay ---
@@ -395,20 +476,9 @@ class WhisperAccessibilityService : AccessibilityService() {
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val buttonSize = (BTN_DP * dp).toInt()
         val ringSize = (RING_DP * dp).toInt()
-        val pad = (PAD_DP * dp).toInt()
         val margin = (MARGIN_DP * dp).toInt()
 
-        val ring = ProgressBar(this).apply {
-            isIndeterminate = true
-            indeterminateTintList = ColorStateList.valueOf(COLOR_RING)
-            visibility = View.GONE
-        }
-
-        val img = ImageView(this).apply {
-            setImageResource(R.drawable.ic_voice_mark)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(pad, pad, pad, pad)
-            background = circle(COLOR_IDLE)
+        val img = ButtonRingView(this, ring).apply {
             contentDescription = "Dictate"
         }
 
@@ -423,7 +493,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         val badgeSize = (BADGE_DP * dp).toInt()
 
         val overlay = FrameLayout(this).apply {
-            addView(ring, FrameLayout.LayoutParams(ringSize, ringSize, Gravity.CENTER))
             addView(img, FrameLayout.LayoutParams(buttonSize, buttonSize, Gravity.CENTER))
             addView(badge, FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.CENTER))
         }
@@ -451,6 +520,8 @@ class WhisperAccessibilityService : AccessibilityService() {
         overlay.setOnTouchListener { v, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    pressed(true)
+                    pressButton(true)
                     startX = params.x; startY = params.y
                     touchX = ev.rawX; touchY = ev.rawY
                     longPressed = false
@@ -470,6 +541,8 @@ class WhisperAccessibilityService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_UP -> {
                     handler.removeCallbacks(longPress)
+                    pressButton(false)
+                    pressed(false)
                     val moved = abs(ev.rawX - touchX) + abs(ev.rawY - touchY)
                     if (moved < TAP_THRESHOLD_DP * dp) {
                         if (!longPressed) machine.onTap(ev.downTime, ev.eventTime)
@@ -481,6 +554,8 @@ class WhisperAccessibilityService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
+                    pressButton(false)
+                    pressed(false)
                     true
                 }
                 else -> false
@@ -512,7 +587,6 @@ class WhisperAccessibilityService : AccessibilityService() {
         wm.addView(feedback, feedbackParams)
         overlayView = overlay
         button = img
-        spinner = ring
         retryBadge = badge
         layoutParams = params
         feedbackLayoutParams = feedbackParams
@@ -612,14 +686,17 @@ class WhisperAccessibilityService : AccessibilityService() {
         overlayView?.let { wm.removeView(it); overlayView = null }
         feedbackView?.let { wm.removeView(it); feedbackView = null }
         button = null
-        spinner = null
         retryBadge = null
         layoutParams = null
         feedbackLayoutParams = null
     }
 
-    private fun circle(color: Int) = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL; setColor(color)
+    /** A tap presses the button in a little: 96%, quick down and a touch slower back. */
+    private fun pressButton(down: Boolean) {
+        button?.animate()?.cancel()
+        button?.animate()
+            ?.scaleX(if (down) 0.96f else 1f)?.scaleY(if (down) 0.96f else 1f)
+            ?.setDuration(if (down) 90L else 140L)?.start()
     }
 
     private fun pill(color: Int, radiusDp: Float = FB_RADIUS_DP) = GradientDrawable().apply {
@@ -728,20 +805,5 @@ class WhisperAccessibilityService : AccessibilityService() {
         if (flags == params.flags) return
         params.flags = flags
         feedbackView?.let { (getSystemService(WINDOW_SERVICE) as WindowManager).updateViewLayout(it, params) }
-    }
-
-    private fun startPulse() {
-        button?.let {
-            it.animate().alpha(0.4f).setDuration(500).withEndAction {
-                it.animate().alpha(1f).setDuration(500).withEndAction {
-                    if (machine.state == State.RECORDING) startPulse()
-                }.start()
-            }.start()
-        }
-    }
-
-    private fun stopPulse() {
-        button?.animate()?.cancel()
-        button?.alpha = 1f
     }
 }

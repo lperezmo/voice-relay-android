@@ -234,12 +234,13 @@ class TimersTest {
 
     @Test fun `the face with one running timer shows its time`() {
         val face = TimerText.face(listOf(timer(1, "a", now + 90_000)), now)
-        assertEquals(TimerText.Face("1:30", 1, TimerText.State.RUNNING), face)
+        // No length saved with it, so its drain line reads off an hour: 90 s of 3600.
+        assertEquals(TimerText.Face("1:30", 1, TimerText.State.RUNNING, drain = 0.025f), face)
     }
 
     @Test fun `the face with several timers shows the soonest and the count`() {
         val sorted = listOf(timer(2, "b", now + 30_000), timer(1, "a", now + 600_000), timer(3, "c", now + 700_000))
-        assertEquals(TimerText.Face("0:30", 3, TimerText.State.RUNNING), TimerText.face(sorted, now))
+        assertEquals(TimerText.Face("0:30", 3, TimerText.State.RUNNING, drain = 30f / 3600f), TimerText.face(sorted, now))
     }
 
     @Test fun `the face turns done when one timer is done`() {

@@ -1,22 +1,25 @@
 package com.lperezmo.voicerelay
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.view.MotionEvent
+import android.os.SystemClock
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 
 /**
- * The timer pill: "Timer" when nothing runs, else the countdown of the timer
- * that ends first, with a count when there are several, and gold once one is
- * done. A tap lists the running timers and a hold fans out times to start one;
- * the view only reports the touches ([onPress]) and [FloatingPills] decides,
- * through [TimerPress]. The drawn pill is at least [PillLayout.TIMER_PILL_MIN_W_DP]
- * wide; the view is [PillLayout.TIMER_W_DP] x [PillLayout.TIMER_H_DP] so the
- * touch target reaches 44 dp.
+ * The timer pill, upright beside the button: a small round stub with a clock while
+ * nothing runs, growing into a tall tab with the countdown of the timer that ends
+ * first (read bottom to top), a count when there are several and a gold line up its
+ * outer side that drains, and gold and blinking once one is done. A tap lists the
+ * running timers and a hold fans out times to start one; the view only reports the
+ * touches ([onPress]) and [FloatingPills] decides, through [TimerPress]. The view is
+ * [PillLayout.TIMER_W_DP] x [PillLayout.TIMER_H_DP] for a full touch target; the stub
+ * sits at its inner edge, next to the button.
  */
 class TimerPillView(context: Context) : View(context) {
 
@@ -26,9 +29,9 @@ class TimerPillView(context: Context) : View(context) {
     /** Every touch on the pill, with where it is on the screen. */
     var onPress: ((action: Int, rawX: Float, rawY: Float) -> Unit)? = null
 
-    /** Stacked over the volume pill, the pill is drawn at the bottom of the view; beside the button, in its middle. */
-    var stacked = false
-        set(v) { field = v; invalidate() }
+    /** True when the button is docked right, so the pill is left of it and the stub hugs the view's right edge. */
+    var onRight = true
+        set(v) { if (field != v) { field = v; invalidate() } }
 
     /** True while the fan or a card is open: the edge takes the timer colour. */
     var active = false
@@ -36,22 +39,27 @@ class TimerPillView(context: Context) : View(context) {
 
     private val dp = context.resources.displayMetrics.density
     private var face = TimerText.Face("Timer", 0, TimerText.State.IDLE)
+    /** When the face turned done ([SystemClock.uptimeMillis]), for how long it blinks. */
+    private var doneAt = 0L
 
     private val skin = PillSkin(dp)
     private val text = skin.text
     private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
-        strokeWidth = ICON_DP * dp * 3f / 24f
+        color = PillSkin.COLOR_TIMER
     }
     private val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PillSkin.COLOR_TIMER }
-    private val badgeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val badgeText = skin.label(8f).apply {
         color = PillSkin.COLOR_ON_TIMER
-        textSize = 8f * dp
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
     private val rect = RectF()
+
+    /** The stub's drawn height now, in px; it eases toward the height the face needs. */
+    private var stubH = PillLayout.TIMER_STUB_H_DP * dp
+    private var growTarget = stubH
+    private var grow: ValueAnimator? = null
 
     init {
         isHapticFeedbackEnabled = true
@@ -63,12 +71,49 @@ class TimerPillView(context: Context) : View(context) {
     fun update(new: TimerText.Face, description: String) {
         if (new == face) return
         if (new.count != face.count || new.state != face.state) contentDescription = description
+        if (new.state == TimerText.State.DONE && face.state != TimerText.State.DONE) doneAt = SystemClock.uptimeMillis()
         face = new
+        growTo(targetHeight())
         invalidate()
+    }
+
+    /** The idle stub is a dot; with a countdown it is tall enough for the text ([PillLayout.timerStubHeightDp]). */
+    private fun targetHeight(): Float =
+        PillLayout.timerStubHeightDp(face.state == TimerText.State.IDLE, contentLength() / dp) * dp
+
+    private fun growTo(target: Float) {
+        if (target == growTarget) return
+        growTarget = target
+        grow?.cancel()
+        grow = ValueAnimator.ofFloat(stubH, target).apply {
+            duration = PillLayout.TIMER_GROW_MS
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                stubH = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun badgeLabel(): String? = if (face.count > 1) face.count.toString() else null
+
+    private fun badgeSize(count: String): Float = maxOf(BADGE_DP * dp, badgeText.measureText(count) + 4f * dp)
+
+    /** How long the countdown and its badge are, along the stub. */
+    private fun contentLength(): Float {
+        val count = badgeLabel()
+        return text.measureText(face.text) + if (count == null) 0f else BADGE_GAP_DP * dp + badgeSize(count)
     }
 
     override fun onMeasure(widthSpec: Int, heightSpec: Int) =
         setMeasuredDimension((PillLayout.TIMER_W_DP * dp).toInt(), (PillLayout.TIMER_H_DP * dp).toInt())
+
+    override fun onDetachedFromWindow() {
+        // Taken down mid-grow: land on the end height, so it is right when shown again.
+        grow?.end()
+        super.onDetachedFromWindow()
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -87,19 +132,20 @@ class TimerPillView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val done = face.state == TimerText.State.DONE
-        val count = if (face.count > 1) face.count.toString() else null
-        val iconW = ICON_DP * dp
-        val gap = 3f * dp
-        val labelW = text.measureText(face.text)
-        val badgeW = if (count == null) 0f else maxOf(BADGE_DP * dp, badgeText.measureText(count) + 4f * dp)
-        val content = iconW + gap + labelW + if (count == null) 0f else 2f * dp + badgeW
+        val inset = PillLayout.TIMER_STUB_W_DP * dp / 2f + PillLayout.TIMER_STUB_GAP_DP * dp
+        val cx = if (onRight) width - inset else inset
+        val cy = height / 2f
+        val w = PillLayout.TIMER_STUB_W_DP * dp
+        rect.set(cx - w / 2f, cy - stubH / 2f, cx + w / 2f, cy + stubH / 2f)
 
-        val h = PillLayout.TIMER_PILL_H_DP * dp
-        val w = maxOf(PillLayout.TIMER_PILL_MIN_W_DP * dp, content + 10f * dp).coerceAtMost(width.toFloat())
-        val left = (width - w) / 2f
-        val top = if (stacked) height - PillLayout.TIMER_BOTTOM_PAD_DP * dp - h else (height - h) / 2f
-        rect.set(left, top, left + w, top + h)
+        // A finished timer blinks for a while, like the ring, then stays solid gold.
+        val alpha = if (done) TimerText.blink(SystemClock.uptimeMillis() - doneAt) else null
+        val blinking = alpha != null
+        if (alpha != null) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
+
         skin.drawFill(canvas, rect, if (done) PillSkin.COLOR_GOLD else PillSkin.COLOR_FILL)
+        // The drain line runs up the side away from the button.
+        if (!done) skin.drawDrain(canvas, rect, face.drain, upright = true, onRightSide = !onRight)
         skin.drawEdge(
             canvas, rect,
             when {
@@ -109,32 +155,62 @@ class TimerPillView(context: Context) : View(context) {
             },
         )
 
-        val cy = top + h / 2f
-        var x = left + (w - content) / 2f
-        icon.color = if (done) PillSkin.COLOR_ON_GOLD else PillSkin.COLOR_TIMER
-        drawClock(canvas, x, cy - iconW / 2f, iconW / 24f)
-        x += iconW + gap
-        text.color = if (done) PillSkin.COLOR_ON_GOLD else PillSkin.COLOR_TEXT
-        canvas.drawText(face.text, x, skin.baseline(cy), text)
-        if (count != null) {
-            x += labelW + 2f * dp
-            val bh = BADGE_DP * dp
-            rect.set(x, cy - bh / 2f, x + badgeW, cy + bh / 2f)
-            canvas.drawRoundRect(rect, bh / 2f, bh / 2f, badge)
-            canvas.drawText(count, rect.centerX(), cy - (badgeText.ascent() + badgeText.descent()) / 2f, badgeText)
+        if (face.state == TimerText.State.IDLE) drawClock(canvas, cx, cy)
+        else {
+            // While it grows the text shows through the stub as it opens.
+            canvas.save()
+            canvas.clipRect(rect)
+            drawCountdown(canvas, cx, cy, done)
+            canvas.restore()
+        }
+
+        if (blinking) {
+            canvas.restore()
+            postInvalidateOnAnimation()
         }
     }
 
-    /** A small stopwatch, drawn on a 24 unit grid of [k] px from ([x], [y]). */
-    private fun drawClock(canvas: Canvas, x: Float, y: Float, k: Float) {
-        canvas.drawCircle(x + 12 * k, y + 13 * k, 8 * k, icon)
-        canvas.drawLine(x + 12 * k, y + 9 * k, x + 12 * k, y + 13 * k, icon)
-        canvas.drawLine(x + 12 * k, y + 13 * k, x + 14 * k, y + 15 * k, icon)
-        canvas.drawLine(x + 9 * k, y + 2 * k, x + 15 * k, y + 2 * k, icon)
+    /**
+     * The countdown, turned to read from the bottom up, and after it (above it) the count
+     * of running timers, upright in a small gold badge.
+     */
+    private fun drawCountdown(canvas: Canvas, cx: Float, cy: Float, done: Boolean) {
+        val count = badgeLabel()
+        val labelW = text.measureText(face.text)
+        val total = contentLength()
+        // Along the stub, from the bottom: the label starts at total / 2 below the middle.
+        val start = cy + total / 2f
+        canvas.save()
+        canvas.rotate(-90f, cx, start)
+        text.color = if (done) PillSkin.COLOR_ON_GOLD else PillSkin.COLOR_TEXT
+        canvas.drawText(face.text, cx, skin.baseline(start), text)
+        canvas.restore()
+        if (count != null) {
+            val size = badgeSize(count)
+            val bcy = start - labelW - BADGE_GAP_DP * dp - size / 2f
+            val r = BADGE_DP * dp / 2f
+            rect.set(cx - r, bcy - size / 2f, cx + r, bcy + size / 2f)
+            canvas.drawRoundRect(rect, r, r, badge)
+            canvas.drawText(count, cx, bcy - (badgeText.ascent() + badgeText.descent()) / 2f, badgeText)
+        }
+    }
+
+    /** The clock: a ring with two hands, [ICON_DP] across, centred on ([cx], [cy]). */
+    private fun drawClock(canvas: Canvas, cx: Float, cy: Float) {
+        // The design's 8 unit icon.
+        val k = ICON_DP * dp / 8f
+        val x = cx - 4 * k
+        val y = cy - 4 * k
+        icon.strokeWidth = 1.3f * k
+        canvas.drawCircle(cx, cy, 3.25f * k, icon)
+        icon.strokeWidth = 1f * k
+        canvas.drawLine(x + 4 * k, y + 2.2f * k, x + 4 * k, y + 4 * k, icon)
+        canvas.drawLine(x + 4 * k, y + 4 * k, x + 5.2f * k, y + 4.8f * k, icon)
     }
 
     private companion object {
         const val ICON_DP = 9f
         const val BADGE_DP = 11f
+        const val BADGE_GAP_DP = 4f
     }
 }

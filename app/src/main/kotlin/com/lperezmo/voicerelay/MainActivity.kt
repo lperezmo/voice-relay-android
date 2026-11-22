@@ -73,9 +73,17 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (!env.hasPerm(Manifest.permission.RECORD_AUDIO)) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+        val ask = mutableListOf<String>()
+        if (!env.hasPerm(Manifest.permission.RECORD_AUDIO)) ask += Manifest.permission.RECORD_AUDIO
+        // The timer pill is on from the start, and a finished timer rings through a notification
+        // with a Stop button: ask once, as nobody may ever flip its switch.
+        if (android.os.Build.VERSION.SDK_INT >= 33 && settings.timerPillEnabled && !settings.askedTimerNotifications &&
+            !env.hasPerm(Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            settings.askedTimerNotifications = true
+            ask += Manifest.permission.POST_NOTIFICATIONS
         }
+        if (ask.isNotEmpty()) ActivityCompat.requestPermissions(this, ask.toTypedArray(), 1)
         refresh()
     }
 

@@ -36,7 +36,23 @@ enum class PillState(val short: String, val label: String, val color: Int, val p
     MEDIUM("Med", "Medium", VolumePreset.MEDIUM.color, VolumePreset.MEDIUM),
     LOUD("Loud", "Loud", VolumePreset.LOUD.color, VolumePreset.LOUD),
     /** A volume was changed by hand, so no preset matches. */
-    CUSTOM("Cust", "Custom", 0xFF6B6E75.toInt(), null),
+    CUSTOM("Cust", "Custom", 0xFF6B6E75.toInt(), null);
+
+    /**
+     * How many of the pill's four level bars are lit, so the preset reads without its colour:
+     * none for DND and silent, one for Mute, two for Medium, all four for Loud. A custom
+     * volume lights none; its label says it.
+     */
+    val bars: Int get() = when (this) {
+        DND, SILENT, CUSTOM -> 0
+        MUTE -> 1
+        MEDIUM -> 2
+        LOUD -> 4
+    }
+
+    companion object {
+        const val BARS = 4
+    }
 }
 
 /** Preset arithmetic, kept free of Android so it can be unit tested. */

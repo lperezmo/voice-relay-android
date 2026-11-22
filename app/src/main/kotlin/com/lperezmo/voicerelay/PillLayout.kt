@@ -5,8 +5,8 @@ import kotlin.math.sin
 
 /**
  * Where the pills ([VolumePillView] above the dictate button, [VolumeTrackView]
- * above that, [GlyphPillView] below, [TimerPillView] beside the button or on top
- * of the volume pill) sit for a button whose ring window is at
+ * above that, [GlyphPillView] below, [TimerPillView] upright beside the button,
+ * toward the middle of the screen) sit for a button whose ring window is at
  * (bubbleX, bubbleY), and how far they reach past it. The button is a
  * [buttonDp] circle centered in a [ringDp] square window; [dp] is the screen
  * density. Kept free of Android so it can be unit tested.
@@ -32,15 +32,11 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         )
     }
 
-    /**
-     * Above the pill, flush with the button's outer edge so it opens toward the middle of the screen.
-     * With the timer pill stacked on the volume pill ([timerStacked]) it sits above that one instead.
-     */
-    fun track(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, timerStacked: Boolean = false): Spot {
+    /** Above the pill, flush with the button's outer edge so it opens toward the middle of the screen. */
+    fun track(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int): Spot {
         val x = if (onRight(bubbleX, screenW)) bubbleX + (ring + button) / 2 - width else bubbleX + (ring - button) / 2
         val buttonTop = bubbleY + (ring - button) / 2
-        val pillTop = buttonTop - ((PILL_GAP_DP + VolumePillView.PILL_H_DP) * dp).toInt() -
-            if (timerStacked) (TIMER_H_DP * dp).toInt() else 0
+        val pillTop = buttonTop - ((PILL_GAP_DP + VolumePillView.PILL_H_DP) * dp).toInt()
         return Spot(
             x.coerceIn(margin, maxOf(margin, screenW - width - margin)),
             (pillTop - (TRACK_GAP_DP * dp).toInt() - height).coerceAtLeast(margin),
@@ -58,25 +54,31 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
     }
 
     /**
-     * The timer pill's touch window. Beside the button ([stacked] false) it is on the side
-     * facing the middle of the screen, level with the button. Stacked, it is in the volume
-     * pill's column: straight on top of that pill's touch window, so the two never overlap
-     * and each keeps its full height, or in the volume pill's own spot when that pill is off.
+     * The timer pill's touch window: beside the button on the side facing the middle of the
+     * screen, level with it, its inner edge on the button's edge (the button's window lies over
+     * that strip and keeps its own touches). The stub is drawn [timerStubInset] in from that
+     * inner edge, so it sits [TIMER_STUB_GAP_DP] from the button.
      */
-    fun timerPill(
-        bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int,
-        stacked: Boolean, volumeShown: Boolean,
-    ): Spot {
-        if (!stacked) {
-            val gap = (TIMER_SIDE_GAP_DP * dp).toInt()
-            val x = if (onRight(bubbleX, screenW)) bubbleX - gap - width else bubbleX + ring + gap
-            return Spot(x.coerceIn(0, maxOf(0, screenW - width)), bubbleY + (ring - height) / 2)
-        }
-        if (!volumeShown) return volumePill(bubbleX, bubbleY, width, height)
-        val buttonTop = bubbleY + (ring - button) / 2
-        val volumeTop = buttonTop - (PILL_GAP_DP * dp).toInt() +
-            (VolumePillView.BOTTOM_PAD_DP * dp).toInt() - (VolumePillView.H_DP * dp).toInt()
-        return Spot(bubbleX + (ring - width) / 2, (volumeTop - height).coerceAtLeast(0))
+    fun timerPill(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, screenH: Int): Spot {
+        val buttonLeft = bubbleX + (ring - button) / 2
+        val x = if (onRight(bubbleX, screenW)) buttonLeft - width else buttonLeft + button
+        return Spot(
+            x.coerceIn(0, maxOf(0, screenW - width)),
+            (bubbleY + (ring - height) / 2).coerceIn(0, maxOf(0, screenH - height)),
+        )
+    }
+
+    /** How far the stub's middle is from the touch window's inner edge (the edge on the button's side), in px. */
+    fun timerStubInset(): Float = (TIMER_STUB_GAP_DP + TIMER_STUB_W_DP / 2) * dp
+
+    /** The middle of the drawn stub, on the screen, for a button whose ring window is at (bubbleX, bubbleY). */
+    fun timerStubCentre(bubbleX: Int, bubbleY: Int, screenW: Int, screenH: Int): Spot {
+        val w = (TIMER_W_DP * dp).toInt()
+        val h = (TIMER_H_DP * dp).toInt()
+        val pill = timerPill(bubbleX, bubbleY, w, h, screenW, screenH)
+        val inset = timerStubInset().toInt()
+        val x = if (onRight(bubbleX, screenW)) pill.x + w - inset else pill.x + inset
+        return Spot(x, pill.y + h / 2)
     }
 
     /**
@@ -91,28 +93,23 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
     )
 
     /**
-     * The fan for a timer pill whose touch window is at [pill]. It opens from the drawn
-     * pill toward the middle of the screen, slides down or up to stay on screen, and keeps
-     * every bubble clear of the button even when the pill is stacked right above it.
+     * The fan for the timer pill of a button whose ring window is at (bubbleX, bubbleY). It
+     * opens from the stub's middle toward the middle of the screen, slides down or up to stay
+     * on screen, and keeps every bubble clear of the button.
      */
-    fun timerFan(
-        pill: Spot, pillW: Int, pillH: Int, stacked: Boolean,
-        bubbleX: Int, screenW: Int, screenH: Int,
-    ): Fan {
+    fun timerFan(bubbleX: Int, bubbleY: Int, screenW: Int, screenH: Int): Fan {
         val right = onRight(bubbleX, screenW)
         val buttonCx = bubbleX + ring / 2
         val r = TIMER_FAN_RADIUS_DP * dp
         // The bubbles nearest the button's column are the outer two, at 60 degrees.
         val clear = button / 2 + ((TIMER_FAN_HOT_DP / 2 + TIMER_FAN_CLEAR_DP) * dp - r * cos(FAN_EDGE)).toInt()
-        val pillCx = pill.x + pillW / 2
-        val originX = if (right) minOf(pillCx, buttonCx - clear) else maxOf(pillCx, buttonCx + clear)
-        val pillCy = if (stacked) pill.y + pillH - ((TIMER_BOTTOM_PAD_DP + TIMER_PILL_H_DP / 2) * dp).toInt()
-        else pill.y + pillH / 2
+        val stub = timerStubCentre(bubbleX, bubbleY, screenW, screenH)
+        val originX = if (right) minOf(stub.x, buttonCx - clear) else maxOf(stub.x, buttonCx + clear)
 
         val reach = (r * sin(FAN_EDGE) + TIMER_FAN_HOT_DP / 2 * dp).toInt() + 1
         val chips = (TIMER_CHIPS_H_DP * dp).toInt()
         val height = chips + reach * 2
-        val top = (pillCy - reach - chips).coerceIn(margin, maxOf(margin, screenH - height - margin))
+        val top = (stub.y - reach - chips).coerceIn(margin, maxOf(margin, screenH - height - margin))
         val originY = top + chips + reach
         val width = (TIMER_FAN_W_DP * dp).toInt()
         val left = (if (right) originX - width else originX).coerceIn(0, maxOf(0, screenW - width))
@@ -127,14 +124,16 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
     /**
      * A timer card (the running list, or "your own time"), [width] x [height]. It opens
      * toward the middle of the screen with its bottom at the top of the button, or under
-     * the button when there is no room above, and never reaches the button's column.
+     * the button when there is no room above, never reaches the button's column, and leaves
+     * the timer pill uncovered even where a narrow screen pushes it over the pill's column.
      */
     fun timerCard(bubbleX: Int, bubbleY: Int, width: Int, height: Int, screenW: Int, screenH: Int): Spot {
         val gap = (TIMER_CARD_GAP_DP * dp).toInt()
         val edge = (TIMER_CARD_MARGIN_DP * dp).toInt()
         val x = if (onRight(bubbleX, screenW)) bubbleX - gap - width else bubbleX + ring + gap
-        val over = bubbleY - height
-        val y = if (over >= edge) over else bubbleY + ring
+        // Clear of the timer pill's touch window too, which is a little taller than the ring window.
+        val over = bubbleY - timerOverhang() - height
+        val y = if (over >= edge) over else bubbleY + ring + timerOverhang()
         return Spot(
             x.coerceIn(edge, maxOf(edge, screenW - width - edge)),
             y.coerceIn(edge, maxOf(edge, screenH - height - edge)),
@@ -143,30 +142,34 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
 
     /**
      * How far the pills over the button reach past the top of the ring window (0 when none is
-     * shown), for [BubbleBounds]: the volume pill, the timer pill stacked on it, or either alone.
+     * shown), for [BubbleBounds]: the volume pill, and the timer pill's touch window, which is a
+     * little taller than the ring.
      */
-    fun above(volumeShown: Boolean, timerStacked: Boolean = false): Int {
-        if (!volumeShown && !timerStacked) return 0
+    fun above(volumeShown: Boolean, timerShown: Boolean = false): Int {
         val inset = (ring - button) / 2
-        val one = ((VolumePillView.H_DP - VolumePillView.BOTTOM_PAD_DP + PILL_GAP_DP) * dp).toInt()
-        val two = if (volumeShown && timerStacked) (TIMER_H_DP * dp).toInt() else 0
-        return maxOf(0, one + two - inset)
+        val volume = if (volumeShown) ((VolumePillView.H_DP - VolumePillView.BOTTOM_PAD_DP + PILL_GAP_DP) * dp).toInt() - inset else 0
+        return maxOf(0, volume, if (timerShown) timerOverhang() else 0)
     }
 
     /**
      * How far the timer pill reaches past the side of the ring window, toward the middle of the
-     * screen, when it sits beside the button (0 when it does not): messages shown beside the
-     * button start past it.
+     * screen (0 when it is not shown): messages shown beside the button start past it.
      */
-    fun beside(timerBeside: Boolean): Int =
-        if (timerBeside) ((TIMER_SIDE_GAP_DP + TIMER_W_DP) * dp).toInt() else 0
-
-    /** How far the Glyph pill reaches under the bottom of the ring window (0 when it is not shown), for [BubbleBounds]. */
-    fun below(glyphShown: Boolean): Int {
-        if (!glyphShown) return 0
+    fun beside(timerShown: Boolean): Int {
+        if (!timerShown) return 0
         val inset = (ring - button) / 2
-        return maxOf(0, ((GlyphPillView.H_DP - GlyphPillView.TOP_PAD_DP + PILL_GAP_DP) * dp).toInt() - inset)
+        return maxOf(0, (TIMER_W_DP * dp).toInt() - inset)
     }
+
+    /** How far the pills under the button reach past the bottom of the ring window (0 when none is shown), for [BubbleBounds]. */
+    fun below(glyphShown: Boolean, timerShown: Boolean = false): Int {
+        val inset = (ring - button) / 2
+        val glyph = if (glyphShown) ((GlyphPillView.H_DP - GlyphPillView.TOP_PAD_DP + PILL_GAP_DP) * dp).toInt() - inset else 0
+        return maxOf(0, glyph, if (timerShown) timerOverhang() else 0)
+    }
+
+    /** The timer pill's touch window is centred on the ring window and this much taller on each side. */
+    private fun timerOverhang(): Int = maxOf(0, ((TIMER_H_DP * dp).toInt() - ring + 1) / 2)
 
     companion object {
         /** Space between each pill (volume above, Glyph below) and the dictate button. */
@@ -174,15 +177,33 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         /** Space between the track and the volume pill. */
         const val TRACK_GAP_DP = 12
 
-        /** The timer pill's touch window, and the pill drawn inside it (wider when the text needs it). */
-        const val TIMER_W_DP = 66
-        const val TIMER_H_DP = 44
-        const val TIMER_PILL_MIN_W_DP = 50f
-        const val TIMER_PILL_H_DP = 18f
-        /** Space under the drawn timer pill when it is stacked; the same as the volume pill's. */
-        const val TIMER_BOTTOM_PAD_DP = 4f
-        /** Space between the timer pill's touch window and the button's, beside it. */
-        const val TIMER_SIDE_GAP_DP = 2
+        /**
+         * The timer pill's touch window, beside the button. The drawn pill is an upright stub
+         * as thick as the other pills: a round dot while nothing runs, growing to
+         * [TIMER_GROWN_H_DP] tall for the countdown while a timer runs or rings.
+         */
+        const val TIMER_W_DP = 44
+        const val TIMER_H_DP = 60
+        const val TIMER_STUB_W_DP = PillSkin.PILL_H_DP
+        const val TIMER_STUB_H_DP = PillSkin.PILL_H_DP
+        const val TIMER_GROWN_H_DP = 54f
+        /** The tallest the stub grows: the button's ring window's height, so it never reaches the volume or Glyph pill. */
+        const val TIMER_STUB_MAX_H_DP = 56f
+        /** Room kept at each end of the grown stub, past its text. */
+        const val TIMER_END_PAD_DP = 7f
+
+        /**
+         * The stub's height in dp: a dot while [idle], otherwise tall enough for its
+         * countdown and badge ([contentDp] long), at least [TIMER_GROWN_H_DP] and at most
+         * [TIMER_STUB_MAX_H_DP].
+         */
+        fun timerStubHeightDp(idle: Boolean, contentDp: Float): Float =
+            if (idle) TIMER_STUB_H_DP
+            else maxOf(TIMER_GROWN_H_DP, contentDp + 2 * TIMER_END_PAD_DP).coerceAtMost(TIMER_STUB_MAX_H_DP)
+        /** Space between the stub and the button. */
+        const val TIMER_STUB_GAP_DP = 5f
+        /** How long the stub takes to grow or shrink. */
+        const val TIMER_GROW_MS = 250L
 
         /** The fan: bubbles on an arc around the pill, bigger under the finger. */
         const val TIMER_FAN_RADIUS_DP = 92f

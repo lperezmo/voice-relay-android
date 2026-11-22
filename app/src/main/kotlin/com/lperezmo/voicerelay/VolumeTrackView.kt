@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -37,17 +36,11 @@ class VolumeTrackView(context: Context) : View(context) {
     private val gesture = VGesture(DIP_DP * dp, RISE_DP * dp, TAP_SLOP_DP * dp) { x -> stopAt(x) }
     private var applied = -1
 
-    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_BG }
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f * dp }
-    private val rail = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_RAIL; strokeWidth = 2f * dp }
+    private val skin = PillSkin(dp)
+    private val rail = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_RAIL; strokeWidth = 1f * dp }
     private val nodeFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val nodeEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * dp }
-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 10f * dp
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        letterSpacing = 0.06f
-        textAlign = Paint.Align.CENTER
-    }
+    private val label = skin.label(10f).apply { textAlign = Paint.Align.CENTER }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = COLOR_TRAIL; style = Paint.Style.STROKE; strokeWidth = 3f * dp
         strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -69,18 +62,22 @@ class VolumeTrackView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val unlocked = gesture.phase == VGesture.Phase.UNLOCKED
         val r = RADIUS_DP * dp
-        rect.set(0f, 0f, width.toFloat(), height.toFloat())
-        canvas.drawRoundRect(rect, r, r, bg)
-        edge.color = if (unlocked) presets[gesture.target].color else COLOR_EDGE
-        rect.inset(0.5f * dp, 0.5f * dp)
-        canvas.drawRoundRect(rect, r, r, edge)
+        // Inset by the outer line's width, so the dark line around the panel stays inside the window.
+        rect.set(1f * dp, 1f * dp, width - 1f * dp, height - 1f * dp)
+        skin.drawBody(canvas, rect, r, PillSkin.COLOR_PANEL)
+        skin.drawInnerEdge(canvas, rect, r, if (unlocked) presets[gesture.target].color else PillSkin.COLOR_EDGE)
 
+        // The rail is a row of tick marks, like a gauge's scale.
         val cy = NODE_Y_DP * dp
-        canvas.drawLine(stopX(0), cy, stopX(presets.size - 1), cy, rail)
+        var tick = stopX(0)
+        while (tick <= stopX(presets.size - 1) + 0.5f) {
+            canvas.drawLine(tick, cy - RAIL_TICK_DP * dp / 2f, tick, cy + RAIL_TICK_DP * dp / 2f, rail)
+            tick += RAIL_STEP_DP * dp
+        }
         for ((i, p) in presets.withIndex()) {
             val on = i == (if (applied >= 0) applied else current)
             val targeted = (unlocked && i == gesture.target) || i == applied
-            val radius = NODE_R_DP * dp * (if (targeted) 1.18f else 1f)
+            val radius = (if (targeted) NODE_HOT_R_DP else NODE_R_DP) * dp
             nodeFill.color = if (on) p.color else COLOR_NODE
             nodeEdge.color = when {
                 targeted -> 0xFFFFFFFF.toInt()
@@ -89,7 +86,7 @@ class VolumeTrackView(context: Context) : View(context) {
             }
             canvas.drawCircle(stopX(i), cy, radius, nodeFill)
             canvas.drawCircle(stopX(i), cy, radius - 1f * dp, nodeEdge)
-            label.color = if (on || targeted) 0xFFFFFFFF.toInt() else COLOR_LABEL
+            label.color = if (on || targeted) PillSkin.COLOR_TEXT else PillSkin.COLOR_TEXT_DIM
             canvas.drawText(p.short, stopX(i), LABEL_Y_DP * dp, label)
         }
         if (!trail.isEmpty) canvas.drawPath(trail, stroke)
@@ -155,6 +152,10 @@ class VolumeTrackView(context: Context) : View(context) {
         private const val STEP_DP = 60f
         private const val NODE_Y_DP = 24f
         private const val NODE_R_DP = 13f
+        /** The stop the V is on grows a little. */
+        private const val NODE_HOT_R_DP = 15f
+        private const val RAIL_TICK_DP = 6f
+        private const val RAIL_STEP_DP = 10f
         private const val LABEL_Y_DP = 58f
         /** How far down the finger must go before sideways moves pick a stop. */
         private const val DIP_DP = 20f
@@ -162,12 +163,10 @@ class VolumeTrackView(context: Context) : View(context) {
         private const val RISE_DP = 16f
         private const val TAP_SLOP_DP = 8f
 
-        private const val COLOR_BG = 0xDB1C1C1E.toInt()
-        private const val COLOR_EDGE = 0x1FFFFFFF
-        private const val COLOR_RAIL = 0x2EFFFFFF
+        /** The rail's ticks: white at 35%. */
+        private const val COLOR_RAIL = 0x59FFFFFF
         private const val COLOR_NODE = 0xFF1C1C1E.toInt()
         private const val COLOR_NODE_EDGE = 0x59FFFFFF
-        private const val COLOR_LABEL = 0x9EE8EAED.toInt()
         private const val COLOR_TRAIL = 0xBFFFFFFF.toInt()
     }
 }

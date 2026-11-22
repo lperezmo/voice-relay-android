@@ -268,7 +268,16 @@ class WakeWordService : Service() {
     private var timerStatus: String? = null
 
     private fun startTimerFlow() {
-        val flow = timerFlow ?: TimerVoiceFlow(
+        val flow = timerFlow ?: makeTimerFlow().also { timerFlow = it }
+        timerStatus = "Listening for your timer"
+        // The ring on the button shows "hey timer" was heard, in its own colour.
+        if (flow.start()) WhisperAccessibilityService.instance?.onWake(timer = true)
+        else Log.w(TAG, "Wake word: a timer request is already running")
+    }
+
+    private fun makeTimerFlow(): TimerVoiceFlow {
+        lateinit var made: TimerVoiceFlow
+        made = TimerVoiceFlow(
             this, settings,
             onStatus = { text ->
                 if (running && controller.state == WakeWordController.State.TIMER) {
@@ -276,13 +285,16 @@ class WakeWordService : Service() {
                     updateNotification()
                 }
             },
-            onDone = {
+            onDone = done@{
+                // A flow stopped with the service can end long after; only the current one clears the ring.
+                if (timerFlow !== made) return@done
                 timerStatus = null
+                WhisperAccessibilityService.instance?.onTimerVoiceDone()
                 if (running) apply(controller.onTimerDone(now(), micBusy()))
             },
-        ).also { timerFlow = it }
-        timerStatus = "Listening for your timer"
-        if (!flow.start()) Log.w(TAG, "Wake word: a timer request is already running")
+            onStage = { stage -> WhisperAccessibilityService.instance?.onTimerVoice(stage) },
+        )
+        return made
     }
 
     private val tick = object : Runnable {
@@ -441,6 +453,8 @@ class WakeWordService : Service() {
         running = false
         stopped = true
         apply(controller.stop())
+        // A request cut off here never reports its end to the ring (see makeTimerFlow): clear it now.
+        if (timerFlow?.isRunning == true) WhisperAccessibilityService.instance?.onTimerVoiceDone()
         timerFlow?.shutdown()
         timerFlow = null
         timerStatus = null
@@ -546,6 +560,8 @@ class WakeWordService : Service() {
     }
 
     private fun launchAssistant() {
+        // The ring on the button shows "hey claude" was heard, in Claude's colour.
+        WhisperAccessibilityService.instance?.onWake(timer = false)
         val intent = Intent(WakeWord.ACTION_VOICE_ASSIST).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Same app either way; the accessibility service's context is the one Android
         // most clearly lets start activities from the background.

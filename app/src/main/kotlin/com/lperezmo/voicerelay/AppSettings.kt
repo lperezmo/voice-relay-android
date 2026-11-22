@@ -6,6 +6,12 @@ import android.content.Context
 class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("voicerelay", Context.MODE_PRIVATE)
 
+    init {
+        // The timer pill used to have a position setting ("beside" or "above"); it always sits
+        // beside the button now, so an old saved choice is dropped.
+        if (prefs.contains("timer_pill_position")) prefs.edit().remove("timer_pill_position").apply()
+    }
+
     var transcriptionModel: String
         get() = prefs.getString("transcription_model", null) ?: DEFAULT_TRANSCRIPTION_MODEL
         set(v) = prefs.edit().putString("transcription_model", v).apply()
@@ -117,13 +123,22 @@ class AppSettings(context: Context) {
 
     /** The timer pill: hold it to start a timer, tap it to see what is running. */
     var timerPillEnabled: Boolean
-        get() = prefs.getBoolean("timer_pill", false)
+        get() = prefs.getBoolean("timer_pill", true)
         set(v) = prefs.edit().putBoolean("timer_pill", v).apply()
 
-    /** Where the timer pill sits: [TIMER_BESIDE] the button (the default) or [TIMER_ABOVE] the volume pill. */
-    var timerPillPosition: String
-        get() = if (prefs.getString("timer_pill_position", null) == TIMER_ABOVE) TIMER_ABOVE else TIMER_BESIDE
-        set(v) = prefs.edit().putString("timer_pill_position", v).apply()
+    /** The notification permission was asked once for the timer pill, which is on from the start. */
+    var askedTimerNotifications: Boolean
+        get() = prefs.getBoolean("asked_timer_notifications", false)
+        set(v) = prefs.edit().putBoolean("asked_timer_notifications", v).apply()
+
+    /**
+     * Fade the dictate button and its pills a few seconds after the last touch, while
+     * nothing is going on; they come back on a touch or when anything happens. Off by
+     * default ([DEFAULT_DIM_WHEN_IDLE]).
+     */
+    var dimWhenIdle: Boolean
+        get() = prefs.getBoolean("dim_when_idle", DEFAULT_DIM_WHEN_IDLE)
+        set(v) = prefs.edit().putBoolean("dim_when_idle", v).apply()
 
     /** The Glyph pill below the dictate button. Shown only while Glyph is installed. */
     var glyphPillEnabled: Boolean
@@ -309,6 +324,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
         const val DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
         const val DEFAULT_ASK_PAGE_MODEL = "claude-sonnet-5-5"
+        const val DEFAULT_DIM_WHEN_IDLE = false
         const val DEFAULT_TIMER_MODEL = "claude-opus-5-5"
         const val DEFAULT_LANGUAGES = ""
         const val DEFAULT_GLYPH_BUILT_IN = true
@@ -316,9 +332,6 @@ class AppSettings(context: Context) {
 
         const val SERVICE_OPENAI = "openai"
         const val SERVICE_CLAUDE = "claude"
-
-        const val TIMER_BESIDE = "beside"
-        const val TIMER_ABOVE = "above"
 
         fun splitList(raw: String): List<String> =
             raw.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
