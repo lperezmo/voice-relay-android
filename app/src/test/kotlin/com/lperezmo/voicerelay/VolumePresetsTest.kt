@@ -107,4 +107,12 @@ class VolumePresetsTest {
         assertNull(g.move(100f, 55f))
         assertEquals(1, g.move(100f, 53f))
     }
+
+    @Test fun `the volume pill's bars read without colour`() {
+        assertEquals(0, PillState.DND.bars)
+        assertEquals(1, PillState.MUTE.bars)
+        assertEquals(2, PillState.MEDIUM.bars)
+        assertEquals(PillState.BARS, PillState.LOUD.bars)
+        for (s in PillState.entries) assert(s.bars in 0..PillState.BARS)
+    }
 }

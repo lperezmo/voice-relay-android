@@ -8,10 +8,31 @@ import kotlin.math.hypot
  * One timer Voice Relay runs itself. [endsAt] is wall-clock milliseconds; a
  * timer whose end has passed is done and stays in the list (the pill turns
  * gold) until it is dismissed. [rung] is set once its alarm has been raised,
- * so it rings only once.
+ * so it rings only once. [totalMs] is how long it runs in all, extensions
+ * included (0 for a timer saved before it was kept).
  */
-data class TimerEntry(val id: Int, val label: String, val endsAt: Long, val rung: Boolean = false) {
+data class TimerEntry(
+    val id: Int,
+    val label: String,
+    val endsAt: Long,
+    val rung: Boolean = false,
+    val totalMs: Long = 0,
+) {
     fun done(now: Long): Boolean = endsAt <= now
+
+    /**
+     * How much is left, 1 at the start and 0 at the end, for the gold arc and drain line.
+     * Without a [totalMs] it is read off an hour, like a kitchen timer's dial.
+     */
+    fun fractionLeft(now: Long): Float {
+        if (done(now)) return 0f
+        val whole = if (totalMs > 0) totalMs else HOUR_MS
+        return ((endsAt - now).toFloat() / whole).coerceIn(0f, 1f)
+    }
+
+    private companion object {
+        const val HOUR_MS = 60 * 60_000L
+    }
 
     /** Whole seconds left, rounded up so a fresh 10 minute timer reads 10:00. */
     fun secondsLeft(now: Long): Int = if (done(now)) 0 else ((endsAt - now + 999) / 1000).toInt()
@@ -38,10 +59,12 @@ data class Timers(
     fun start(now: Long, seconds: Long, label: String? = null): Pair<Timers, TimerEntry> {
         val name = label?.trim()?.take(MAX_LABEL).orEmpty()
         val numbered = name.isEmpty()
+        val length = seconds.coerceIn(1, MAX_SECONDS) * 1000
         val entry = TimerEntry(
             id = nextId,
             label = if (numbered) "Timer $nextNumber" else name,
-            endsAt = now + seconds.coerceIn(1, MAX_SECONDS) * 1000,
+            endsAt = now + length,
+            totalMs = length,
         )
         return copy(
             list = list + entry,
@@ -53,7 +76,13 @@ data class Timers(
     /** Adds [seconds] to a timer. One that is already done starts again from now. */
     fun extend(id: Int, now: Long, seconds: Long = 60): Timers = copy(
         list = list.map {
-            if (it.id == id) it.copy(endsAt = maxOf(it.endsAt, now) + seconds * 1000, rung = false) else it
+            if (it.id != id) it
+            else it.copy(
+                endsAt = maxOf(it.endsAt, now) + seconds * 1000,
+                rung = false,
+                // A finished timer starts over, so the added time is all of it.
+                totalMs = if (it.done(now) || it.totalMs <= 0) seconds * 1000 else it.totalMs + seconds * 1000,
+            )
         },
     )
 
@@ -74,6 +103,7 @@ data class Timers(
         .put("timers", JSONArray().apply {
             for (t in list) put(
                 JSONObject().put("id", t.id).put("label", t.label).put("endsAt", t.endsAt).put("rung", t.rung)
+                    .put("total", t.totalMs)
             )
         })
         .toString()
@@ -90,7 +120,7 @@ data class Timers(
                 val arr = o.optJSONArray("timers") ?: JSONArray()
                 val list = (0 until arr.length()).map {
                     val t = arr.getJSONObject(it)
-                    TimerEntry(t.getInt("id"), t.getString("label"), t.getLong("endsAt"), t.optBoolean("rung"))
+                    TimerEntry(t.getInt("id"), t.getString("label"), t.getLong("endsAt"), t.optBoolean("rung"), t.optLong("total", 0))
                 }
                 Timers(
                     list = list,
@@ -115,8 +145,11 @@ object TimerText {
 
     enum class State { IDLE, RUNNING, DONE }
 
-    /** What the pill shows: the next timer to end, how many there are, and whether one is done. */
-    data class Face(val text: String, val count: Int, val state: State)
+    /**
+     * What the pill shows: the next timer to end, how many there are, whether one is done,
+     * and how much of the next one is left (0 to 1) for its drain line.
+     */
+    data class Face(val text: String, val count: Int, val state: State, val drain: Float = 0f)
 
     /** "9:12", "1h05", or "Done" at zero. */
     fun clock(seconds: Int): String {
@@ -128,10 +161,12 @@ object TimerText {
 
     fun face(sorted: List<TimerEntry>, now: Long): Face {
         val first = sorted.firstOrNull() ?: return Face("Timer", 0, State.IDLE)
+        val done = sorted.any { it.done(now) }
         return Face(
             text = clock(first.secondsLeft(now)),
             count = sorted.size,
-            state = if (sorted.any { it.done(now) }) State.DONE else State.RUNNING,
+            state = if (done) State.DONE else State.RUNNING,
+            drain = if (done) 0f else first.fractionLeft(now),
         )
     }
 

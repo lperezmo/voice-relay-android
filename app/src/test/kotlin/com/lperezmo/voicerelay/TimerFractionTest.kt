@@ -1,0 +1,51 @@
+package com.lperezmo.voicerelay
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class TimerFractionTest {
+
+    @Test fun `a new timer is full and drains to empty`() {
+        val (_, t) = Timers().start(now = 0, seconds = 600)
+        assertEquals(600_000L, t.totalMs)
+        assertEquals(1f, t.fractionLeft(0), 0f)
+        assertEquals(0.25f, t.fractionLeft(450_000), 1e-6f)
+        assertEquals(0f, t.fractionLeft(600_000), 0f)
+    }
+
+    @Test fun `a minute more adds to the whole`() {
+        val (book, t) = Timers().start(now = 0, seconds = 60)
+        val longer = book.extend(t.id, now = 30_000).find(t.id)!!
+        assertEquals(120_000L, longer.totalMs)
+        assertEquals(0.75f, longer.fractionLeft(30_000), 1e-6f)
+    }
+
+    @Test fun `a finished timer given a minute more starts over full`() {
+        val (book, t) = Timers().start(now = 0, seconds = 300)
+        val again = book.extend(t.id, now = 400_000).find(t.id)!!
+        assertEquals(60_000L, again.totalMs)
+        assertEquals(1f, again.fractionLeft(400_000), 0f)
+    }
+
+    @Test fun `a timer saved without its length reads off an hour`() {
+        val old = TimerEntry(1, "Pasta", endsAt = 15 * 60_000L)
+        assertEquals(0.25f, old.fractionLeft(0), 1e-6f)
+        assertEquals(1f, TimerEntry(2, "Roast", endsAt = 3 * 60 * 60_000L).fractionLeft(0), 0f)
+    }
+
+    @Test fun `the length survives saving`() {
+        val (book, t) = Timers().start(now = 0, seconds = 90)
+        assertEquals(90_000L, Timers.fromJson(book.toJson()).find(t.id)!!.totalMs)
+        // An old save without it still loads.
+        val old = Timers.fromJson("""{"timers":[{"id":3,"label":"Tea","endsAt":5000}]}""")
+        assertEquals(0L, old.find(3)!!.totalMs)
+    }
+
+    @Test fun `the pill's drain line follows the next timer`() {
+        val (book, _) = Timers().start(now = 0, seconds = 600)
+        val (both, _) = book.start(now = 0, seconds = 1200)
+        assertEquals(0.5f, TimerText.face(both.sorted(), 300_000).drain, 1e-6f)
+        assertEquals(0f, TimerText.face(both.sorted(), 600_000).drain, 0f)
+        assertEquals(0f, TimerText.face(emptyList(), 0).drain, 0f)
+    }
+}

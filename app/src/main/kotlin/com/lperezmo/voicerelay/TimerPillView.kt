@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.view.MotionEvent
 import android.view.View
 
@@ -45,10 +44,8 @@ class TimerPillView(context: Context) : View(context) {
         strokeWidth = ICON_DP * dp * 3f / 24f
     }
     private val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PillSkin.COLOR_TIMER }
-    private val badgeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val badgeText = skin.label(8f).apply {
         color = PillSkin.COLOR_ON_TIMER
-        textSize = 8f * dp
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
     private val rect = RectF()
@@ -100,6 +97,7 @@ class TimerPillView(context: Context) : View(context) {
         val top = if (stacked) height - PillLayout.TIMER_BOTTOM_PAD_DP * dp - h else (height - h) / 2f
         rect.set(left, top, left + w, top + h)
         skin.drawFill(canvas, rect, if (done) PillSkin.COLOR_GOLD else PillSkin.COLOR_FILL)
+        if (!done) skin.drawDrain(canvas, rect, face.drain)
         skin.drawEdge(
             canvas, rect,
             when {

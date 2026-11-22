@@ -38,20 +38,18 @@ class TimerFanView(context: Context) : View(context) {
     private val grown = FloatArray(labels.size)
     private var lastFrame = 0L
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val skin = PillSkin(dp)
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f * dp
+        strokeWidth = 2f * dp
+        color = COLOR_RING
     }
     private val bubbleText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 12f * dp
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
-    private val chipLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = COLOR_DIM
-        textSize = 12f * dp
-    }
+    private val chipLabel = skin.label(12f).apply { color = COLOR_DIM }
     private val chipTime = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 11f * dp
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -97,12 +95,9 @@ class TimerFanView(context: Context) : View(context) {
             val isHot = i == hot
             val r = (PillLayout.TIMER_FAN_BUBBLE_DP +
                 (PillLayout.TIMER_FAN_HOT_DP - PillLayout.TIMER_FAN_BUBBLE_DP) * grown[i]) * dp / 2f
-            fill.color = if (isHot) PillSkin.COLOR_TIMER else COLOR_BUBBLE
-            canvas.drawCircle(c.x.toFloat(), c.y.toFloat(), r, fill)
-            if (!isHot) {
-                ring.color = COLOR_RING
-                canvas.drawCircle(c.x.toFloat(), c.y.toFloat(), r - 0.5f * dp, ring)
-            }
+            rect.set(c.x - r, c.y - r, c.x + r, c.y + r)
+            skin.drawBody(canvas, rect, r, if (isHot) PillSkin.COLOR_TIMER else COLOR_BUBBLE)
+            if (!isHot) canvas.drawCircle(c.x.toFloat(), c.y.toFloat(), r - 1f * dp, ring)
             bubbleText.color = when {
                 isHot -> PillSkin.COLOR_ON_TIMER
                 TimerText.FAN_MINUTES[i] == 0 -> PillSkin.COLOR_TIMER
@@ -133,11 +128,8 @@ class TimerFanView(context: Context) : View(context) {
             }
             val left = if (chipsFromRight) width - x - w else x
             rect.set(left, y, left + w, y + h)
-            fill.color = COLOR_BUBBLE
-            canvas.drawRoundRect(rect, h / 2f, h / 2f, fill)
-            ring.color = PillSkin.COLOR_EDGE
-            rect.inset(0.5f * dp, 0.5f * dp)
-            canvas.drawRoundRect(rect, h / 2f, h / 2f, ring)
+            skin.drawBody(canvas, rect, h / 2f, COLOR_BUBBLE)
+            skin.drawInnerEdge(canvas, rect, h / 2f)
             val cy = y + h / 2f
             canvas.drawText(chip.label, left + pad, cy - (chipLabel.ascent() + chipLabel.descent()) / 2f, chipLabel)
             chipTime.color = if (chip.done) PillSkin.COLOR_GOLD else COLOR_LIGHT
@@ -151,10 +143,9 @@ class TimerFanView(context: Context) : View(context) {
         const val CHIP_H_DP = 26f
         const val CHIPS_W_DP = 250f
         const val CHIP_ROWS = 2
-        /** #1C1C1E at 92%. */
-        const val COLOR_BUBBLE = 0xEB1C1C1E.toInt()
-        /** White at 28%. */
-        const val COLOR_RING = 0x47FFFFFF
+        const val COLOR_BUBBLE = PillSkin.COLOR_BUBBLE
+        /** The resting bubbles' 2 dp inner ring: white at 18%. */
+        const val COLOR_RING = 0x2EFFFFFF
         const val COLOR_BUBBLE_TEXT = 0xFFE8EAED.toInt()
         const val COLOR_DIM = 0xFFA9ACB5.toInt()
         const val COLOR_LIGHT = 0xFFE6E6EA.toInt()
