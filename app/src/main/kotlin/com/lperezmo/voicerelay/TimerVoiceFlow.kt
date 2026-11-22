@@ -146,7 +146,7 @@ class TimerVoiceFlow(
             is Heard.Text -> heard.text
         }
         if (cancelled) return
-        status("Setting your timer")
+        status("Working on it")
         val client = AnthropicClient(anthropicKey, http = http)
         val model = settings.timerModel
         val timers = TimerController.get(context)
@@ -198,7 +198,7 @@ class TimerVoiceFlow(
                 "${outcome.timersSet} set, ${outcome.timersCancelled} cancelled, ${if (outcome.failed) "failed" else "ok"}"
         )
         val tooLong = outcome.failed && !cancelled && System.currentTimeMillis() > deadline
-        finish(if (tooLong) "That took too long, so no timer was set." else outcome.spoken)
+        finish(if (tooLong) "That took too long, so nothing was changed." else outcome.spoken)
     }
 
     private sealed interface Heard {
@@ -243,7 +243,7 @@ class TimerVoiceFlow(
             result.error == null -> Heard.Nothing
             result.httpCode == 0 -> Heard.Failed(TimerAssistant.SAY_NO_NETWORK)
             result.httpCode == 401 -> Heard.Failed("The OpenAI key was not accepted. Check it in Voice Relay.")
-            else -> Heard.Failed("I couldn't turn that into text, so no timer was set.")
+            else -> Heard.Failed("I couldn't turn that into text, so nothing was changed.")
         }
     }
 

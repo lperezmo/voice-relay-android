@@ -694,6 +694,23 @@ class TimerAssistantTest {
         assertEquals("There were no timers to cancel.", result.getString("content"))
     }
 
+    @Test fun `a cancel that finds nothing and ends with no text says nothing was cancelled`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", all = true)),
+            turn("end_turn"),
+        )
+        val out = assistant(script, FakeTools()).run("cancel all timers")
+        assertEquals(TimerAssistant.SAY_NOTHING_CANCELLED, out.spoken)
+        assertEquals(0, out.timersCancelled)
+        assertFalse(out.failed)
+    }
+
+    @Test fun `a finished timer from before midnight ends yesterday`() {
+        val ms = now.toInstant().toEpochMilli()
+        val list = JSONArray(TimerAssistant.describeTimers(listOf(TimerEntry(2, "Bread", ms - 11 * 3600_000L, rung = true)), now))
+        assertEquals("11:27 PM yesterday", list.getJSONObject(0).getString("ends_at"))
+    }
+
     @Test fun `with no timers on the phone Claude answers without a tool and nothing is cancelled`() {
         val script = Script(turn("end_turn", text(TimerAssistant.SAY_NONE_TO_CANCEL)))
         val tools = FakeTools()

@@ -83,8 +83,8 @@ different, and it is the only time the wake word listener sends audio anywhere:
   apart from a temporary file used to compress it, which is deleted straight away, and is
   discarded after the request.
 - The transcript goes to Anthropic with your key, together with the phone's current date, time
-  and time zone, so Claude can work out how long the timer runs, and the name, time left and end
-  time of each timer you have, so it can cancel the one you name. If Claude asks you a question
+  and time zone, so Claude can work out how long the timer runs, and the name, number, time left, end
+  time and whether it has finished for each timer you have, so it can cancel the one you name. If Claude asks you a question
   ("That's tomorrow. Set it?"), your spoken answer is recorded, transcribed and sent the same way.
 - The answer is read out by the phone's own text-to-speech engine and shown in a notification.
 

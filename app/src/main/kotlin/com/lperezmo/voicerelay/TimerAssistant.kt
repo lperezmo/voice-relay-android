@@ -66,6 +66,7 @@ class TimerAssistant(
         var timersSet = 0
         var timersCancelled = 0
         var questions = 0
+        var cancelAsked = false
         // What was done, for a request that ends without a line of its own.
         fun done(): String? = when {
             timersSet > 0 && timersCancelled > 0 -> SAY_DONE
@@ -93,7 +94,8 @@ class TimerAssistant(
             val uses = AnthropicClient.toolUses(turn.content)
             if (turn.stopReason != "tool_use" || uses.isEmpty()) {
                 val text = AnthropicClient.turnText(turn.content)
-                return end(text.ifEmpty { done() ?: SAY_NO_TIME }, failed = false, rounds = round)
+                val fallback = done() ?: if (cancelAsked) SAY_NOTHING_CANCELLED else SAY_NO_TIME
+                return end(text.ifEmpty { fallback }, failed = false, rounds = round)
             }
             messages.put(AnthropicClient.echoTurn(turn.content))
             // Every result goes back in one user turn, in the order Claude asked.
@@ -102,6 +104,7 @@ class TimerAssistant(
                 val result = run(use, questionsLeft = MAX_QUESTIONS - questions, timersLeft = MAX_TIMERS - timersSet)
                 if (use.name == TOOL_ASK_USER && !result.isError) questions++
                 if (use.name == TOOL_SET_TIMER && !result.isError) timersSet++
+                if (use.name == TOOL_CANCEL_TIMER) cancelAsked = true
                 timersCancelled += result.cancelled
                 results.put(AnthropicClient.toolResult(use.id, result.text, result.isError))
             }
@@ -190,9 +193,10 @@ class TimerAssistant(
         const val SAY_CANCELLED_ALL = "Timers cancelled."
         const val SAY_DONE = "Done."
         const val SAY_NONE_TO_CANCEL = "There are no timers to cancel."
-        const val SAY_NO_NETWORK = "I couldn't reach the internet, so no timer was set."
-        const val SAY_PROBLEM = "Something went wrong, so no timer was set."
-        const val SAY_DECLINED = "Claude declined that, so no timer was set."
+        const val SAY_NOTHING_CANCELLED = "Nothing was cancelled."
+        const val SAY_NO_NETWORK = "I couldn't reach the internet, so nothing was changed."
+        const val SAY_PROBLEM = "Something went wrong, so nothing was changed."
+        const val SAY_DECLINED = "Claude declined that, so nothing was changed."
 
         /** The tools Claude may call, as the Messages API takes them. */
         fun definitions(): JSONArray = JSONArray()
