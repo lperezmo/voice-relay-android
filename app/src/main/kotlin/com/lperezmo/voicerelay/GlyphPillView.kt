@@ -7,7 +7,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -32,18 +31,10 @@ class GlyphPillView(context: Context) : View(context) {
     private val dp = context.resources.displayMetrics.density
     private val gesture = PullDown(PULL_DP * dp, TAP_SLOP_DP * dp)
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_FILL }
+    private val skin = PillSkin(dp)
+    private val text = skin.text
     private val flash = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_GOLD }
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = COLOR_EDGE; style = Paint.Style.STROKE; strokeWidth = 1f * dp
-    }
     private val star = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_GOLD }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
-        textSize = 9f * dp
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        letterSpacing = 0.04f
-    }
     private val glitter = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private val starPath = Path()
@@ -101,7 +92,7 @@ class GlyphPillView(context: Context) : View(context) {
         val left = (width - w) / 2f
         val top = TOP_PAD_DP * dp
         rect.set(left, top, left + w, top + h)
-        canvas.drawRoundRect(rect, h / 2, h / 2, fill)
+        skin.drawFill(canvas, rect)
 
         val t = (SystemClock.uptimeMillis() - sparkleAt) / SPARKLE_MS.toFloat()
         val sparkling = specks.isNotEmpty() && t < 1f
@@ -109,8 +100,7 @@ class GlyphPillView(context: Context) : View(context) {
             flash.alpha = (200 * (1f - t)).toInt().coerceIn(0, 255)
             canvas.drawRoundRect(rect, h / 2, h / 2, flash)
         }
-        rect.inset(0.5f * dp, 0.5f * dp)
-        canvas.drawRoundRect(rect, h / 2, h / 2, edge)
+        skin.drawEdge(canvas, rect)
 
         val starR = 4f * dp
         val gap = 3f * dp
@@ -118,8 +108,7 @@ class GlyphPillView(context: Context) : View(context) {
         val startX = left + (w - (starR * 2 + gap + labelW)) / 2f
         val cy = top + h / 2f
         drawStar(canvas, startX + starR, cy, starR, star)
-        val baseline = cy - (text.ascent() + text.descent()) / 2f
-        canvas.drawText(LABEL, startX + starR * 2 + gap, baseline, text)
+        canvas.drawText(LABEL, startX + starR * 2 + gap, skin.baseline(cy), text)
 
         if (sparkling) {
             val cx = width / 2f
@@ -157,7 +146,7 @@ class GlyphPillView(context: Context) : View(context) {
         const val W_DP = 56
         const val H_DP = 44
         const val PILL_W_DP = 50f
-        const val PILL_H_DP = 18f
+        const val PILL_H_DP = PillSkin.PILL_H_DP
         /** Space above the drawn pill, inside the view. */
         const val TOP_PAD_DP = 4f
         /** How far down a pull goes before the canvas opens. */
@@ -167,9 +156,7 @@ class GlyphPillView(context: Context) : View(context) {
         private const val SPECKS = 12
         private const val LABEL = "Glyph"
 
-        private const val COLOR_FILL = 0xB81C1C1E.toInt()
-        private const val COLOR_EDGE = 0x29FFFFFF
-        private const val COLOR_GOLD = 0xFFF2C46D.toInt()
+        private const val COLOR_GOLD = PillSkin.COLOR_GOLD
 
         const val GLYPH_PACKAGE = "com.lperezmo.glyph"
         const val ACTION_OPEN_CANVAS = "com.lperezmo.glyph.OPEN_CANVAS"

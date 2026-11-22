@@ -24,6 +24,8 @@ It also has a few extras, all off until you turn them on:
 - **An arrow pad** for remote desktop sessions and terminals, where a phone keyboard has no
   arrow keys.
 - **Volume presets** (Silent + Do Not Disturb for an hour, Mute, Medium, Loud) on one gesture.
+- **Timer pill**: kitchen timers without the clock app. Hold the pill and slide to 5, 10, 15 or
+  30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
   or, with that switched off, the one of Glyph (a separate shape-launcher app) when it is installed.
@@ -93,10 +95,10 @@ repository's releases (see [Signing](#signing-and-forks)).
 |---|---|---|
 | Microphone | Dictation and the wake word | First launch |
 | Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
-| Notifications | The wake word's "listening" notification (Android 13+) | Turning on the wake word |
+| Notifications | The wake word's "listening" notification, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
-| Alarms and reminders | Ending the one-hour Do Not Disturb preset on time (optional) | Tapping the row in the Volume presets section |
+| Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time | Granted at install on Android 13 and up. On Android 12, tapping the row in the Volume presets or Timers section (optional) |
 | Input method (Voice Relay arrows) | Sending arrow keys and Enter for the arrow pad (optional) | Enabled by hand in the system keyboard settings |
 | Internet | Requests to OpenAI, and to Anthropic for Claude cleanup and Ask the Page | Granted at install |
 
@@ -308,6 +310,35 @@ The presets need **Do Not Disturb access**. The **End the DND hour on time** row
 alarms; without it Android may end the hour up to 10 minutes late. Alarm and call volume are never
 touched.
 
+## Timer pill
+
+Off by default. Turn on **Timer pill** (Settings, Floating buttons, Timers) and a third small pill
+rides with the dictate button. Voice Relay runs these timers itself, so it can list them, extend
+them and stop them; they are not the clock app's timers.
+
+- **Hold the pill** (or drag from it) and five bubbles fan out toward the middle of the screen:
+  **5**, **10**, **15**, **30** and **···**. Slide onto one and let go to start it. Let go anywhere
+  else and nothing happens. While you hold, the timers already running show as small chips above.
+- **···** opens a small card for a time of your own: −5, −1, a minutes field you can type in, +1,
+  +5, then Cancel or Start.
+- **Tap the pill** to see every timer, soonest first, with a **+1** button (a minute more) and an
+  **×** button that stops it in one tap. A touch outside closes the card.
+- The pill shows "Timer" when nothing runs, else the countdown of the timer that ends first
+  ("9:12", "1h05") and how many there are. When one finishes the pill turns gold until you dismiss
+  it, the phone rings on the alarm volume, and a notification offers **Stop**.
+
+**Timer pill position** picks where it sits: **Beside the button** (the default, on the side facing
+the middle of the screen) or **Above the volume pill** (in the same column, so nothing sticks out
+over the app; it takes the volume pill's spot when that pill is off).
+
+Timers are kept on the phone and survive the buttons being hidden, the service restarting and a
+reboot (after a reboot they come back once the phone is unlocked). Two optional rows help them
+ring properly: **Ring with a Stop button** needs notifications allowed (without them a finished
+timer only rings for a minute), and **Ring on time** shows whether exact alarms are allowed. On
+Android 13 and up they are, from install; on Android 12 tap the row to allow them, or a timer can
+ring late while the phone sleeps. A finished timer rings for up to ten minutes; swiping its
+notification away silences it, and it stays in the pill's list until you dismiss it there.
+
 ## Glyph pill
 
 A small **Glyph** pill (a gold star and "Glyph") rides under the dictate button, mirroring the
@@ -413,6 +444,8 @@ billed to your Anthropic account.
 | Show the arrow pad | off | See [The arrow pad](#the-arrow-pad). |
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
+| Timer pill | off | See [Timer pill](#timer-pill). |
+| Timer pill position | Beside the button | Or **Above the volume pill**. Changing it moves the pill straight away. |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
 | Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
 | Ask the Page | off | Shown while the built-in canvas is on. Draw ? and write a question; Claude answers on the page. See [Ask the Page](#ask-the-page). |
@@ -560,6 +593,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
 | `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
+| `Timers.kt`, `TimerController.kt` | The timers Voice Relay runs itself: the list and its rules, saving, alarms, ringing |
+| `TimerPillView.kt`, `TimerFanView.kt`, `TimerCards.kt`, `PillSkin.kt` | The timer pill, its fan of times and its two cards; the look all pills share |
 | `GlyphPillView.kt`, `GlyphGesture.kt` | The Glyph pill below the button, its tap and pull-down, and the sparkle |
 | `glyph/` | The built-in Glyph canvas: the canvas, shape recognizer (`recognizer/`), actions, Shapes and settings, the launcher icon alias and `GlyphTileService.kt`, and Ask the Page (lenses, the screen picture, the images sent, the cursive answer) |
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |

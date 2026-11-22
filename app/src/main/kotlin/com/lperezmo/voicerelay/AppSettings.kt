@@ -115,6 +115,16 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("volume_pill", false)
         set(v) = prefs.edit().putBoolean("volume_pill", v).apply()
 
+    /** The timer pill: hold it to start a timer, tap it to see what is running. */
+    var timerPillEnabled: Boolean
+        get() = prefs.getBoolean("timer_pill", false)
+        set(v) = prefs.edit().putBoolean("timer_pill", v).apply()
+
+    /** Where the timer pill sits: [TIMER_BESIDE] the button (the default) or [TIMER_ABOVE] the volume pill. */
+    var timerPillPosition: String
+        get() = if (prefs.getString("timer_pill_position", null) == TIMER_ABOVE) TIMER_ABOVE else TIMER_BESIDE
+        set(v) = prefs.edit().putString("timer_pill_position", v).apply()
+
     /** The Glyph pill below the dictate button. Shown only while Glyph is installed. */
     var glyphPillEnabled: Boolean
         get() = prefs.getBoolean("glyph_pill", true)
@@ -256,6 +266,9 @@ class AppSettings(context: Context) {
 
         const val SERVICE_OPENAI = "openai"
         const val SERVICE_CLAUDE = "claude"
+
+        const val TIMER_BESIDE = "beside"
+        const val TIMER_ABOVE = "above"
 
         fun splitList(raw: String): List<String> =
             raw.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
