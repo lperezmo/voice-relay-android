@@ -30,7 +30,8 @@ are off until you turn them on:
 - **"Hey timer"**, a second wake phrase, for timers with your hands busy. Say it, wait for the
   tone, then ask any way you like ("for 10:50 AM", "the pasta, 9 minutes"). OpenAI writes down
   what you said, Claude (with your own Anthropic key) works out the timer, and the phone answers
-  out loud: "Timer set for 10:50, 23 minutes from now."
+  out loud: "Timer set for 10:50, 23 minutes from now." It cancels them too: "cancel the pasta
+  timer", "cancel all timers".
 - **Timer pill**: kitchen timers without the clock app. A small upright pill beside the mic: a dot
   with a clock while nothing runs, a countdown while a timer runs. Hold it and slide to 5, 10, 15 or
   30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
@@ -261,6 +262,11 @@ locked.
    "until quarter past", "the pasta, 9 minutes" (which names the timer Pasta).
 4. The answer is said out loud and shown in a notification. The timer shows in the
    [timer pill](#timer-pill) with the others, where you can add a minute or stop it.
+
+It cancels timers the same way: "cancel the pasta timer", "stop the timer", "cancel all timers".
+Claude gets the names and times left of your timers with the request, so it can tell which one you
+mean; if it can't (say, two timers and "cancel the timer"), it asks which. Cancelling a finished
+timer also stops it ringing. With no timers it says "There are no timers to cancel."
 
 A time that has already passed today means tomorrow, so the phone asks first ("That's tomorrow at
 10:50, 23 hours from now. Set it?"), plays the tone again and waits for your yes or no. If it
@@ -508,7 +514,7 @@ billed to your Anthropic account.
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
-| Timers by voice | off | The second wake phrase, "hey timer": sets a timer by voice. Needs both API keys. See [Timers by voice](#timers-by-voice). |
+| Timers by voice | off | The second wake phrase, "hey timer": sets or cancels a timer by voice. Needs both API keys. See [Timers by voice](#timers-by-voice). |
 | Timer phrase | hey timer | Same editor and checks as the wake phrase. |
 | Timer model | Opus 5.5 | The Claude model that works out how long the timer runs. |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |

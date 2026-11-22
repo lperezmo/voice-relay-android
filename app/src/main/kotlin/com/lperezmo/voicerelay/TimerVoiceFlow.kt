@@ -146,10 +146,11 @@ class TimerVoiceFlow(
             is Heard.Text -> heard.text
         }
         if (cancelled) return
-        status("Setting your timer")
+        status("Working on it")
         val client = AnthropicClient(anthropicKey, http = http)
         val model = settings.timerModel
-        val system = TimerAssistant.systemPrompt(ZonedDateTime.now())
+        val timers = TimerController.get(context)
+        val system = TimerAssistant.systemPrompt(ZonedDateTime.now(), timers.timers())
         val tools = TimerAssistant.definitions()
         val assistant = TimerAssistant(
             send = { messages ->
@@ -162,9 +163,22 @@ class TimerVoiceFlow(
             tools = object : TimerAssistant.Tools {
                 override fun setTimer(seconds: Long, label: String?): String {
                     check(!over()) { "stopped" }
-                    val timer = TimerController.get(context).start(seconds, label)
-                    return TimerAssistant.describeSet(timer.label, seconds, ZonedDateTime.now())
+                    val timer = timers.start(seconds, label)
+                    return TimerAssistant.describeSet(timer.label, seconds, ZonedDateTime.now(), timer.id)
                 }
+
+                // Stopping goes through the same call as the Stop button, so a ringing timer goes quiet.
+                override fun cancelTimer(id: Int): String? {
+                    check(!over()) { "stopped" }
+                    return timers.stop(id)?.label
+                }
+
+                override fun cancelAllTimers(): List<String> {
+                    check(!over()) { "stopped" }
+                    return timers.timers().mapNotNull { timers.stop(it.id)?.label }
+                }
+
+                override fun listTimers(): String = TimerAssistant.describeTimers(timers.timers(), ZonedDateTime.now())
 
                 override fun getTime(): String = TimerAssistant.describe(ZonedDateTime.now())
 
@@ -181,10 +195,10 @@ class TimerVoiceFlow(
         Log.i(
             TAG,
             "Hey timer: done in ${System.currentTimeMillis() - started} ms, ${outcome.rounds} rounds, " +
-                "${outcome.timersSet} set, ${if (outcome.failed) "failed" else "ok"}"
+                "${outcome.timersSet} set, ${outcome.timersCancelled} cancelled, ${if (outcome.failed) "failed" else "ok"}"
         )
         val tooLong = outcome.failed && !cancelled && System.currentTimeMillis() > deadline
-        finish(if (tooLong) "That took too long, so no timer was set." else outcome.spoken)
+        finish(if (tooLong) "That took too long, so nothing was changed." else outcome.spoken)
     }
 
     private sealed interface Heard {
@@ -229,7 +243,7 @@ class TimerVoiceFlow(
             result.error == null -> Heard.Nothing
             result.httpCode == 0 -> Heard.Failed(TimerAssistant.SAY_NO_NETWORK)
             result.httpCode == 401 -> Heard.Failed("The OpenAI key was not accepted. Check it in Voice Relay.")
-            else -> Heard.Failed("I couldn't turn that into text, so no timer was set.")
+            else -> Heard.Failed("I couldn't turn that into text, so nothing was changed.")
         }
     }
 
