@@ -53,15 +53,48 @@ private object TimerCardUi {
 }
 
 /**
- * The card a tap on the timer pill opens: every timer, soonest first, with its
- * label, a big countdown, +1 (a minute more) and × (stop it, in one tap). With
- * nothing running it says how to start one. A touch outside calls [onOutside].
+ * What a tap on the timer pill opens: the running timers ([list]) over the timer track
+ * ([track]), where a V starts one. A touch outside the panel calls [onOutside].
+ */
+class TimerPanel(context: Context) : LinearLayout(context) {
+
+    val list = TimerListCard(context)
+    val track = TimerTrackView(context)
+    var onOutside: (() -> Unit)? = null
+
+    init {
+        orientation = VERTICAL
+        val dp = resources.displayMetrics.density
+        addView(list, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(track, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (GAP_DP * dp).toInt()
+        })
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+            onOutside?.invoke()
+            return true
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    companion object {
+        const val W_DP = VTrackView.W_DP
+        /** Space between the running timers and the track. */
+        const val GAP_DP = 8
+    }
+}
+
+/**
+ * The top of the timer panel: every timer, soonest first, with its label, a big
+ * countdown, +1 (a minute more) and × (stop it, in one tap). With nothing running,
+ * one short line says so.
  */
 class TimerListCard(context: Context) : LinearLayout(context) {
 
     var onPlus: ((id: Int) -> Unit)? = null
     var onStop: ((id: Int) -> Unit)? = null
-    var onOutside: (() -> Unit)? = null
 
     /** The most timers listed; the rest are counted in a last line. Lower on a short screen, so the card fits. */
     var maxRows = MAX_ROWS
@@ -100,7 +133,7 @@ class TimerListCard(context: Context) : LinearLayout(context) {
         names.clear()
         countdowns.clear()
         if (shown.isEmpty()) {
-            addView(note("No timers running. Hold the pill to start one."))
+            addView(note("No timers running."))
             return
         }
         shown.forEachIndexed { i, t ->
@@ -152,16 +185,7 @@ class TimerListCard(context: Context) : LinearLayout(context) {
         setPadding(0, (6 * dp).toInt(), 0, (6 * dp).toInt())
     }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-            onOutside?.invoke()
-            return true
-        }
-        return super.dispatchTouchEvent(event)
-    }
-
     companion object {
-        const val W_DP = 272
         const val MAX_ROWS = 6
         /** One row with the space under it, and the card's own padding plus the "more" line. */
         const val ROW_DP = 52
@@ -172,7 +196,7 @@ class TimerListCard(context: Context) : LinearLayout(context) {
 }
 
 /**
- * The card "···" on the fan opens, for a time of your own: −5, −1, a minutes
+ * The card "Own" on the timer track opens, for a time of your own: −5, −1, a minutes
  * input you can type in, +1, +5, then Cancel and Start. A touch outside, or
  * Back, calls [onCancel].
  */

@@ -11,7 +11,7 @@ import android.graphics.Typeface
  * Crisp Capsule edges: a dark see-through body, a double edge (dark just outside,
  * light just inside, so it holds on white pages and on photos) and a small
  * medium-weight label with even-width digits. The volume, Glyph and timer pills,
- * the timer fan and the volume track all draw through this, so their look
+ * the timer and volume tracks all draw through this, so their look
  * changes in one place.
  */
 class PillSkin(private val dp: Float) {
@@ -98,8 +98,6 @@ class PillSkin(private val dp: Float) {
         const val COLOR_FILL = 0xB81C1C1E.toInt()
         /** #1C1C1E at 86%: the volume track. */
         const val COLOR_PANEL = 0xDB1C1C1E.toInt()
-        /** #1C1C1E at 94%: the timer fan's bubbles and chips. */
-        const val COLOR_BUBBLE = 0xF01C1C1E.toInt()
         /** The light inner edge: white at 20%. */
         const val COLOR_EDGE = 0x33FFFFFF
         /** The dark outer line: black at 30%. */
@@ -108,7 +106,7 @@ class PillSkin(private val dp: Float) {
         /** Labels that are not picked: #E8EAED at 62%. */
         const val COLOR_TEXT_DIM = 0x9EE8EAED.toInt()
         const val COLOR_GOLD = 0xFFF2C46D.toInt()
-        /** The timer pill's colour: its icon, its edge while timers run, its drain line, the fan's picked bubble. */
+        /** The timer pill's colour: its icon, its edge while timers run, its drain line, the timer track's picked stop. */
         const val COLOR_TIMER = COLOR_GOLD
         /** Text on gold. */
         const val COLOR_ON_GOLD = 0xFF3A2E14.toInt()

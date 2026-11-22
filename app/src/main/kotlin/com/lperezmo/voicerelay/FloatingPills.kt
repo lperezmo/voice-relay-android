@@ -10,7 +10,6 @@ import android.os.Handler
 import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
@@ -20,8 +19,9 @@ import com.lperezmo.voicerelay.glyph.CanvasActivity
  * The optional pills that ride with the dictate button: the volume pill
  * ([VolumePillView]) above it, which opens the preset track ([VolumeTrackView]),
  * the Glyph pill ([GlyphPillView]) below it, and the timer pill ([TimerPillView])
- * upright beside it, toward the middle of the screen, with its fan of times ([TimerFanView])
- * and its two cards ([TimerListCard], [TimerOwnCard]). Where they sit is [PillLayout].
+ * upright beside it, toward the middle of the screen, with its panel ([TimerPanel]: the
+ * running timers over the timer track) and its minutes card ([TimerOwnCard]). Where they
+ * sit is [PillLayout].
  *
  * The button stays the service's: [bubble] reads its window as it is now (null
  * while it is not on screen), and [onPillAdded] lets the service settle the
@@ -62,17 +62,16 @@ class FloatingPills(
     }
     private var timerView: TimerPillView? = null
     private var timerParams: WindowManager.LayoutParams? = null
-    private var fanView: TimerFanView? = null
-    /** Where the fan goes for the press in progress, worked out when the finger lands. */
-    private var fan: PillLayout.Fan? = null
-    private var listCard: TimerListCard? = null
-    private var listParams: WindowManager.LayoutParams? = null
+    private var panel: TimerPanel? = null
+    private var panelParams: WindowManager.LayoutParams? = null
+    /** A tap on the timer pill closes an open panel through its outside touch first; this keeps it from reopening. */
+    private var panelClosedOutsideAt = 0L
+    /** After a V on the timer track, the panel stays a moment so the picked stop shows. */
+    private var afterPick: Runnable? = null
     private var ownCard: TimerOwnCard? = null
     private var ownParams: WindowManager.LayoutParams? = null
     /** What "your own time" starts at: the last time picked there, until the service restarts. */
     private var ownMinutes = TimerText.DEFAULT_OWN_MINUTES
-    private val press by lazy { TimerPress(TimerPress.SLOP_DP * dp, TimerPress.REACH_DP * dp) }
-    private val holdTimer = Runnable { if (press.held()) openFan() }
     private val tickTimers = Runnable { renderTimers() }
     /** Between [start] and [stop]: the timers are watched for the ring. */
     private var watching = false
@@ -129,17 +128,14 @@ class FloatingPills(
         hideTimerPill()
     }
 
-    /** Closes what the pills have open (the preset track, the timer fan and cards). Safe to call at any time. */
+    /** Closes what the pills have open (the preset track, the timer panel and the minutes card). Safe to call at any time. */
     fun hidePopups() {
         hideTrack()
-        handler.removeCallbacks(holdTimer)
-        press.cancel()
-        closeFan()
         hideTimerCards()
     }
 
-    /** True while the preset track, the timer fan or a timer card is open. */
-    fun popupsOpen(): Boolean = trackView != null || fanView != null || listCard != null || ownCard != null
+    /** True while the preset track, the timer panel or the minutes card is open. */
+    fun popupsOpen(): Boolean = trackView != null || panel != null || ownCard != null
 
     /** Fades the three pills to [alpha] over [durationMs], for dimming when idle; popups are never faded. */
     fun fade(alpha: Float, durationMs: Long) {
@@ -240,7 +236,7 @@ class FloatingPills(
         hideTimerCards()
         val bubble = bubble() ?: return
         val params = WindowManager.LayoutParams(
-            (VolumeTrackView.W_DP * dp).toInt(), (VolumeTrackView.H_DP * dp).toInt(),
+            (VTrackView.W_DP * dp).toInt(), (VTrackView.H_DP * dp).toInt(),
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             // Outside touches are reported (to close the track) and still reach the app.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
@@ -396,10 +392,15 @@ class FloatingPills(
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START }
         val view = TimerPillView(service).apply {
-            onPress = { action, rawX, rawY -> onTimerPress(action, rawX, rawY) }
             onTap = {
-                hidePopups()
-                showListCard()
+                onActivity()
+                when {
+                    panel != null || ownCard != null -> hideTimerCards()
+                    android.os.SystemClock.uptimeMillis() - panelClosedOutsideAt > REOPEN_GUARD_MS -> {
+                        hidePopups()
+                        showPanel()
+                    }
+                }
             }
         }
         timerView = view
@@ -413,10 +414,7 @@ class FloatingPills(
 
     private fun hideTimerPill() {
         val view = timerView ?: return
-        handler.removeCallbacks(holdTimer)
         // The tick keeps going (slower) while a timer runs: the button's gold arc still shows it.
-        press.cancel()
-        closeFan()
         hideTimerCards()
         wm.removeView(view)
         timerView = null
@@ -434,7 +432,7 @@ class FloatingPills(
     }
 
     /**
-     * Redraws the pill, the chips, the list and the button's gold arc from the timers as they
+     * Redraws the pill, the panel's list and the button's gold arc from the timers as they
      * are now, and keeps ticking while one runs (slower when only the button's ring shows it).
      */
     private fun renderTimers() {
@@ -455,68 +453,11 @@ class FloatingPills(
             return
         }
         view.update(TimerText.face(sorted, now), TimerText.describe(sorted, now))
-        fanView?.showChips(sorted.map { TimerFanView.Chip(it.label, TimerText.clock(it.secondsLeft(now)), it.done(now)) })
-        listCard?.let { card ->
-            card.show(sorted, now)
+        panel?.let { p ->
+            p.list.show(sorted, now)
             bubble()?.let { placeTimerCards(it) }
         }
         if (sorted.any { !it.done(now) }) handler.postDelayed(tickTimers, TIMER_TICK_MS)
-    }
-
-    /**
-     * Every touch on the timer pill. A tap lists the timers; a hold or a drag opens the
-     * fan, and letting go on a bubble starts that timer ([TimerPress] decides which).
-     */
-    private fun onTimerPress(action: Int, rawX: Float, rawY: Float) {
-        val view = timerView ?: return
-        val params = timerParams ?: return
-        val bubble = bubble() ?: return
-        // From screen coordinates to the ones the windows are placed in.
-        val at = IntArray(2).also { view.getLocationOnScreen(it) }
-        val x = rawX - at[0] + params.x
-        val y = rawY - at[1] + params.y
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                onActivity()
-                hidePopups()
-                fan = layout().timerFan(bubble.x, bubble.y, screenW, screenH)
-                press.down(x, y)
-                handler.postDelayed(holdTimer, TimerPress.HOLD_MS)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val was = press.hot
-                // Once the fan is on screen, the finger is matched against where its bubbles
-                // really are, in case Android nudged the window from where it was asked for.
-                val shown = fanView?.centresOnScreen()
-                val opened = if (shown != null) press.move(rawX, rawY, shown) else press.move(x, y, fan?.centres.orEmpty())
-                if (opened) {
-                    handler.removeCallbacks(holdTimer)
-                    openFan()
-                }
-                if (press.hot != was) {
-                    fanView?.hot = press.hot
-                    if (press.hot >= 0) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
-            }
-            MotionEvent.ACTION_UP -> {
-                handler.removeCallbacks(holdTimer)
-                val outcome = press.up()
-                closeFan()
-                when (outcome) {
-                    TimerPress.Outcome.Tap -> showListCard()
-                    is TimerPress.Outcome.Pick -> {
-                        val minutes = TimerText.FAN_MINUTES[outcome.index]
-                        if (minutes == 0) showOwnCard() else startTimer(minutes)
-                    }
-                    TimerPress.Outcome.None -> {}
-                }
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                handler.removeCallbacks(holdTimer)
-                press.cancel()
-                closeFan()
-            }
-        }
     }
 
     private fun startTimer(minutes: Int) {
@@ -530,63 +471,53 @@ class FloatingPills(
         val now = System.currentTimeMillis()
         val stopped = timers.stop(id) ?: return
         showFeedback(TimerText.stopped(stopped, now), TIMER_FEEDBACK_MS)
-        if (timers.timers().isEmpty()) hideTimerCards()
     }
 
-    /** The fan only draws: the press that opened it stays with the pill. */
-    private fun openFan() {
-        if (fanView != null) return
-        val fan = fan ?: return
-        val view = TimerFanView(service).apply { place(fan) }
-        val params = WindowManager.LayoutParams(
-            fan.width, fan.height,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = fan.window.x
-            y = fan.window.y
-        }
-        wm.addView(view, params)
-        fanView = view
-        onActivity()
-        timerView?.active = true
-        timerView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        renderTimers()
-    }
-
-    private fun closeFan() {
-        fan = null
-        val view = fanView ?: return
-        wm.removeView(view)
-        fanView = null
-        timerView?.active = listCard != null || ownCard != null
-        onActivity()
-    }
-
-    private fun showListCard() {
-        if (listCard != null) return
+    /** Opens the timer panel: the running timers over the timer track. */
+    private fun showPanel() {
+        if (panel != null) return
         val bubble = bubble() ?: return
-        val card = TimerListCard(service).apply {
-            onPlus = { id -> timers.addMinute(id) }
-            onStop = { id -> stopTimer(id) }
-            onOutside = { hideTimerCards() }
-            // As many rows as the screen has room for (few in landscape), six at most.
-            maxRows = ((screenH / dp).toInt() - 2 * PillLayout.TIMER_CARD_MARGIN_DP - TimerListCard.EXTRA_DP) / TimerListCard.ROW_DP
-            show(timers.timers(), System.currentTimeMillis())
+        val view = TimerPanel(service).apply {
+            onOutside = {
+                panelClosedOutsideAt = android.os.SystemClock.uptimeMillis()
+                hideTimerCards()
+            }
+            list.onPlus = { id -> timers.addMinute(id) }
+            list.onStop = { id -> stopTimer(id) }
+            // As many rows as the screen has room for under the track (few in landscape), six at most.
+            list.maxRows = ((screenH / dp).toInt() - 2 * PillLayout.TIMER_CARD_MARGIN_DP - TimerListCard.EXTRA_DP -
+                TimerPanel.GAP_DP - VTrackView.H_DP) / TimerListCard.ROW_DP
+            list.show(timers.timers(), System.currentTimeMillis())
+            track.onStart = { minutes ->
+                startTimer(minutes)
+                closePanelSoon { hideTimerCards() }
+            }
+            track.onOwn = { closePanelSoon { hideTimerCards(); showOwnCard() } }
+            track.onTap = { showFeedback("Taps do nothing. Draw a V: dip, slide to a time, rise.", FEEDBACK_MS) }
+            track.onCancel = { showFeedback("Cancelled, no timer started", FEEDBACK_MS) }
         }
         val params = cardParams(
-            TimerListCard.W_DP,
-            // Outside touches are reported (to close the card) and still reach the app.
+            TimerPanel.W_DP,
+            // Outside touches are reported (to close the panel) and still reach the app.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
         )
-        listCard = card
-        listParams = params
+        panel = view
+        panelParams = params
         placeTimerCards(bubble, update = false)
-        wm.addView(card, params)
+        wm.addView(view, params)
         timerView?.active = true
         onActivity()
+    }
+
+    /** After a V on the track: [then] runs a moment later, so the picked stop shows lit first. */
+    private fun closePanelSoon(then: () -> Unit) {
+        afterPick?.let { handler.removeCallbacks(it) }
+        val run = Runnable {
+            afterPick = null
+            then()
+        }
+        afterPick = run
+        handler.postDelayed(run, TIMER_CLOSE_AFTER_PICK_MS)
     }
 
     private fun showOwnCard() {
@@ -598,7 +529,11 @@ class FloatingPills(
                 hideTimerCards()
                 startTimer(minutes)
             }
-            onCancel = { hideTimerCards() }
+            onCancel = {
+                // A touch outside cancels the card: when that touch is a tap on the pill, it should not open the panel.
+                panelClosedOutsideAt = android.os.SystemClock.uptimeMillis()
+                hideTimerCards()
+            }
         }
         // Focusable, so the minutes can be typed; touches outside still reach the app and close the card.
         val params = cardParams(
@@ -622,21 +557,23 @@ class FloatingPills(
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
     ).apply { gravity = Gravity.TOP or Gravity.START }
 
-    /** Closes the running-timers card and the "your own time" card. Safe to call at any time. */
+    /** Closes the timer panel and the "your own time" card. Safe to call at any time. */
     private fun hideTimerCards() {
-        if (listCard != null || ownCard != null) onActivity()
-        listCard?.let { wm.removeView(it) }
-        listCard = null
-        listParams = null
+        afterPick?.let { handler.removeCallbacks(it) }
+        afterPick = null
+        if (panel != null || ownCard != null) onActivity()
+        panel?.let { wm.removeView(it) }
+        panel = null
+        panelParams = null
         ownCard?.let { wm.removeView(it) }
         ownCard = null
         ownParams = null
-        timerView?.active = fanView != null
+        timerView?.active = false
     }
 
-    /** Puts the open cards beside the button, measured first so their bottom lands on the button's top. */
+    /** Puts the panel or the card beside the button, measured first so its bottom lands on the button's top. */
     private fun placeTimerCards(bubble: WindowManager.LayoutParams, update: Boolean = true) {
-        placeCard(listCard, listParams, bubble, update)
+        placeCard(panel, panelParams, bubble, update)
         placeCard(ownCard, ownParams, bubble, update)
     }
 
@@ -646,7 +583,7 @@ class FloatingPills(
             View.MeasureSpec.makeMeasureSpec(params.width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        val spot = layout().timerCard(bubble.x, bubble.y, params.width, card.measuredHeight, screenW, screenH)
+        val spot = layout().timerPanel(bubble.x, bubble.y, params.width, card.measuredHeight, screenW, screenH)
         if (spot.x == params.x && spot.y == params.y) return
         params.x = spot.x
         params.y = spot.y
@@ -659,6 +596,8 @@ class FloatingPills(
         /** With no timer pill, only the button's gold arc moves: once a second is plenty. */
         const val RING_TICK_MS = 1000L
         const val TIMER_FEEDBACK_MS = 2400L
+        /** How long the timer panel stays after a V picks a stop, so the lit stop shows. */
+        const val TIMER_CLOSE_AFTER_PICK_MS = 350L
         /** The service's default feedback duration, for the messages that used it. */
         const val FEEDBACK_MS = 2000L
         /** An open track closes itself after this long untouched, so it cannot linger under a pocket. */

@@ -32,9 +32,10 @@ are off until you turn them on:
   what you said, Claude (with your own Anthropic key) works out the timer, and the phone answers
   out loud: "Timer set for 10:50, 23 minutes from now." It cancels them too: "cancel the pasta
   timer", "cancel all timers".
-- **Timer pill**: kitchen timers without the clock app. A small upright pill beside the mic: a dot
-  with a clock while nothing runs, a countdown while a timer runs. Hold it and slide to 5, 10, 15 or
-  30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
+- **Timer pill**: kitchen timers without the clock app. A small upright tab beside the mic that
+  reads "Timer" while nothing runs and shows a countdown while a timer runs. Tap it to see what is
+  running, add a minute or stop one, and to start a timer with a V on its track: 5, 10, 15 or 30
+  minutes, or your own time.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
   or, with that switched off, the one of Glyph (a separate shape-launcher app) when it is installed.
@@ -393,17 +394,19 @@ facing the middle of the screen, between the volume and Glyph pills (turn it off
 in Settings, Floating buttons, Timers). Voice Relay runs these timers itself, so it can list them, extend
 them and stop them; they are not the clock app's timers.
 
-- **Hold the pill** (or drag from it) and five bubbles fan out toward the middle of the screen:
-  **5**, **10**, **15**, **30** and **···**. Slide onto one and let go to start it. Let go anywhere
-  else and nothing happens. While you hold, the timers already running show as small chips above.
-- **···** opens a small card for a time of your own: −5, −1, a minutes field you can type in, +1,
+- **Tap the pill** to open the timer panel toward the middle of the screen. On top, every timer,
+  soonest first, with a **+1** button (a minute more) and an **×** button that stops it in one
+  tap ("No timers running." when there are none). Below, the timer track with **5m**, **10m**,
+  **15m**, **30m** and **Own**. A touch outside, or another tap on the pill, closes it.
+- **Start a timer with a V on the track**, like the volume track: press, dip down, slide to a time
+  and rise. A plain tap on the track, or dipping and letting go, starts nothing, so a timer cannot
+  start by accident. Holding or dragging the pill does nothing.
+- **Own** opens a small card for a time of your own: −5, −1, a minutes field you can type in, +1,
   +5, then Cancel or Start.
-- **Tap the pill** to see every timer, soonest first, with a **+1** button (a minute more) and an
-  **×** button that stops it in one tap. A touch outside closes the card.
-- While nothing runs the pill is just a small dot with a clock, so it hardly covers the app. When
-  a timer starts it grows into a tall tab with the countdown of the timer that ends first ("9:12",
-  "1h05", read from the bottom up) and how many there are, with a thin gold line up its outer side
-  that shrinks as that timer runs out. When one finishes the pill turns gold and blinks until you
+- The pill is an upright tab with a small gold ring and "Timer" while nothing runs. While a timer
+  runs it shows the countdown of the timer that ends first ("9:12", "1h05", read from the bottom
+  up) and how many there are, with a thin gold line up its outer side that shrinks as that timer
+  runs out. When one finishes the pill turns gold and blinks until you
   dismiss it, the phone rings on the alarm volume, and a notification offers **Stop**.
 
 Timers are kept on the phone and survive the buttons being hidden, the service restarting and a
@@ -672,10 +675,10 @@ See [CHANGELOG.md](CHANGELOG.md) for what each release changed.
 | `JoystickView.kt` | The arrow pad: drag to move, one arrow per push of the knob, double-tap for Enter |
 | `KeysInputMethodService.kt` | A keyboard that draws and types nothing; relays the pad's arrows and Enter |
 | `VolumePresets.kt`, `VolumeController.kt` | The four presets, the V gesture, and applying them (streams, ringer, DND) |
-| `VolumePillView.kt`, `VolumeTrackView.kt` | The pill above the button and the four-stop track |
+| `VolumePillView.kt`, `VolumeTrackView.kt`, `VTrackView.kt` | The pill above the button and the four-stop track; the V track drawing and touch it shares with the timer track |
 | `TimerAssistant.kt`, `TimerVoice.kt`, `TimerVoiceFlow.kt` | "Hey timer": Claude's tools and the loop that runs them, when the speaker has stopped, the daily limit, and the glue to the mic, the network and the speaker |
 | `Timers.kt`, `TimerController.kt` | The timers Voice Relay runs itself: the list and its rules, saving, alarms, ringing |
-| `TimerPillView.kt`, `TimerFanView.kt`, `TimerCards.kt`, `PillSkin.kt` | The timer pill, its fan of times and its two cards; the look all pills share |
+| `TimerPillView.kt`, `TimerTrackView.kt`, `TimerCards.kt`, `PillSkin.kt` | The timer pill, its track of times, its panel and minutes card; the look all pills share |
 | `GlyphPillView.kt`, `GlyphGesture.kt` | The Glyph pill below the button, its tap and pull-down, and the sparkle |
 | `glyph/` | The built-in Glyph canvas: the canvas, shape recognizer (`recognizer/`), actions, Shapes and settings, the launcher icon alias and `GlyphTileService.kt`, and Ask the Page (lenses, the screen picture, the images sent, the cursive answer) |
 | `WakeWord.kt` | Wake word keywords (phrase to phones, variants, checks), sensitivity, and the listen, pause, and resume state machine |

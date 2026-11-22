@@ -97,6 +97,27 @@ object VolumeMath {
 }
 
 /**
+ * Where the stops sit on a V track ([VTrackView]) and which one is under the finger, in dp
+ * along the track: [count] stops, the first [firstDp] in, then one every [stepDp]. The rail
+ * between them is a row of ticks every [railStepDp]. The volume track and the timer track
+ * share the gesture and the drawing; only these numbers differ.
+ */
+class TrackStops(val count: Int, val firstDp: Float, val stepDp: Float, val railStepDp: Float) {
+
+    fun xDp(i: Int): Float = firstDp + stepDp * i
+
+    /** The stop nearest [xDp]; past either end, the end stop. */
+    fun at(xDp: Float): Int = ((xDp - firstDp) / stepDp).roundToInt().coerceIn(0, count - 1)
+
+    companion object {
+        /** DND, Mute, Med, Loud on the 262 dp track. */
+        val VOLUME = TrackStops(4, 41f, 60f, 10f)
+        /** 5m, 10m, 15m, 30m, Own on the same 262 dp track; a tick every 12 dp lands on each stop. */
+        val TIMER = TrackStops(5, 35f, 48f, 12f)
+    }
+}
+
+/**
  * The down-then-up stroke that picks a preset: press, dip down past [dip] to
  * unlock, slide sideways to a stop, then come back up [rise] from the lowest
  * point to apply it. The stop is the one under the finger when the rise

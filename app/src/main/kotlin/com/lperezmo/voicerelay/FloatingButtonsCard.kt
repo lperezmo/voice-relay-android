@@ -155,8 +155,8 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         val timerOn = settings.timerPillEnabled
         timerRow.switch.isChecked = timerOn
         timerRow.subtitle.text = if (timerOn)
-            "The small upright pill beside the mic. Hold it and slide to 5, 10, 15, 30 or your own time. Tap it to see what is running, add a minute or stop one."
-        else "Off. A pill by the mic for kitchen timers: hold to start one, tap to see and stop them."
+            "The small upright tab beside the mic. Tap it to see what is running, add a minute or stop one. To start a timer, draw a V on its track: dip, slide to 5, 10, 15, 30 or Own, rise."
+        else "Off. A tab by the mic for kitchen timers: tap it to see them, start one or stop one."
         val timerDetail = if (timerOn) View.VISIBLE else View.GONE
         val timers = TimerController.get(activity)
         timerNotifyRow.view.visibility = timerDetail
