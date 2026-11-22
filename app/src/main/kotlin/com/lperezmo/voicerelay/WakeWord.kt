@@ -416,6 +416,8 @@ class WakeWordController(
         data object LaunchAssistant : Action
         /** The timer phrase fired: record what is said next and hand it to Claude. */
         data object StartTimerFlow : Action
+        /** The timer phrase fired while a timer rings: stop every ringing one, as the Stop button does. The mic keeps listening. */
+        data object StopRingingTimers : Action
         data object ResumeMedia : Action
         data class Note(val message: String) : Action
     }
@@ -428,6 +430,8 @@ class WakeWordController(
     private var triggeredAt = 0L
     private var freeSince: Long? = null
     private var resumeMediaPending = false
+    /** The timer phrase is ignored before this time, so the echo of a "hey timer" that stopped an alarm starts nothing. */
+    private var timerQuietUntil = Long.MIN_VALUE
 
     /** The service polls [update] while this is true; LISTENING relies on callbacks. */
     val needsTicks get() = state == State.WAITING || state == State.BUSY || state == State.TIMER
@@ -455,10 +459,23 @@ class WakeWordController(
     /**
      * A keyword fired. [musicActive] is whether media was playing at that moment. With
      * [timer] it was the timer phrase: the mic goes to the timer flow, which holds the
-     * audio focus itself, so there is no music to resume afterwards.
+     * audio focus itself, so there is no music to resume afterwards. With [timerRinging]
+     * too, a timer is ringing: it is stopped right here, with no recording and no Claude
+     * (the alarm is too loud to hear anything over), and the mic stays on the wake words.
      */
-    fun onKeyword(now: Long, musicActive: Boolean, resumeMediaEnabled: Boolean, timer: Boolean = false): List<Action> {
+    fun onKeyword(
+        now: Long,
+        musicActive: Boolean,
+        resumeMediaEnabled: Boolean,
+        timer: Boolean = false,
+        timerRinging: Boolean = false,
+    ): List<Action> {
         if (state != State.LISTENING) return emptyList()
+        if (timer && now < timerQuietUntil) return emptyList()
+        if (timer && timerRinging) {
+            timerQuietUntil = now + cooldownMs
+            return listOf(Action.StopRingingTimers)
+        }
         if (timer) {
             state = State.TIMER
             triggeredAt = now

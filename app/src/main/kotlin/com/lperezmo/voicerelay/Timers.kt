@@ -184,6 +184,13 @@ object TimerText {
     fun ringDone(sorted: List<TimerEntry>, now: Long, pillShown: Boolean): Boolean =
         sorted.any { it.done(now) && (pillShown || now - it.endsAt < RING_MS) }
 
+    /**
+     * The timers whose alarm is sounding now: done, and less than [RING_MS] since they ended
+     * (after that the alarm has gone quiet on its own and the timer only waits to be dismissed).
+     */
+    fun ringing(sorted: List<TimerEntry>, now: Long): List<TimerEntry> =
+        sorted.filter { it.done(now) && now - it.endsAt < RING_MS }
+
     /** With the pill off, how long until [ringDone] turns false on its own; null when it will not. */
     fun ringDoneEndsIn(sorted: List<TimerEntry>, now: Long, pillShown: Boolean): Long? {
         if (pillShown) return null

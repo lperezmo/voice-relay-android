@@ -494,6 +494,35 @@ class WakeWordTest {
         assertEquals(State.TIMER, c.state)
     }
 
+    @Test fun `a timer keyword while a timer rings stops it here, with no recording, and keeps listening`() {
+        c.start(0, false)
+        assertEquals(listOf(Action.StopRingingTimers), c.onKeyword(1_000, false, true, timer = true, timerRinging = true))
+        assertEquals(State.LISTENING, c.state)
+        assertFalse(c.needsTicks)
+        // The echo of the same "hey timer" right after starts nothing.
+        assertTrue(c.onKeyword(1_500, false, true, timer = true).isEmpty())
+        assertEquals(State.LISTENING, c.state)
+        // "hey claude" is not held back.
+        assertEquals(listOf(Action.StopMic, Action.LaunchAssistant), c.onKeyword(1_600, false, true))
+    }
+
+    @Test fun `a timer keyword with nothing ringing goes to the timer flow as before`() {
+        c.start(0, false)
+        assertEquals(listOf(Action.StopMic, Action.StartTimerFlow), c.onKeyword(1_000, false, true, timer = true, timerRinging = false))
+        assertEquals(State.TIMER, c.state)
+    }
+
+    @Test fun `after a stop by voice, a later timer keyword with nothing ringing records again`() {
+        c.start(0, false)
+        c.onKeyword(1_000, false, true, timer = true, timerRinging = true)
+        assertEquals(listOf(Action.StopMic, Action.StartTimerFlow), c.onKeyword(10_000, false, true, timer = true))
+    }
+
+    @Test fun `the Claude phrase never stops a ringing timer`() {
+        c.start(0, false)
+        assertEquals(listOf(Action.StopMic, Action.LaunchAssistant), c.onKeyword(1_000, false, true, timerRinging = true))
+    }
+
     @Test fun `a timer keyword is ignored when not listening`() {
         val off = WakeWordController()
         assertTrue(off.onKeyword(0, false, true, timer = true).isEmpty())
