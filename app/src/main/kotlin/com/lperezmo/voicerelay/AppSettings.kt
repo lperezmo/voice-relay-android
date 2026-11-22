@@ -6,6 +6,12 @@ import android.content.Context
 class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("voicerelay", Context.MODE_PRIVATE)
 
+    init {
+        // The timer pill used to have a position setting ("beside" or "above"); it always sits
+        // beside the button now, so an old saved choice is dropped.
+        if (prefs.contains("timer_pill_position")) prefs.edit().remove("timer_pill_position").apply()
+    }
+
     var transcriptionModel: String
         get() = prefs.getString("transcription_model", null) ?: DEFAULT_TRANSCRIPTION_MODEL
         set(v) = prefs.edit().putString("transcription_model", v).apply()
@@ -128,11 +134,6 @@ class AppSettings(context: Context) {
     var dimWhenIdle: Boolean
         get() = prefs.getBoolean("dim_when_idle", DEFAULT_DIM_WHEN_IDLE)
         set(v) = prefs.edit().putBoolean("dim_when_idle", v).apply()
-
-    /** Where the timer pill sits: [TIMER_BESIDE] the button (the default) or [TIMER_ABOVE] the volume pill. */
-    var timerPillPosition: String
-        get() = if (prefs.getString("timer_pill_position", null) == TIMER_ABOVE) TIMER_ABOVE else TIMER_BESIDE
-        set(v) = prefs.edit().putString("timer_pill_position", v).apply()
 
     /** The Glyph pill below the dictate button. Shown only while Glyph is installed. */
     var glyphPillEnabled: Boolean
@@ -326,9 +327,6 @@ class AppSettings(context: Context) {
 
         const val SERVICE_OPENAI = "openai"
         const val SERVICE_CLAUDE = "claude"
-
-        const val TIMER_BESIDE = "beside"
-        const val TIMER_ABOVE = "above"
 
         fun splitList(raw: String): List<String> =
             raw.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()

@@ -20,7 +20,7 @@ import com.lperezmo.voicerelay.glyph.CanvasActivity
  * The optional pills that ride with the dictate button: the volume pill
  * ([VolumePillView]) above it, which opens the preset track ([VolumeTrackView]),
  * the Glyph pill ([GlyphPillView]) below it, and the timer pill ([TimerPillView])
- * beside it or on top of the volume pill, with its fan of times ([TimerFanView])
+ * upright beside it, toward the middle of the screen, with its fan of times ([TimerFanView])
  * and its two cards ([TimerListCard], [TimerOwnCard]). Where they sit is [PillLayout].
  *
  * The button stays the service's: [bubble] reads its window as it is now (null
@@ -76,7 +76,6 @@ class FloatingPills(
     private val tickTimers = Runnable { renderTimers() }
     /** A timer started, stopped, extended or ended, from here, from "hey timer" or from its notification. */
     private val timersChanged: () -> Unit = { renderTimers() }
-    private val timerStacked get() = settings.timerPillPosition == AppSettings.TIMER_ABOVE
 
     /** A tap on the pill closes an open track through its outside touch first; this keeps it from reopening. */
     private var trackClosedOutsideAt = 0L
@@ -148,11 +147,11 @@ class FloatingPills(
     private var pillAlpha = 1f
 
     /** How far the shown pills reach over and under the button's ring window, for [BubbleBounds]. */
-    fun above(): Int = layout().above(pillView != null, timerView != null && timerStacked)
-    fun below(): Int = layout().below(glyphView != null)
+    fun above(): Int = layout().above(pillView != null, timerView != null)
+    fun below(): Int = layout().below(glyphView != null, timerView != null)
 
     /** How far the timer pill reaches beside the button, toward the middle of the screen (0 when it is not there). */
-    fun beside(): Int = layout().beside(timerView != null && !timerStacked)
+    fun beside(): Int = layout().beside(timerView != null)
 
     /** Keeps the volume pill and track, and the Glyph pill, next to the button as it moves. */
     fun follow(wm: WindowManager, bubble: WindowManager.LayoutParams) {
@@ -226,8 +225,6 @@ class FloatingPills(
         wm.removeView(view)
         pillView = null
         pillParams = null
-        // Stacked, the timer pill drops into the spot the volume pill left.
-        placeTimerPillAgain()
     }
 
     private fun showTrack() {
@@ -306,10 +303,7 @@ class FloatingPills(
     }
 
     private fun positionTrack(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
-        val spot = layout().track(
-            bubble.x, bubble.y, params.width, params.height, screenW,
-            timerStacked = timerView != null && timerStacked,
-        )
+        val spot = layout().track(bubble.x, bubble.y, params.width, params.height, screenW)
         params.x = spot.x
         params.y = spot.y
     }
@@ -383,20 +377,13 @@ class FloatingPills(
 
     // --- Timer pill ---
 
-    /**
-     * Shows or hides the timer pill to match the setting, and moves it when its position
-     * setting changed. Safe to call at any time; the service settles the button afterwards.
-     */
+    /** Shows or hides the timer pill to match the setting. Safe to call at any time; the service settles the button afterwards. */
     fun refreshTimer() {
         if (settings.timerPillEnabled && !buttonsHidden()) showTimerPill() else hideTimerPill()
     }
 
     private fun showTimerPill() {
-        timerView?.let {
-            it.stacked = timerStacked
-            placeTimerPillAgain()
-            return
-        }
+        if (timerView != null) return
         val bubble = bubble() ?: return
         val params = WindowManager.LayoutParams(
             (PillLayout.TIMER_W_DP * dp).toInt(), (PillLayout.TIMER_H_DP * dp).toInt(),
@@ -405,7 +392,6 @@ class FloatingPills(
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START }
         val view = TimerPillView(service).apply {
-            stacked = timerStacked
             onPress = { action, rawX, rawY -> onTimerPress(action, rawX, rawY) }
             onTap = {
                 hidePopups()
@@ -434,25 +420,11 @@ class FloatingPills(
     }
 
     private fun positionTimerPill(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
-        val spot = layout().timerPill(
-            bubble.x, bubble.y, params.width, params.height, screenW,
-            stacked = timerStacked, volumeShown = pillView != null,
-        )
+        val layout = layout()
+        val spot = layout.timerPill(bubble.x, bubble.y, params.width, params.height, screenW, screenH)
         params.x = spot.x
         params.y = spot.y
-    }
-
-    /** Puts the timer pill, and the track above it, where they belong now: after a setting or the volume pill changed. */
-    private fun placeTimerPillAgain() {
-        val bubble = bubble() ?: return
-        timerParams?.let {
-            positionTimerPill(it, bubble)
-            wm.updateViewLayout(timerView, it)
-        }
-        trackParams?.let {
-            positionTrack(it, bubble)
-            wm.updateViewLayout(trackView, it)
-        }
+        timerView?.onRight = layout.onRight(bubble.x, screenW)
     }
 
     /**
@@ -496,10 +468,7 @@ class FloatingPills(
             MotionEvent.ACTION_DOWN -> {
                 onActivity()
                 hidePopups()
-                fan = layout().timerFan(
-                    PillLayout.Spot(params.x, params.y), params.width, params.height, timerStacked,
-                    bubble.x, screenW, screenH,
-                )
+                fan = layout().timerFan(bubble.x, bubble.y, screenW, screenH)
                 press.down(x, y)
                 handler.postDelayed(holdTimer, TimerPress.HOLD_MS)
             }

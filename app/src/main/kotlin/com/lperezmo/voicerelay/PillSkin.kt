@@ -36,11 +36,11 @@ class PillSkin(private val dp: Float) {
 
     /** The filled body, fully rounded, with the dark outer line around it. */
     fun drawFill(canvas: Canvas, rect: RectF, color: Int = COLOR_FILL) =
-        drawBody(canvas, rect, rect.height() / 2, color)
+        drawBody(canvas, rect, minOf(rect.width(), rect.height()) / 2, color)
 
     /** The 1 dp light edge, just inside [rect]. Draw it after the fill and anything laid over the fill. */
     fun drawEdge(canvas: Canvas, rect: RectF, color: Int = COLOR_EDGE) =
-        drawInnerEdge(canvas, rect, rect.height() / 2, color)
+        drawInnerEdge(canvas, rect, minOf(rect.width(), rect.height()) / 2, color)
 
     /** Any rounded body (a pill, a panel, a bubble): the dark 1 dp line just outside [rect], then the fill. */
     fun drawBody(canvas: Canvas, rect: RectF, radius: Float, color: Int) {
@@ -60,15 +60,29 @@ class PillSkin(private val dp: Float) {
         canvas.drawRoundRect(inner, radius - 0.5f * dp, radius - 0.5f * dp, edge)
     }
 
-    /** The 2 dp line along the pill's bottom that drains as a timer runs: [fraction] of the width, from the left. */
-    fun drawDrain(canvas: Canvas, rect: RectF, fraction: Float, color: Int = COLOR_GOLD) {
+    /**
+     * The 2 dp line that drains as a timer runs: [fraction] of the pill. Along the bottom from the
+     * left, or for an upright pill ([upright]) up the side from the bottom, on the left side
+     * unless [onRightSide].
+     */
+    fun drawDrain(
+        canvas: Canvas, rect: RectF, fraction: Float, color: Int = COLOR_GOLD,
+        upright: Boolean = false, onRightSide: Boolean = false,
+    ) {
         if (fraction <= 0f) return
+        val f = fraction.coerceAtMost(1f)
+        val radius = minOf(rect.width(), rect.height()) / 2
         canvas.save()
         clip.reset()
-        clip.addRoundRect(rect, rect.height() / 2, rect.height() / 2, Path.Direction.CW)
+        clip.addRoundRect(rect, radius, radius, Path.Direction.CW)
         canvas.clipPath(clip)
         fill.color = color
-        canvas.drawRect(rect.left, rect.bottom - DRAIN_DP * dp, rect.left + rect.width() * fraction.coerceAtMost(1f), rect.bottom, fill)
+        val line = DRAIN_DP * dp
+        when {
+            !upright -> canvas.drawRect(rect.left, rect.bottom - line, rect.left + rect.width() * f, rect.bottom, fill)
+            onRightSide -> canvas.drawRect(rect.right - line, rect.bottom - rect.height() * f, rect.right, rect.bottom, fill)
+            else -> canvas.drawRect(rect.left, rect.bottom - rect.height() * f, rect.left + line, rect.bottom, fill)
+        }
         canvas.restore()
     }
 

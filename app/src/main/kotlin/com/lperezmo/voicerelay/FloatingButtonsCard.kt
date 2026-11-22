@@ -23,9 +23,6 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     private val dndRow: SettingsUi.StatusRow
     private val exactRow: SettingsUi.StatusRow
     private val timerRow: SettingsUi.SwitchRow
-    private val timerPositionTitle: View
-    private val timerBesideRow: SettingsUi.RadioRow
-    private val timerAboveRow: SettingsUi.RadioRow
     private val timerNotifyRow: SettingsUi.StatusRow
     private val timerExactRow: SettingsUi.StatusRow
     private val glyphRow: SettingsUi.SwitchRow
@@ -89,19 +86,6 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             }
         }
         card.addView(timerRow.view)
-        timerPositionTitle = ui.note("Timer pill position")
-        card.addView(timerPositionTitle)
-        fun positionRow(title: String, subtitle: String, position: String) = ui.radioRow(title, subtitle) {
-            settings.timerPillPosition = position
-            WhisperAccessibilityService.instance?.refreshTimerPill()
-            env.refresh()
-        }.also { card.addView(it.view) }
-        timerBesideRow = positionRow(
-            "Beside the button", "On the side facing the middle of the screen, level with the button.", AppSettings.TIMER_BESIDE,
-        )
-        timerAboveRow = positionRow(
-            "Above the volume pill", "In the volume pill's column, so nothing sticks out toward the middle.", AppSettings.TIMER_ABOVE,
-        )
         timerNotifyRow = ui.statusRow("Ring with a Stop button", "") {
             env.open(
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
@@ -171,14 +155,9 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         val timerOn = settings.timerPillEnabled
         timerRow.switch.isChecked = timerOn
         timerRow.subtitle.text = if (timerOn)
-            "Hold the pill and slide to 5, 10, 15, 30 or your own time. Tap it to see what is running, add a minute or stop one."
+            "The small upright pill beside the mic. Hold it and slide to 5, 10, 15, 30 or your own time. Tap it to see what is running, add a minute or stop one."
         else "Off. A pill by the mic for kitchen timers: hold to start one, tap to see and stop them."
         val timerDetail = if (timerOn) View.VISIBLE else View.GONE
-        timerPositionTitle.visibility = timerDetail
-        timerBesideRow.view.visibility = timerDetail
-        timerAboveRow.view.visibility = timerDetail
-        timerBesideRow.radio.isChecked = settings.timerPillPosition == AppSettings.TIMER_BESIDE
-        timerAboveRow.radio.isChecked = settings.timerPillPosition == AppSettings.TIMER_ABOVE
         val timers = TimerController.get(activity)
         timerNotifyRow.view.visibility = timerDetail
         timerNotifyRow.show(timers.canNotify, if (timers.canNotify) "On: a finished timer rings until you tap Stop"

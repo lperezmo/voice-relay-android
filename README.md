@@ -30,7 +30,8 @@ It also has a few extras, all off until you turn them on:
   tone, then ask any way you like ("for 10:50 AM", "the pasta, 9 minutes"). OpenAI writes down
   what you said, Claude (with your own Anthropic key) works out the timer, and the phone answers
   out loud: "Timer set for 10:50, 23 minutes from now."
-- **Timer pill**: kitchen timers without the clock app. Hold the pill and slide to 5, 10, 15 or
+- **Timer pill**: kitchen timers without the clock app. A small upright pill beside the mic: a dot
+  with a clock while nothing runs, a countdown while a timer runs. Hold it and slide to 5, 10, 15 or
   30 minutes (or your own time); tap it to see what is running, add a minute or stop one.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
@@ -380,7 +381,8 @@ touched.
 
 ## Timer pill
 
-On by default: a third small pill rides with the dictate button (turn it off with **Timer pill**
+On by default: a third small pill rides with the dictate button, upright beside it on the side
+facing the middle of the screen, between the volume and Glyph pills (turn it off with **Timer pill**
 in Settings, Floating buttons, Timers). Voice Relay runs these timers itself, so it can list them, extend
 them and stop them; they are not the clock app's timers.
 
@@ -391,14 +393,11 @@ them and stop them; they are not the clock app's timers.
   +5, then Cancel or Start.
 - **Tap the pill** to see every timer, soonest first, with a **+1** button (a minute more) and an
   **×** button that stops it in one tap. A touch outside closes the card.
-- The pill shows "Timer" when nothing runs, else the countdown of the timer that ends first
-  ("9:12", "1h05") and how many there are, with a thin gold line along its bottom that shrinks as
-  that timer runs out. When one finishes the pill turns gold until you dismiss
-  it, the phone rings on the alarm volume, and a notification offers **Stop**.
-
-**Timer pill position** picks where it sits: **Beside the button** (the default, on the side facing
-the middle of the screen) or **Above the volume pill** (in the same column, so nothing sticks out
-over the app; it takes the volume pill's spot when that pill is off).
+- While nothing runs the pill is just a small dot with a clock, so it hardly covers the app. When
+  a timer starts it grows into a tall tab with the countdown of the timer that ends first ("9:12",
+  "1h05", read from the bottom up) and how many there are, with a thin gold line up its outer side
+  that shrinks as that timer runs out. When one finishes the pill turns gold and blinks until you
+  dismiss it, the phone rings on the alarm volume, and a notification offers **Stop**.
 
 Timers are kept on the phone and survive the buttons being hidden, the service restarting and a
 reboot (after a reboot they come back once the phone is unlocked). Two optional rows help them
@@ -518,7 +517,6 @@ billed to your Anthropic account.
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
 | Timer pill | on | See [Timer pill](#timer-pill). |
-| Timer pill position | Beside the button | Or **Above the volume pill**. Changing it moves the pill straight away. |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
 | Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
 | Ask the Page | off | Shown while the built-in canvas is on. Draw ? and write a question; Claude answers on the page. See [Ask the Page](#ask-the-page). |
