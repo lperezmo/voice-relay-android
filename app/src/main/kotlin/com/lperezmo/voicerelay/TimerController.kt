@@ -213,8 +213,7 @@ class TimerController private constructor(private val context: Context) {
         private const val CHANNEL = "timer_done"
         /** With the timer's id; the tag keeps it clear of the app's other notifications. */
         private const val NOTIFICATION_TAG = "timer"
-        /** A timer nobody stops goes quiet after this long; it stays in the list as done. */
-        private const val RING_MS = 10 * 60_000L
+        private const val RING_MS = TimerText.RING_MS
         private const val RINGTONE_MS = 60_000L
         const val ACTION_FIRE = "com.lperezmo.voicerelay.TIMER_FIRE"
         const val ACTION_STOP = "com.lperezmo.voicerelay.TIMER_STOP"

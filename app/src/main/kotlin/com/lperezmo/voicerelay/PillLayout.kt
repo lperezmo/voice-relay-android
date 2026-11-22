@@ -187,6 +187,19 @@ class PillLayout(private val dp: Float, ringDp: Int, buttonDp: Int, marginDp: In
         const val TIMER_STUB_W_DP = PillSkin.PILL_H_DP
         const val TIMER_STUB_H_DP = PillSkin.PILL_H_DP
         const val TIMER_GROWN_H_DP = 54f
+        /** The tallest the stub grows: the button's ring window's height, so it never reaches the volume or Glyph pill. */
+        const val TIMER_STUB_MAX_H_DP = 56f
+        /** Room kept at each end of the grown stub, past its text. */
+        const val TIMER_END_PAD_DP = 7f
+
+        /**
+         * The stub's height in dp: a dot while [idle], otherwise tall enough for its
+         * countdown and badge ([contentDp] long), at least [TIMER_GROWN_H_DP] and at most
+         * [TIMER_STUB_MAX_H_DP].
+         */
+        fun timerStubHeightDp(idle: Boolean, contentDp: Float): Float =
+            if (idle) TIMER_STUB_H_DP
+            else maxOf(TIMER_GROWN_H_DP, contentDp + 2 * TIMER_END_PAD_DP).coerceAtMost(TIMER_STUB_MAX_H_DP)
         /** Space between the stub and the button. */
         const val TIMER_STUB_GAP_DP = 5f
         /** How long the stub takes to grow or shrink. */

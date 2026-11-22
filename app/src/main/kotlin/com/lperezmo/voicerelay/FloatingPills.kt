@@ -74,6 +74,8 @@ class FloatingPills(
     private val press by lazy { TimerPress(TimerPress.SLOP_DP * dp, TimerPress.REACH_DP * dp) }
     private val holdTimer = Runnable { if (press.held()) openFan() }
     private val tickTimers = Runnable { renderTimers() }
+    /** Between [start] and [stop]: the timers are watched for the ring. */
+    private var watching = false
     /** A timer started, stopped, extended or ended, from here, from "hey timer" or from its notification. */
     private val timersChanged: () -> Unit = { renderTimers() }
 
@@ -97,6 +99,7 @@ class FloatingPills(
 
     /** Starts watching for Glyph being installed or removed, and the timers for the button's ring. Call once, when the service connects. */
     fun start() {
+        watching = true
         timers.addListener(timersChanged)
         renderTimers()
         ContextCompat.registerReceiver(
@@ -113,6 +116,7 @@ class FloatingPills(
 
     /** The service is going away: stop watching Glyph. Call [hide] too, to take the pills down. */
     fun stop() {
+        watching = false
         timers.removeListener(timersChanged)
         handler.removeCallbacks(tickTimers)
         try { service.unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
@@ -417,6 +421,8 @@ class FloatingPills(
         wm.removeView(view)
         timerView = null
         timerParams = null
+        // Without the pill the ring shows a finished timer only while it rings.
+        if (watching) renderTimers()
     }
 
     private fun positionTimerPill(params: WindowManager.LayoutParams, bubble: WindowManager.LayoutParams) {
@@ -437,10 +443,15 @@ class FloatingPills(
         timers.checkDue()
         val now = System.currentTimeMillis()
         val sorted = timers.timers()
-        onTimers(sorted.firstOrNull { !it.done(now) }?.fractionLeft(now), sorted.any { it.done(now) })
         val view = timerView
+        onTimers(sorted.firstOrNull { !it.done(now) }?.fractionLeft(now), TimerText.ringDone(sorted, now, view != null))
         if (view == null) {
-            if (sorted.any { !it.done(now) }) handler.postDelayed(tickTimers, RING_TICK_MS)
+            val goldEndsIn = TimerText.ringDoneEndsIn(sorted, now, pillShown = false)
+            when {
+                sorted.any { !it.done(now) } -> handler.postDelayed(tickTimers, RING_TICK_MS)
+                // Without the pill a finished timer shows on the ring only while it rings: take it off then.
+                goldEndsIn != null -> handler.postDelayed(tickTimers, goldEndsIn)
+            }
             return
         }
         view.update(TimerText.face(sorted, now), TimerText.describe(sorted, now))

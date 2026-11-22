@@ -80,8 +80,13 @@ data class Timers(
             else it.copy(
                 endsAt = maxOf(it.endsAt, now) + seconds * 1000,
                 rung = false,
-                // A finished timer starts over, so the added time is all of it.
-                totalMs = if (it.done(now) || it.totalMs <= 0) seconds * 1000 else it.totalMs + seconds * 1000,
+                // A finished timer starts over, so the added time is all of it. A running one saved
+                // before totals were kept counts from what is left now.
+                totalMs = when {
+                    it.done(now) -> seconds * 1000
+                    it.totalMs <= 0 -> it.endsAt - now + seconds * 1000
+                    else -> it.totalMs + seconds * 1000
+                },
             )
         },
     )
@@ -169,6 +174,37 @@ object TimerText {
             drain = if (done) 0f else first.fractionLeft(now),
         )
     }
+
+    /**
+     * Whether the button's ring shows a finished timer. With the timer pill shown it stays
+     * until it is dismissed there. With the pill off there is nothing on screen to dismiss it
+     * with, so only for as long as it rings ([RING_MS] from its end); after that the timer
+     * waits in the list for the pill.
+     */
+    fun ringDone(sorted: List<TimerEntry>, now: Long, pillShown: Boolean): Boolean =
+        sorted.any { it.done(now) && (pillShown || now - it.endsAt < RING_MS) }
+
+    /** With the pill off, how long until [ringDone] turns false on its own; null when it will not. */
+    fun ringDoneEndsIn(sorted: List<TimerEntry>, now: Long, pillShown: Boolean): Long? {
+        if (pillShown) return null
+        return sorted.filter { it.done(now) && now - it.endsAt < RING_MS }.maxOfOrNull { it.endsAt + RING_MS - now }
+    }
+
+    /**
+     * How strongly the done pill shows, [sinceDoneMs] after it turned done: a blink every
+     * [BLINK_MS] from full down to [BLINK_LOW] for [ButtonRing.DONE_FLASHING_MS], like the
+     * ring, then null: it stays solid gold and stops redrawing.
+     */
+    fun blink(sinceDoneMs: Long): Float? {
+        if (sinceDoneMs < 0 || sinceDoneMs >= ButtonRing.DONE_FLASHING_MS) return null
+        val t = (sinceDoneMs % BLINK_MS) / BLINK_MS.toFloat()
+        return BLINK_LOW + (1f - BLINK_LOW) * (0.5f + 0.5f * kotlin.math.cos(2 * Math.PI * t).toFloat())
+    }
+
+    const val BLINK_MS = 600L
+    const val BLINK_LOW = 0.35f
+    /** A timer nobody stops goes quiet after this long; it stays in the list as done. */
+    const val RING_MS = 10 * 60_000L
 
     /** For screen readers. */
     fun describe(sorted: List<TimerEntry>, now: Long): String {

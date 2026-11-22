@@ -15,7 +15,8 @@ without switching away from your keyboard. Long-press it to fix the grammar of t
 The ring around the button is a small gauge that shows what Voice Relay is doing (see
 [The ring](#the-ring)).
 
-It also has a few extras, all off until you turn them on:
+It also has a few extras. The timer pill and the Glyph pill are there from the start; the rest
+are off until you turn them on:
 
 - **"Hey claude" wake word**, or a phrase of your own. Say it from anywhere, even with the screen
   off, and the Claude app's voice assistant opens, so you can talk to Claude hands-free and let it
@@ -102,7 +103,7 @@ repository's releases (see [Signing](#signing-and-forks)).
 |---|---|---|
 | Microphone | Dictation, the wake word, and recording a timer request after the timer phrase | First launch |
 | Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
-| Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | Turning on the wake word, the timer phrase or the timer pill |
+| Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | The first time you open Voice Relay (for the timer pill, which is on from the start), and turning on the wake word, the timer phrase or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
 | Do Not Disturb access | The volume presets | Tapping the row in the Volume presets section |
 | Alarms and reminders | Ending the one-hour Do Not Disturb preset on time, and ringing timers on time | Granted at install on Android 13 and up. On Android 12, tapping the row in the Volume presets or Timers section (optional) |
@@ -141,7 +142,7 @@ The ring around the button shows what is going on, with no extra pixels:
 | White arc spinning, then a clay arc sweeping | "Hey timer" is writing down what you said, then Claude is working out the timer. |
 | Gold flash, then the whole ring glowing clay | The timer is set and the answer is being said out loud. |
 | Thin gold arc inside the ticks | The next timer to end; it shrinks as the time runs out. |
-| Whole ring flashing gold | A timer finished. It stays gold until you stop it. |
+| Whole ring flashing gold | A timer finished. It stays gold until you stop it (with the timer pill off, only while the timer rings, up to 10 minutes). |
 
 **Dim when idle** (Settings, Floating buttons, off by default) fades the button and its pills 3
 seconds after you last touch them, while nothing is going on. A touch or anything on the ring

@@ -108,11 +108,20 @@ class PillLayoutTest {
             val c = stub(x, 400)
             val halfW = PillLayout.TIMER_STUB_W_DP / 2
             assertTrue(c.x - halfW >= window.x && c.x + halfW <= window.x + timerW)
-            assertTrue(c.y - PillLayout.TIMER_GROWN_H_DP / 2 >= window.y)
-            assertTrue(c.y + PillLayout.TIMER_GROWN_H_DP / 2 <= window.y + timerH)
-            // Grown it stays within the button's ring window's height, so it never reaches the volume or Glyph pill.
-            assertTrue(PillLayout.TIMER_GROWN_H_DP <= 56)
+            // However long the countdown, the stub grows at most this tall.
+            val tallest = PillLayout.timerStubHeightDp(idle = false, contentDp = 1000f)
+            assertTrue(c.y - tallest / 2 >= window.y)
+            assertTrue(c.y + tallest / 2 <= window.y + timerH)
+            // Grown it stays within the button's ring window's height (56), so it never reaches the volume or Glyph pill.
+            assertTrue(tallest <= 56f)
         }
+    }
+
+    @Test fun `the stub is a dot when idle and grows with its countdown, up to a cap`() {
+        assertEquals(PillLayout.TIMER_STUB_H_DP, PillLayout.timerStubHeightDp(idle = true, contentDp = 40f), 0f)
+        assertEquals(PillLayout.TIMER_GROWN_H_DP, PillLayout.timerStubHeightDp(idle = false, contentDp = 10f), 0f)
+        assertEquals(55f, PillLayout.timerStubHeightDp(idle = false, contentDp = 55f - 2 * PillLayout.TIMER_END_PAD_DP), 1e-4f)
+        assertEquals(PillLayout.TIMER_STUB_MAX_H_DP, PillLayout.timerStubHeightDp(idle = false, contentDp = 80f), 0f)
     }
 
     @Test fun `the timer pill stays on screen and level with the button everywhere it can go`() {

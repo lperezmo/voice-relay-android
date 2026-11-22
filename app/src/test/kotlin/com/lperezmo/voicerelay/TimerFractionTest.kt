@@ -1,6 +1,10 @@
 package com.lperezmo.voicerelay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimerFractionTest {
@@ -47,5 +51,35 @@ class TimerFractionTest {
         assertEquals(0.5f, TimerText.face(both.sorted(), 300_000).drain, 1e-6f)
         assertEquals(0f, TimerText.face(both.sorted(), 600_000).drain, 0f)
         assertEquals(0f, TimerText.face(emptyList(), 0).drain, 0f)
+    }
+
+    @Test fun `a minute more on a running timer saved before totals counts from what is left`() {
+        val old = Timers.fromJson("""{"timers":[{"id":3,"label":"Tea","endsAt":1800000}]}""")
+        val longer = old.extend(3, now = 0).find(3)!!
+        assertEquals(1_860_000L, longer.totalMs)
+        assertEquals(1f, longer.fractionLeft(0), 1e-6f)
+        assertEquals(0.5f, longer.fractionLeft(930_000), 1e-6f)
+    }
+
+    @Test fun `a done pill blinks for as long as the ring flashes, then stays solid`() {
+        assertEquals(1f, TimerText.blink(0)!!, 1e-6f)
+        assertEquals(TimerText.BLINK_LOW, TimerText.blink(TimerText.BLINK_MS / 2)!!, 1e-6f)
+        assertNotNull(TimerText.blink(ButtonRing.DONE_FLASHING_MS - 1))
+        assertNull(TimerText.blink(ButtonRing.DONE_FLASHING_MS))
+        assertNull(TimerText.blink(10 * 60 * 60_000L))
+    }
+
+    @Test fun `with the pill off the ring shows a finished timer only while it rings`() {
+        val (book, _) = Timers().start(now = 0, seconds = 60)
+        val list = book.sorted()
+        assertFalse(TimerText.ringDone(list, 30_000, pillShown = false))
+        assertTrue(TimerText.ringDone(list, 60_000, pillShown = false))
+        assertEquals(TimerText.RING_MS, TimerText.ringDoneEndsIn(list, 60_000, pillShown = false))
+        val quiet = 60_000 + TimerText.RING_MS
+        assertFalse(TimerText.ringDone(list, quiet, pillShown = false))
+        assertNull(TimerText.ringDoneEndsIn(list, quiet, pillShown = false))
+        // With the pill it stays until it is dismissed there.
+        assertTrue(TimerText.ringDone(list, quiet, pillShown = true))
+        assertNull(TimerText.ringDoneEndsIn(list, 60_000, pillShown = true))
     }
 }

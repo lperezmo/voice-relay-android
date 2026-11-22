@@ -39,6 +39,8 @@ class TimerPillView(context: Context) : View(context) {
 
     private val dp = context.resources.displayMetrics.density
     private var face = TimerText.Face("Timer", 0, TimerText.State.IDLE)
+    /** When the face turned done ([SystemClock.uptimeMillis]), for how long it blinks. */
+    private var doneAt = 0L
 
     private val skin = PillSkin(dp)
     private val text = skin.text
@@ -69,17 +71,15 @@ class TimerPillView(context: Context) : View(context) {
     fun update(new: TimerText.Face, description: String) {
         if (new == face) return
         if (new.count != face.count || new.state != face.state) contentDescription = description
+        if (new.state == TimerText.State.DONE && face.state != TimerText.State.DONE) doneAt = SystemClock.uptimeMillis()
         face = new
         growTo(targetHeight())
         invalidate()
     }
 
-    /** The idle stub is a dot; with a countdown it is tall enough for the text, at least [PillLayout.TIMER_GROWN_H_DP]. */
-    private fun targetHeight(): Float {
-        if (face.state == TimerText.State.IDLE) return PillLayout.TIMER_STUB_H_DP * dp
-        val need = contentLength() + 2 * END_PAD_DP * dp
-        return maxOf(PillLayout.TIMER_GROWN_H_DP * dp, need).coerceAtMost(PillLayout.TIMER_H_DP * dp)
-    }
+    /** The idle stub is a dot; with a countdown it is tall enough for the text ([PillLayout.timerStubHeightDp]). */
+    private fun targetHeight(): Float =
+        PillLayout.timerStubHeightDp(face.state == TimerText.State.IDLE, contentLength() / dp) * dp
 
     private fun growTo(target: Float) {
         if (target == growTarget) return
@@ -138,13 +138,10 @@ class TimerPillView(context: Context) : View(context) {
         val w = PillLayout.TIMER_STUB_W_DP * dp
         rect.set(cx - w / 2f, cy - stubH / 2f, cx + w / 2f, cy + stubH / 2f)
 
-        // A finished timer blinks: fully there, then down to a third, every 0.6 s.
-        val blinking = done
-        if (blinking) {
-            val t = (SystemClock.uptimeMillis() % BLINK_MS) / BLINK_MS.toFloat()
-            val alpha = BLINK_LOW + (1f - BLINK_LOW) * (0.5f + 0.5f * Math.cos(2 * Math.PI * t).toFloat())
-            canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
-        }
+        // A finished timer blinks for a while, like the ring, then stays solid gold.
+        val alpha = if (done) TimerText.blink(SystemClock.uptimeMillis() - doneAt) else null
+        val blinking = alpha != null
+        if (alpha != null) canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (alpha * 255).toInt())
 
         skin.drawFill(canvas, rect, if (done) PillSkin.COLOR_GOLD else PillSkin.COLOR_FILL)
         // The drain line runs up the side away from the button.
@@ -215,9 +212,5 @@ class TimerPillView(context: Context) : View(context) {
         const val ICON_DP = 9f
         const val BADGE_DP = 11f
         const val BADGE_GAP_DP = 4f
-        /** Room kept at each end of the grown stub, past its text. */
-        const val END_PAD_DP = 7f
-        const val BLINK_MS = 600L
-        const val BLINK_LOW = 0.35f
     }
 }

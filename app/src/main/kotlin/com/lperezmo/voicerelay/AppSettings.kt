@@ -126,6 +126,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("timer_pill", true)
         set(v) = prefs.edit().putBoolean("timer_pill", v).apply()
 
+    /** The notification permission was asked once for the timer pill, which is on from the start. */
+    var askedTimerNotifications: Boolean
+        get() = prefs.getBoolean("asked_timer_notifications", false)
+        set(v) = prefs.edit().putBoolean("asked_timer_notifications", v).apply()
+
     /**
      * Fade the dictate button and its pills a few seconds after the last touch, while
      * nothing is going on; they come back on a touch or when anything happens. Off by
