@@ -50,8 +50,12 @@ class TimerAssistantTest {
     private class FakeTools(
         answers: List<String> = emptyList(),
         val throwOnSet: Boolean = false,
+        /** The timers on the phone, by id, for cancel_timer. */
+        onPhone: Map<Int, String> = emptyMap(),
     ) : TimerAssistant.Tools {
         val timers = mutableListOf<Pair<Long, String?>>()
+        val phone = LinkedHashMap(onPhone)
+        val cancelled = mutableListOf<Int>()
         var timeCalls = 0
         val questions = mutableListOf<String>()
         private val answers = ArrayDeque(answers)
@@ -71,6 +75,27 @@ class TimerAssistantTest {
             questions += question
             return answers.removeFirstOrNull() ?: ""
         }
+
+        override fun cancelTimer(id: Int): String? {
+            val label = phone.remove(id) ?: return null
+            cancelled += id
+            return label
+        }
+
+        override fun cancelAllTimers(): List<String> {
+            cancelled += phone.keys
+            return phone.values.toList().also { phone.clear() }
+        }
+
+        override fun listTimers(): String =
+            JSONArray().apply { phone.forEach { (id, label) -> put(JSONObject().put("id", id).put("label", label)) } }.toString()
+    }
+
+    private fun cancel(id: String, timerId: Any? = null, all: Boolean? = null): JSONObject {
+        val input = JSONObject()
+        if (timerId != null) input.put("id", timerId)
+        if (all != null) input.put("all", all)
+        return use(id, TimerAssistant.TOOL_CANCEL_TIMER, input)
     }
 
     private fun assistant(script: Script, tools: FakeTools, maxRounds: Int = TimerAssistant.MAX_ROUNDS) =
@@ -460,11 +485,11 @@ class TimerAssistantTest {
 
     // ---- tools, prompt and time text ----
 
-    @Test fun `definitions are the three tools, and set_timer requires only seconds`() {
+    @Test fun `definitions are the four tools, and set_timer requires only seconds`() {
         val defs = TimerAssistant.definitions()
-        assertEquals(3, defs.length())
+        assertEquals(4, defs.length())
         assertEquals(
-            listOf(TimerAssistant.TOOL_SET_TIMER, TimerAssistant.TOOL_GET_TIME, TimerAssistant.TOOL_ASK_USER),
+            listOf(TimerAssistant.TOOL_SET_TIMER, TimerAssistant.TOOL_GET_TIME, TimerAssistant.TOOL_ASK_USER, TimerAssistant.TOOL_CANCEL_TIMER),
             (0 until defs.length()).map { defs.getJSONObject(it).getString("name") },
         )
         for (i in 0 until defs.length()) {
@@ -484,6 +509,11 @@ class TimerAssistantTest {
 
         val askSchema = defs.getJSONObject(2).getJSONObject("input_schema")
         assertEquals("question", askSchema.getJSONArray("required").getString(0))
+
+        val cancelSchema = defs.getJSONObject(3).getJSONObject("input_schema")
+        assertEquals("integer", cancelSchema.getJSONObject("properties").getJSONObject("id").getString("type"))
+        assertEquals("boolean", cancelSchema.getJSONObject("properties").getJSONObject("all").getString("type"))
+        assertFalse(cancelSchema.has("required"))
     }
 
     @Test fun `the system prompt holds the phone's date, time, zone and the no-time answer`() {
@@ -496,6 +526,46 @@ class TimerAssistantTest {
         assertTrue(prompt.contains("set_timer"))
         assertTrue(prompt.contains("get_time"))
         assertTrue(prompt.contains("ask_user"))
+        assertTrue(prompt.contains("cancel_timer"))
+        assertTrue(prompt.contains("answer exactly: ${TimerAssistant.SAY_NONE_TO_CANCEL}"))
+        assertTrue(prompt.contains("The timers on the phone now, soonest first (a finished one has 0 seconds left and may be ringing): []"))
+    }
+
+    @Test fun `the system prompt lists the timers on the phone`() {
+        val ms = now.toInstant().toEpochMilli()
+        val timers = listOf(TimerEntry(4, "Pasta", ms + 600_000))
+        val prompt = TimerAssistant.systemPrompt(now, timers)
+        assertTrue(prompt.contains(TimerAssistant.describeTimers(timers, now)))
+        assertTrue(prompt.contains("\"label\":\"Pasta\""))
+    }
+
+    @Test fun `describeTimers gives id, label, state, seconds left and end time, soonest first`() {
+        val ms = now.toInstant().toEpochMilli()
+        val list = JSONArray(
+            TimerAssistant.describeTimers(
+                listOf(
+                    TimerEntry(7, "Eggs", ms + 9 * 3600_000L),
+                    TimerEntry(3, "Pasta", ms + 600_000 - 500),
+                    TimerEntry(5, "Timer 1", ms - 60_000, rung = true),
+                ),
+                now,
+            )
+        )
+        assertEquals(3, list.length())
+        val done = list.getJSONObject(0)
+        assertEquals(5, done.getInt("id"))
+        assertEquals("finished", done.getString("state"))
+        assertEquals(0, done.getInt("seconds_left"))
+        assertEquals("10:26 AM today", done.getString("ends_at"))
+        val pasta = list.getJSONObject(1)
+        assertEquals(3, pasta.getInt("id"))
+        assertEquals("Pasta", pasta.getString("label"))
+        assertEquals("running", pasta.getString("state"))
+        assertEquals(600, pasta.getInt("seconds_left"))
+        assertEquals("10:37 AM today", pasta.getString("ends_at"))
+        assertEquals("7:27 PM today", list.getJSONObject(2).getString("ends_at"))
+
+        assertEquals("[]", TimerAssistant.describeTimers(emptyList(), now))
     }
 
     @Test fun `describe gives day, clock time, zone and offset`() {
@@ -525,5 +595,170 @@ class TimerAssistantTest {
 
         val quoted = JSONObject(TimerAssistant.describeSet("Mom's \"special\" eggs", 60, now))
         assertEquals("Mom's \"special\" eggs", quoted.getString("label"))
+
+        assertFalse(today.has("id"))
+        assertEquals(9, JSONObject(TimerAssistant.describeSet("Pasta", 600, now, id = 9)).getInt("id"))
+    }
+
+    // ---- cancelling ----
+
+    @Test fun `cancel the pasta timer cancels it by id and says Claude's line`() {
+        val script = Script(
+            turn("tool_use", thinking(), cancel("toolu_1", 3)),
+            turn("end_turn", text("Pasta timer cancelled.")),
+        )
+        val tools = FakeTools(onPhone = mapOf(3 to "Pasta", 4 to "Eggs"))
+        val out = assistant(script, tools).run("cancel the pasta timer")
+
+        assertEquals("Pasta timer cancelled.", out.spoken)
+        assertFalse(out.failed)
+        assertEquals(1, out.timersCancelled)
+        assertEquals(0, out.timersSet)
+        assertEquals(listOf(3), tools.cancelled)
+        val result = results(script, 1).getJSONObject(0)
+        assertFalse(result.optBoolean("is_error", false))
+        val body = JSONObject(result.getString("content"))
+        assertEquals("Pasta", body.getJSONArray("cancelled").getString(0))
+        assertEquals(1, body.getJSONArray("timers_now").length())
+        assertEquals("Eggs", body.getJSONArray("timers_now").getJSONObject(0).getString("label"))
+    }
+
+    @Test fun `an unknown id is an error with the timers now, and nothing is counted`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", 99)),
+            turn("end_turn", text("There's no such timer.")),
+        )
+        val tools = FakeTools(onPhone = mapOf(3 to "Pasta"))
+        val out = assistant(script, tools).run("cancel the bread")
+
+        assertEquals(0, out.timersCancelled)
+        assertTrue(tools.cancelled.isEmpty())
+        val result = results(script, 1).getJSONObject(0)
+        assertTrue(result.getBoolean("is_error"))
+        assertTrue(result.getString("content").contains("no timer with id 99"))
+        assertTrue(result.getString("content").contains("Pasta"))
+    }
+
+    @Test fun `an id missing or not whole is an error`() {
+        for (input in listOf(cancel("toolu_1"), cancel("toolu_1", "pasta"), cancel("toolu_1", 2.5), cancel("toolu_1", 3, all = false))) {
+            val script = Script(turn("tool_use", input), turn("end_turn", text("ok")))
+            val tools = FakeTools(onPhone = mapOf(2 to "Eggs"))
+            val out = assistant(script, tools).run("cancel")
+            val result = results(script, 1).getJSONObject(0)
+            if (input.getJSONObject("input").has("all")) {
+                // all false with an id is a plain cancel by id (3 is not on the phone).
+                assertTrue(result.getString("content").contains("no timer with id 3"))
+            } else {
+                assertTrue(result.getString("content").startsWith("id is required"))
+            }
+            assertTrue(result.getBoolean("is_error"))
+            assertEquals(0, out.timersCancelled)
+            assertTrue(tools.cancelled.isEmpty())
+        }
+    }
+
+    @Test fun `cancel all stops every timer and counts each`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", all = true)),
+            turn("end_turn", text("All three timers cancelled.")),
+        )
+        val tools = FakeTools(onPhone = mapOf(1 to "Pasta", 2 to "Eggs", 5 to "Timer 1"))
+        val out = assistant(script, tools).run("cancel all timers")
+
+        assertEquals("All three timers cancelled.", out.spoken)
+        assertEquals(3, out.timersCancelled)
+        assertEquals(listOf(1, 2, 5), tools.cancelled)
+        assertTrue(tools.phone.isEmpty())
+        val body = JSONObject(results(script, 1).getJSONObject(0).getString("content"))
+        assertEquals(listOf("Pasta", "Eggs", "Timer 1"), (0 until 3).map { body.getJSONArray("cancelled").getString(it) })
+        assertEquals(0, body.getJSONArray("timers_now").length())
+    }
+
+    @Test fun `all wins over an id`() {
+        val script = Script(turn("tool_use", cancel("toolu_1", 1, all = true)), turn("end_turn", text("ok")))
+        val tools = FakeTools(onPhone = mapOf(1 to "Pasta", 2 to "Eggs"))
+        assertEquals(2, assistant(script, tools).run("cancel everything").timersCancelled)
+    }
+
+    @Test fun `cancel all with no timers says there were none and counts nothing`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", all = true)),
+            turn("end_turn", text(TimerAssistant.SAY_NONE_TO_CANCEL)),
+        )
+        val out = assistant(script, FakeTools()).run("cancel all timers")
+        assertEquals(TimerAssistant.SAY_NONE_TO_CANCEL, out.spoken)
+        assertEquals(0, out.timersCancelled)
+        assertFalse(out.failed)
+        val result = results(script, 1).getJSONObject(0)
+        assertFalse(result.optBoolean("is_error", false))
+        assertEquals("There were no timers to cancel.", result.getString("content"))
+    }
+
+    @Test fun `with no timers on the phone Claude answers without a tool and nothing is cancelled`() {
+        val script = Script(turn("end_turn", text(TimerAssistant.SAY_NONE_TO_CANCEL)))
+        val tools = FakeTools()
+        val out = assistant(script, tools).run("cancel the timer")
+        assertEquals(TimerAssistant.SAY_NONE_TO_CANCEL, out.spoken)
+        assertEquals(1, out.rounds)
+        assertEquals(0, out.timersCancelled)
+        assertTrue(tools.cancelled.isEmpty())
+    }
+
+    @Test fun `when it is unclear which, Claude asks and cancels the one named in the answer`() {
+        val script = Script(
+            turn("tool_use", ask("toolu_1", "Pasta or Eggs?")),
+            turn("tool_use", cancel("toolu_2", 4)),
+            turn("end_turn", text("Eggs timer cancelled.")),
+        )
+        val tools = FakeTools(answers = listOf("the eggs"), onPhone = mapOf(3 to "Pasta", 4 to "Eggs"))
+        val out = assistant(script, tools).run("cancel the timer")
+
+        assertEquals(listOf("Pasta or Eggs?"), tools.questions)
+        assertEquals("the eggs", results(script, 1).getJSONObject(0).getString("content"))
+        assertEquals(listOf(4), tools.cancelled)
+        assertEquals(1, out.timersCancelled)
+        assertEquals("Eggs timer cancelled.", out.spoken)
+    }
+
+    @Test fun `set and cancel in one request count both`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", 3), setTimer("toolu_2", 300, "Pasta")),
+            turn("end_turn", text("Pasta timer set for 5 minutes.")),
+        )
+        val tools = FakeTools(onPhone = mapOf(3 to "Pasta"))
+        val out = assistant(script, tools).run("make the pasta 5 minutes instead")
+        assertEquals(1, out.timersSet)
+        assertEquals(1, out.timersCancelled)
+    }
+
+    @Test fun `an empty last turn after cancelling says timer cancelled, timers cancelled or done`() {
+        fun spoken(vararg first: JSONObject, phone: Map<Int, String>) =
+            assistant(Script(turn("tool_use", *first), turn("end_turn")), FakeTools(onPhone = phone)).run("x").spoken
+        assertEquals(TimerAssistant.SAY_CANCELLED, spoken(cancel("t1", 1), phone = mapOf(1 to "Pasta")))
+        assertEquals(TimerAssistant.SAY_CANCELLED_ALL, spoken(cancel("t1", all = true), phone = mapOf(1 to "Pasta", 2 to "Eggs")))
+        assertEquals(TimerAssistant.SAY_DONE, spoken(cancel("t1", 1), setTimer("t2", 60), phone = mapOf(1 to "Pasta")))
+    }
+
+    @Test fun `an error after a timer was cancelled does not say that nothing happened`() {
+        val script = Script(
+            turn("tool_use", cancel("toolu_1", 1)),
+            Turn(error = "overloaded", httpCode = 529),
+        )
+        val out = assistant(script, FakeTools(onPhone = mapOf(1 to "Pasta"))).run("cancel the pasta")
+        assertEquals(TimerAssistant.SAY_CANCELLED, out.spoken)
+        assertFalse(out.failed)
+        assertEquals(1, out.timersCancelled)
+    }
+
+    @Test fun `a cancel that throws is an error result and nothing is counted`() {
+        val tools = object : TimerAssistant.Tools by FakeTools() {
+            override fun cancelTimer(id: Int): String? = throw IllegalStateException("stopped")
+        }
+        val script = Script(turn("tool_use", cancel("toolu_1", 1)), turn("end_turn", text("ok")))
+        val out = TimerAssistant({ script.send(it) }, tools).run("cancel")
+        assertEquals(0, out.timersCancelled)
+        val result = results(script, 1).getJSONObject(0)
+        assertTrue(result.getBoolean("is_error"))
+        assertEquals("The tool failed: IllegalStateException", result.getString("content"))
     }
 }

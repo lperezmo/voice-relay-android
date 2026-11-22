@@ -83,13 +83,15 @@ different, and it is the only time the wake word listener sends audio anywhere:
   apart from a temporary file used to compress it, which is deleted straight away, and is
   discarded after the request.
 - The transcript goes to Anthropic with your key, together with the phone's current date, time
-  and time zone, so Claude can work out how long the timer runs. If Claude asks you a question
+  and time zone, so Claude can work out how long the timer runs, and the name, time left and end
+  time of each timer you have, so it can cancel the one you name. If Claude asks you a question
   ("That's tomorrow. Set it?"), your spoken answer is recorded, transcribed and sent the same way.
 - The answer is read out by the phone's own text-to-speech engine and shown in a notification.
 
 Nothing is recorded or sent unless the timer phrase was heard. The timers themselves (label and
-end time) are kept only on the phone. The logs record timings, sizes and whether a timer was set,
-never what you said or what was answered. With either key missing, the phrase records and
+end time) are kept on the phone; they are only sent, as above, with a request after the phrase.
+The logs record timings, sizes and how many timers were set or cancelled, never what you said or
+what was answered. With either key missing, the phrase records and
 sends nothing; it shows one notification saying which keys it needs.
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
