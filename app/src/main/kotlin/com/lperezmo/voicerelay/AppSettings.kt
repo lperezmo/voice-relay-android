@@ -120,6 +120,15 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("timer_pill", true)
         set(v) = prefs.edit().putBoolean("timer_pill", v).apply()
 
+    /**
+     * Fade the dictate button and its pills a few seconds after the last touch, while
+     * nothing is going on; they come back on a touch or when anything happens. Off by
+     * default ([DEFAULT_DIM_WHEN_IDLE]).
+     */
+    var dimWhenIdle: Boolean
+        get() = prefs.getBoolean("dim_when_idle", DEFAULT_DIM_WHEN_IDLE)
+        set(v) = prefs.edit().putBoolean("dim_when_idle", v).apply()
+
     /** Where the timer pill sits: [TIMER_BESIDE] the button (the default) or [TIMER_ABOVE] the volume pill. */
     var timerPillPosition: String
         get() = if (prefs.getString("timer_pill_position", null) == TIMER_ABOVE) TIMER_ABOVE else TIMER_BESIDE
@@ -309,6 +318,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_CLEANUP_MODEL = "gpt-6-luna"
         const val DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
         const val DEFAULT_ASK_PAGE_MODEL = "claude-sonnet-5-5"
+        const val DEFAULT_DIM_WHEN_IDLE = false
         const val DEFAULT_TIMER_MODEL = "claude-opus-5-5"
         const val DEFAULT_LANGUAGES = ""
         const val DEFAULT_GLYPH_BUILT_IN = true

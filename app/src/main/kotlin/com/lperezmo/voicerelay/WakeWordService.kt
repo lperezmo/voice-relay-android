@@ -278,11 +278,15 @@ class WakeWordService : Service() {
             },
             onDone = {
                 timerStatus = null
+                WhisperAccessibilityService.instance?.onTimerVoiceDone()
                 if (running) apply(controller.onTimerDone(now(), micBusy()))
             },
+            onStage = { stage -> WhisperAccessibilityService.instance?.onTimerVoice(stage) },
         ).also { timerFlow = it }
         timerStatus = "Listening for your timer"
-        if (!flow.start()) Log.w(TAG, "Wake word: a timer request is already running")
+        // The ring on the button shows "hey timer" was heard, in its own colour.
+        if (flow.start()) WhisperAccessibilityService.instance?.onWake(timer = true)
+        else Log.w(TAG, "Wake word: a timer request is already running")
     }
 
     private val tick = object : Runnable {
@@ -546,6 +550,8 @@ class WakeWordService : Service() {
     }
 
     private fun launchAssistant() {
+        // The ring on the button shows "hey claude" was heard, in Claude's colour.
+        WhisperAccessibilityService.instance?.onWake(timer = false)
         val intent = Intent(WakeWord.ACTION_VOICE_ASSIST).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // Same app either way; the accessibility service's context is the one Android
         // most clearly lets start activities from the background.

@@ -127,6 +127,8 @@ class DictationMachine(
         fun showState(state: State)
         fun showFeedback(text: String, durationMs: Long = 2000, style: Fb = Fb.NOTICE, onClick: (() -> Unit)? = null)
         fun haptic()
+        /** The text landed in the field (inserted or pasted): the button flashes. */
+        fun delivered() {}
 
         // The main thread.
         fun post(block: Runnable)
@@ -683,7 +685,7 @@ class DictationMachine(
         }
         val message = when (fx.inject(text)) {
             TextInjector.Outcome.INSERTED -> return offerUndo(note ?: "Inserted")
-            TextInjector.Outcome.PASTED -> note
+            TextInjector.Outcome.PASTED -> note.also { fx.delivered() }
             TextInjector.Outcome.COPIED_NO_FIELD -> "No text field focused, copied to clipboard"
             TextInjector.Outcome.COPIED_FAILED -> "Could not insert, copied to clipboard"
         }
@@ -692,6 +694,7 @@ class DictationMachine(
 
     /** Shows [message] as a chip you can tap to undo, for a few seconds after text lands. */
     private fun offerUndo(message: String) {
+        fx.delivered()
         if (!fx.canUndo) return fx.showFeedback(message)
         fx.showFeedback(message, UNDO_WINDOW_MS, Fb.ACTION) {
             when (fx.undo()) {

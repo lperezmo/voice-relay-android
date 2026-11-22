@@ -40,6 +40,8 @@ class TimerVoiceFlow(
     private val onStatus: (String) -> Unit,
     /** The request is over, however it ended. Called on the main thread. */
     private val onDone: () -> Unit,
+    /** Each step of the request, for the ring around the dictate button. Called on the main thread. */
+    private val onStage: (ButtonRing.Voice) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private val secrets = SecretStore(context)
@@ -143,6 +145,7 @@ class TimerVoiceFlow(
         }
         if (cancelled) return
         status("Setting your timer")
+        stage(ButtonRing.Voice.THINKING)
         val client = AnthropicClient(anthropicKey, http = http)
         val model = settings.timerModel
         val system = TimerAssistant.systemPrompt(ZonedDateTime.now())
@@ -192,6 +195,7 @@ class TimerVoiceFlow(
     private fun listen(openAiKey: String): Heard {
         if (over()) return Heard.Nothing
         status("Listening for your timer")
+        stage(ButtonRing.Voice.LISTENING)
         tone()
         val ended = CountDownLatch(1)
         val ear = EndOfSpeech()
@@ -212,6 +216,7 @@ class TimerVoiceFlow(
         if (cancelled || !ear.heardSpeech) return Heard.Nothing
 
         status("Working out your timer")
+        stage(ButtonRing.Voice.TRANSCRIBING)
         val file = AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, context.cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
             ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
         val model = settings.transcriptionModel
@@ -266,6 +271,10 @@ class TimerVoiceFlow(
         main.post { onStatus(text) }
     }
 
+    private fun stage(step: ButtonRing.Voice) {
+        if (!cancelled) main.post { onStage(step) }
+    }
+
     /**
      * Says [line] out loud and waits until it has been said. False when it was not said:
      * the request was stopped, or the phone has no speech engine that works (the
@@ -290,6 +299,7 @@ class TimerVoiceFlow(
             })
             if (engine.speak(line, TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) return false
         }
+        stage(ButtonRing.Voice.SPEAKING)
         if (!said.await(SPEAK_WAIT_S, TimeUnit.SECONDS)) synchronized(ttsLock) { tts?.stop() }
         return !cancelled
     }

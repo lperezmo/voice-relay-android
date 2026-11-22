@@ -16,6 +16,7 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     private val settings = env.settings
     private val activity = env.activity
 
+    private val dimRow: SettingsUi.SwitchRow
     private val joystickRow: SettingsUi.SwitchRow
     private val autoSwitchRow: SettingsUi.SwitchRow
     private val volumeRow: SettingsUi.SwitchRow
@@ -37,7 +38,14 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         val ui = env.ui
         val card = ui.card(parent, "Floating buttons")
 
-        card.addView(ui.sectionTitle("Arrow joystick", rule = false))
+        dimRow = ui.switchRow("Dim when idle", "") {
+            settings.dimWhenIdle = !settings.dimWhenIdle
+            WhisperAccessibilityService.instance?.refreshDim()
+            env.refresh()
+        }
+        card.addView(dimRow.view)
+
+        card.addView(ui.sectionTitle("Arrow joystick"))
         joystickRow = ui.switchRow("Show the arrow pad", "") {
             settings.joystickEnabled = !settings.joystickEnabled
             WhisperAccessibilityService.instance?.refreshJoystick()
@@ -136,6 +144,11 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     }
 
     override fun refresh() {
+        dimRow.switch.isChecked = settings.dimWhenIdle
+        dimRow.subtitle.text = if (settings.dimWhenIdle)
+            "The button and its pills fade 3 seconds after you last touch them, and come back when you touch one or something happens."
+        else "Off. The button and its pills always show in full."
+
         joystickRow.switch.isChecked = settings.joystickEnabled
         joystickRow.subtitle.text = if (settings.joystickEnabled)
             "A draggable pad that sends arrow keys. Push the middle knob; drag the ring to move it."

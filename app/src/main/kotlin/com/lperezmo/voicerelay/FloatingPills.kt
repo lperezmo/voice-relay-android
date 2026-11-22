@@ -42,6 +42,10 @@ class FloatingPills(
     private val buttonsHidden: () -> Boolean,
     private val onPillAdded: () -> Unit,
     private val showFeedback: (text: String, durationMs: Long) -> Unit,
+    /** The timers changed or ticked: how much of the next running one is left (0 to 1, null with none), and whether one is done. */
+    private val onTimers: (next: Float?, done: Boolean) -> Unit,
+    /** A finger touched a pill, or a pill's popup opened or closed: keeps the cluster from dimming. */
+    private val onActivity: () -> Unit,
 ) {
     private var pillView: VolumePillView? = null
     private var pillParams: WindowManager.LayoutParams? = null
@@ -92,8 +96,10 @@ class FloatingPills(
 
     private fun layout() = PillLayout(dp, ringDp, buttonDp, marginDp)
 
-    /** Starts watching for Glyph being installed or removed. Call once, when the service connects. */
+    /** Starts watching for Glyph being installed or removed, and the timers for the button's ring. Call once, when the service connects. */
     fun start() {
+        timers.addListener(timersChanged)
+        renderTimers()
         ContextCompat.registerReceiver(
             service, packageReceiver,
             IntentFilter().apply {
@@ -108,6 +114,8 @@ class FloatingPills(
 
     /** The service is going away: stop watching Glyph. Call [hide] too, to take the pills down. */
     fun stop() {
+        timers.removeListener(timersChanged)
+        handler.removeCallbacks(tickTimers)
         try { service.unregisterReceiver(packageReceiver) } catch (_: IllegalArgumentException) {}
     }
 
@@ -126,6 +134,18 @@ class FloatingPills(
         closeFan()
         hideTimerCards()
     }
+
+    /** True while the preset track, the timer fan or a timer card is open. */
+    fun popupsOpen(): Boolean = trackView != null || fanView != null || listCard != null || ownCard != null
+
+    /** Fades the three pills to [alpha] over [durationMs], for dimming when idle; popups are never faded. */
+    fun fade(alpha: Float, durationMs: Long) {
+        for (view in listOf(pillView, glyphView, timerView)) view?.animate()?.alpha(alpha)?.setDuration(durationMs)?.start()
+        pillAlpha = alpha
+    }
+
+    /** What [fade] last asked for, so a pill shown while dimmed starts dimmed. */
+    private var pillAlpha = 1f
 
     /** How far the shown pills reach over and under the button's ring window, for [BubbleBounds]. */
     fun above(): Int = layout().above(pillView != null, timerView != null && timerStacked)
@@ -175,12 +195,14 @@ class FloatingPills(
         val view = VolumePillView(service).apply {
             update(volume.current())
             setOnClickListener {
+                onActivity()
                 when {
                     trackView != null -> hideTrack()
                     android.os.SystemClock.uptimeMillis() - trackClosedOutsideAt > REOPEN_GUARD_MS -> showTrack()
                 }
             }
         }
+        view.alpha = pillAlpha
         wm.addView(view, params)
         pillView = view
         pillParams = params
@@ -244,7 +266,9 @@ class FloatingPills(
         wm.addView(view, params)
         trackView = view
         trackParams = params
+        pillView?.open = true
         scheduleTrackClose(TRACK_IDLE_MS)
+        onActivity()
     }
 
     /** Closes the preset track if it is open. Safe to call at any time. */
@@ -254,6 +278,8 @@ class FloatingPills(
         wm.removeView(view)
         trackView = null
         trackParams = null
+        pillView?.open = false
+        onActivity()
     }
 
     private fun scheduleTrackClose(delayMs: Long) {
@@ -310,6 +336,7 @@ class FloatingPills(
         ).apply { gravity = Gravity.TOP or Gravity.START }
         positionGlyphPill(params, bubble)
         val view = GlyphPillView(service).apply { onFire = { openGlyph() } }
+        view.alpha = pillAlpha
         wm.addView(view, params)
         glyphView = view
         glyphParams = params
@@ -328,6 +355,7 @@ class FloatingPills(
      * when [AppSettings.glyphBuiltIn] is on, else the Glyph app's.
      */
     private fun openGlyph() {
+        onActivity()
         hidePopups()
         if (settings.glyphBuiltIn) {
             service.startActivity(
@@ -387,8 +415,8 @@ class FloatingPills(
         timerView = view
         timerParams = params
         positionTimerPill(params, bubble)
+        view.alpha = pillAlpha
         wm.addView(view, params)
-        timers.addListener(timersChanged)
         renderTimers()
         onPillAdded()
     }
@@ -396,11 +424,10 @@ class FloatingPills(
     private fun hideTimerPill() {
         val view = timerView ?: return
         handler.removeCallbacks(holdTimer)
-        handler.removeCallbacks(tickTimers)
+        // The tick keeps going (slower) while a timer runs: the button's gold arc still shows it.
         press.cancel()
         closeFan()
         hideTimerCards()
-        timers.removeListener(timersChanged)
         wm.removeView(view)
         timerView = null
         timerParams = null
@@ -428,14 +455,22 @@ class FloatingPills(
         }
     }
 
-    /** Redraws the pill, the chips and the list from the timers as they are now, and keeps ticking while one runs. */
+    /**
+     * Redraws the pill, the chips, the list and the button's gold arc from the timers as they
+     * are now, and keeps ticking while one runs (slower when only the button's ring shows it).
+     */
     private fun renderTimers() {
-        val view = timerView ?: return
         handler.removeCallbacks(tickTimers)
         // The alarm rings a timer on time; this catches one whose alarm Android held back.
         timers.checkDue()
         val now = System.currentTimeMillis()
         val sorted = timers.timers()
+        onTimers(sorted.firstOrNull { !it.done(now) }?.fractionLeft(now), sorted.any { it.done(now) })
+        val view = timerView
+        if (view == null) {
+            if (sorted.any { !it.done(now) }) handler.postDelayed(tickTimers, RING_TICK_MS)
+            return
+        }
         view.update(TimerText.face(sorted, now), TimerText.describe(sorted, now))
         fanView?.showChips(sorted.map { TimerFanView.Chip(it.label, TimerText.clock(it.secondsLeft(now)), it.done(now)) })
         listCard?.let { card ->
@@ -459,6 +494,7 @@ class FloatingPills(
         val y = rawY - at[1] + params.y
         when (action) {
             MotionEvent.ACTION_DOWN -> {
+                onActivity()
                 hidePopups()
                 fan = layout().timerFan(
                     PillLayout.Spot(params.x, params.y), params.width, params.height, timerStacked,
@@ -534,6 +570,7 @@ class FloatingPills(
         }
         wm.addView(view, params)
         fanView = view
+        onActivity()
         timerView?.active = true
         timerView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         renderTimers()
@@ -545,6 +582,7 @@ class FloatingPills(
         wm.removeView(view)
         fanView = null
         timerView?.active = listCard != null || ownCard != null
+        onActivity()
     }
 
     private fun showListCard() {
@@ -568,6 +606,7 @@ class FloatingPills(
         placeTimerCards(bubble, update = false)
         wm.addView(card, params)
         timerView?.active = true
+        onActivity()
     }
 
     private fun showOwnCard() {
@@ -594,6 +633,7 @@ class FloatingPills(
         placeTimerCards(bubble, update = false)
         wm.addView(card, params)
         timerView?.active = true
+        onActivity()
     }
 
     private fun cardParams(widthDp: Int, flags: Int) = WindowManager.LayoutParams(
@@ -604,6 +644,7 @@ class FloatingPills(
 
     /** Closes the running-timers card and the "your own time" card. Safe to call at any time. */
     private fun hideTimerCards() {
+        if (listCard != null || ownCard != null) onActivity()
         listCard?.let { wm.removeView(it) }
         listCard = null
         listParams = null
@@ -635,6 +676,8 @@ class FloatingPills(
     private companion object {
         const val TAG = "VoiceRelay"
         const val TIMER_TICK_MS = 250L
+        /** With no timer pill, only the button's gold arc moves: once a second is plenty. */
+        const val RING_TICK_MS = 1000L
         const val TIMER_FEEDBACK_MS = 2400L
         /** The service's default feedback duration, for the messages that used it. */
         const val FEEDBACK_MS = 2000L
