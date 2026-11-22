@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Volume presets: DND on and off, and the ringer in and out of silent. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <!-- Ends the Silent + DND hour on time. Optional: without it, up to 10 minutes late. -->
+    <!-- Ends the Silent + DND hour on time, and rings timers on time. Optional: without it, they can be late. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Wake word: an always-on microphone foreground service with a notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -209,6 +209,11 @@
 
         <receiver
             android:name=".DndExpiryReceiver"
+            android:exported="false" />
+
+        <!-- A timer's alarm, and the Stop button on its notification. -->
+        <receiver
+            android:name=".TimerReceiver"
             android:exported="false" />
 
         <service

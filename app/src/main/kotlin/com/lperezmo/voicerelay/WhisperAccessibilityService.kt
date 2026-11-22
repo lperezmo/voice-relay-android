@@ -86,7 +86,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                 Intent.ACTION_USER_PRESENT -> machine.onUnlock()
                 Intent.ACTION_SCREEN_OFF -> {
                     machine.onScreenOff()
-                    pills.hideTrack()
+                    pills.hidePopups()
                 }
             }
         }
@@ -134,7 +134,9 @@ class WhisperAccessibilityService : AccessibilityService() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         pills = FloatingPills(
-            this, settings, VolumeController(this).apply { resumeDndTimer() }, handler,
+            this, settings, VolumeController(this).apply { resumeDndTimer() },
+            // Android forgets alarms over a reboot or an update; this sets the timers' again.
+            TimerController.get(this).apply { resume() }, handler,
             ringDp = RING_DP, buttonDp = BTN_DP, marginDp = MARGIN_DP,
             bubble = { layoutParams },
             buttonsHidden = { buttonsHidden },
@@ -146,6 +148,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         refreshJoystick()
         refreshVolumePill()
         refreshGlyphPill()
+        refreshTimerPill()
         ButtonsTileService.requestUpdate(this)
         pills.start()
         // If a crash or an update left the arrows keyboard selected, undo that now.
@@ -180,7 +183,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         if (hide) {
             handler.removeCallbacks(hideFeedback)
             feedbackView?.visibility = View.GONE
-            pills.hideTrack()
+            pills.hidePopups()
             arrowPad.hide()
             pills.hide()
             overlayView?.visibility = View.GONE
@@ -189,6 +192,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             refreshJoystick()
             refreshVolumePill()
             refreshGlyphPill()
+            refreshTimerPill()
         }
         Log.i(TAG, if (hide) "Buttons: hidden" else "Buttons: shown")
         ButtonsTileService.requestUpdate(this)
@@ -206,6 +210,15 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     /** Shows the Glyph pill when the setting is on and Glyph is installed, else hides it. Safe to call at any time. */
     fun refreshGlyphPill() = pills.refreshGlyph()
+
+    /**
+     * Shows or hides the timer pill to match the setting, or moves it after its position
+     * setting changed; the button then settles with the room the pills need now.
+     */
+    fun refreshTimerPill() {
+        pills.refreshTimer()
+        settleBubble()
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || !::injector.isInitialized) return
@@ -634,7 +647,9 @@ class WhisperAccessibilityService : AccessibilityService() {
         val w = view.measuredWidth
         val h = view.measuredHeight
         val onRight = bubbleParams.x + ring / 2 > screenW / 2
-        val x = if (onRight) bubbleParams.x - w - margin else bubbleParams.x + ring + margin
+        // Past the timer pill when it sits beside the button, so the message never covers it.
+        val side = pills.beside()
+        val x = if (onRight) bubbleParams.x - side - w - margin else bubbleParams.x + ring + side + margin
         feedbackParams.x = x.coerceIn(margin, maxOf(margin, screenW - w - margin))
         feedbackParams.y = (bubbleParams.y + (ring - h) / 2)
             .coerceIn(margin, maxOf(margin, screenH - h - margin))

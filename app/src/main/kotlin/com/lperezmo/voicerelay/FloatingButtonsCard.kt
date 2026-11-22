@@ -1,6 +1,9 @@
 package com.lperezmo.voicerelay
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
+import androidx.core.app.ActivityCompat
 import android.net.Uri
 import android.provider.Settings
 import android.view.View
@@ -8,7 +11,7 @@ import android.widget.LinearLayout
 import com.lperezmo.voicerelay.glyph.GlyphTileService
 import com.lperezmo.voicerelay.glyph.SettingsActivity as GlyphSettingsActivity
 
-/** The extra floating buttons beside the mic: the arrow joystick, the volume presets pill and the Glyph pill. */
+/** The extra floating buttons beside the mic: the arrow joystick, the volume presets pill, the timer pill and the Glyph pill. */
 class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : SettingsCard {
     private val settings = env.settings
     private val activity = env.activity
@@ -18,6 +21,12 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     private val volumeRow: SettingsUi.SwitchRow
     private val dndRow: SettingsUi.StatusRow
     private val exactRow: SettingsUi.StatusRow
+    private val timerRow: SettingsUi.SwitchRow
+    private val timerPositionTitle: View
+    private val timerBesideRow: SettingsUi.RadioRow
+    private val timerAboveRow: SettingsUi.RadioRow
+    private val timerNotifyRow: SettingsUi.StatusRow
+    private val timerExactRow: SettingsUi.StatusRow
     private val glyphRow: SettingsUi.SwitchRow
     private val glyphBuiltInRow: SettingsUi.SwitchRow
     private val glyphShapesRow: SettingsUi.Row
@@ -60,6 +69,42 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             env.open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
         }
         card.addView(exactRow.view)
+
+        card.addView(ui.sectionTitle("Timers"))
+        timerRow = ui.switchRow("Timer pill", "") {
+            settings.timerPillEnabled = !settings.timerPillEnabled
+            WhisperAccessibilityService.instance?.refreshTimerPill()
+            env.refresh()
+            // A finished timer rings through a notification with a Stop button.
+            if (settings.timerPillEnabled && Build.VERSION.SDK_INT >= 33 && !env.hasPerm(Manifest.permission.POST_NOTIFICATIONS)) {
+                ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_TIMER_NOTIFICATIONS)
+            }
+        }
+        card.addView(timerRow.view)
+        timerPositionTitle = ui.note("Timer pill position")
+        card.addView(timerPositionTitle)
+        fun positionRow(title: String, subtitle: String, position: String) = ui.radioRow(title, subtitle) {
+            settings.timerPillPosition = position
+            WhisperAccessibilityService.instance?.refreshTimerPill()
+            env.refresh()
+        }.also { card.addView(it.view) }
+        timerBesideRow = positionRow(
+            "Beside the button", "On the side facing the middle of the screen, level with the button.", AppSettings.TIMER_BESIDE,
+        )
+        timerAboveRow = positionRow(
+            "Above the volume pill", "In the volume pill's column, so nothing sticks out toward the middle.", AppSettings.TIMER_ABOVE,
+        )
+        timerNotifyRow = ui.statusRow("Ring with a Stop button", "") {
+            env.open(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+            )
+        }
+        card.addView(timerNotifyRow.view)
+        timerExactRow = ui.statusRow("Ring on time", "") {
+            env.open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
+        }
+        card.addView(timerExactRow.view)
 
         card.addView(ui.sectionTitle("Glyph"))
         glyphRow = ui.switchRow("Show the Glyph pill", "") {
@@ -110,6 +155,25 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         exactRow.show(volume.exactTimer, if (volume.exactTimer) "On: DND ends right at the hour"
         else "Off: DND may end up to 10 minutes late. Tap to allow alarms.")
 
+        val timerOn = settings.timerPillEnabled
+        timerRow.switch.isChecked = timerOn
+        timerRow.subtitle.text = if (timerOn)
+            "Hold the pill and slide to 5, 10, 15, 30 or your own time. Tap it to see what is running, add a minute or stop one."
+        else "Off. A pill by the mic for kitchen timers: hold to start one, tap to see and stop them."
+        val timerDetail = if (timerOn) View.VISIBLE else View.GONE
+        timerPositionTitle.visibility = timerDetail
+        timerBesideRow.view.visibility = timerDetail
+        timerAboveRow.view.visibility = timerDetail
+        timerBesideRow.radio.isChecked = settings.timerPillPosition == AppSettings.TIMER_BESIDE
+        timerAboveRow.radio.isChecked = settings.timerPillPosition == AppSettings.TIMER_ABOVE
+        val timers = TimerController.get(activity)
+        timerNotifyRow.view.visibility = timerDetail
+        timerNotifyRow.show(timers.canNotify, if (timers.canNotify) "On: a finished timer rings until you tap Stop"
+        else "Notifications are off, so a finished timer only rings for a minute. Tap to allow them.")
+        timerExactRow.view.visibility = timerDetail
+        timerExactRow.show(timers.exactAlarms, if (timers.exactAlarms) "On: timers ring right when they end"
+        else "Off: a timer may ring a few minutes late while the phone sleeps. Tap to allow alarms.")
+
         val glyphInstalled = GlyphPillView.glyphInstalled(activity)
         val builtIn = settings.glyphBuiltIn
         glyphRow.switch.isChecked = settings.glyphPillEnabled
@@ -145,5 +209,10 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             anthropicKey.length > 12 -> "${anthropicKey.take(7)}...${anthropicKey.takeLast(4)}"
             else -> "Set"
         }
+    }
+
+    private companion object {
+        /** Clear of MainActivity's own request codes. */
+        const val REQ_TIMER_NOTIFICATIONS = 31
     }
 }
