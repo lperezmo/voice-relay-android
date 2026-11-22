@@ -103,6 +103,12 @@ class ButtonRing {
         voiceLimitFrom = now
     }
 
+    /** "hey timer" stopped a ringing timer: a short blue flash, nothing else. */
+    fun stoppedByVoice(now: Long) {
+        activityAt = now
+        flash(BLUE, now)
+    }
+
     /** The "hey timer" request is over, however it ended. */
     fun voiceDone(now: Long) {
         if (voice == null) return

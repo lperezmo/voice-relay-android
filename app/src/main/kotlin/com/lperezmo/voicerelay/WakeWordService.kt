@@ -25,6 +25,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -499,6 +500,7 @@ class WakeWordService : Service() {
                 WakeWordController.Action.StopMic -> stopMic()
                 WakeWordController.Action.LaunchAssistant -> launchAssistant()
                 WakeWordController.Action.StartTimerFlow -> startTimerFlow()
+                WakeWordController.Action.StopRingingTimers -> stopRingingTimers()
                 WakeWordController.Action.ResumeMedia -> resumeMedia()
                 is WakeWordController.Action.Note -> Log.i(TAG, "Wake word: ${action.message}")
             }
@@ -547,7 +549,10 @@ class WakeWordService : Service() {
         // A detection that was already on its way when that phrase was switched off is dropped.
         val timerLabel = WakeWord.isTimerLabel(label)
         if (if (timerLabel) !settings.timerWakeEnabled else !settings.wakeWordEnabled) return
-        val actions = controller.onKeyword(now(), musicActive, settings.wakeResumeMedia, timer = timerLabel)
+        val ringing = timerLabel && ringingTimers().isNotEmpty()
+        val actions = controller.onKeyword(
+            now(), musicActive, settings.wakeResumeMedia, timer = timerLabel, timerRinging = ringing,
+        )
         if (actions.isEmpty()) return
         Log.i(
             TAG,
@@ -557,6 +562,21 @@ class WakeWordService : Service() {
             )
         )
         apply(actions)
+    }
+
+    private fun ringingTimers(): List<TimerEntry> {
+        val timers = TimerController.get(this)
+        return TimerText.ringing(timers.timers(), System.currentTimeMillis())
+    }
+
+    /** "hey timer" while a timer rings: silence them all through the Stop button's own call. */
+    private fun stopRingingTimers() {
+        val timers = TimerController.get(this)
+        val stopped = ringingTimers().mapNotNull { timers.stop(it.id) }
+        Log.i(TAG, "Wake word: stopped ${stopped.size} ringing timer(s) by voice")
+        if (stopped.isEmpty()) return
+        WhisperAccessibilityService.instance?.onTimerStoppedByVoice()
+        Toast.makeText(this, "Stopped", Toast.LENGTH_SHORT).show()
     }
 
     private fun launchAssistant() {

@@ -425,6 +425,13 @@ class WhisperAccessibilityService : AccessibilityService() {
         refreshDim()
     }
 
+    /** "hey timer" stopped a ringing timer. Main thread. */
+    fun onTimerStoppedByVoice() {
+        ring.stoppedByVoice(SystemClock.uptimeMillis())
+        button?.refresh()
+        refreshDim()
+    }
+
     /** The "hey timer" request is over. Main thread. */
     fun onTimerVoiceDone() {
         ring.voiceDone(SystemClock.uptimeMillis())

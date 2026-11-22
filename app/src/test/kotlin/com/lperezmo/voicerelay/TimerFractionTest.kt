@@ -69,6 +69,18 @@ class TimerFractionTest {
         assertNull(TimerText.blink(10 * 60 * 60_000L))
     }
 
+    @Test fun `ringing lists every timer whose alarm sounds now, and only those`() {
+        var book = Timers()
+        book = book.start(now = 0, seconds = 60).first        // ends at 60 s
+        book = book.start(now = 0, seconds = 90).first        // ends at 90 s
+        book = book.start(now = 0, seconds = 3_600).first     // still running
+        assertTrue(TimerText.ringing(book.sorted(), 30_000).isEmpty())
+        assertEquals(listOf(1), TimerText.ringing(book.sorted(), 60_000).map { it.id })
+        assertEquals(listOf(1, 2), TimerText.ringing(book.sorted(), 100_000).map { it.id })
+        // Ten minutes after its end a timer's alarm has gone quiet: it is no longer ringing.
+        assertEquals(listOf(2), TimerText.ringing(book.sorted(), 60_000 + TimerText.RING_MS).map { it.id })
+    }
+
     @Test fun `with the pill off the ring shows a finished timer only while it rings`() {
         val (book, _) = Timers().start(now = 0, seconds = 60)
         val list = book.sorted()
