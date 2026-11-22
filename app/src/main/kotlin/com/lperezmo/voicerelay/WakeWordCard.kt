@@ -53,8 +53,8 @@ class WakeWordCard(
         container.addView(overlayRow.view)
         card.addView(container)
 
-        card.addView(ui.sectionTitle("Timers by voice"))
-        timerRow = ui.switchRow("Timer phrase", "") { onToggleTimer() }
+        card.addView(ui.sectionTitle("Timers"))
+        timerRow = ui.switchRow("Timers by voice", "") { onToggleTimer() }
         card.addView(timerRow.view)
         timerPhraseRow = ui.row("Timer phrase", "") { env.dialogs.promptTimerPhrase() }
         card.addView(timerPhraseRow.view)
@@ -126,8 +126,10 @@ class WakeWordCard(
         val openAiKey = env.secrets.getApiKey().isNotBlank()
         val anthropicKey = env.secrets.getAnthropicKey().isNotBlank()
         timerRow.switch.isChecked = timerOn
-        timerRow.title.text = "Timer phrase: ${timer.phrase}"
+        timerRow.title.text = "Timers by voice: ${timer.phrase}"
         timerRow.subtitle.text = when {
+            timerOn && WakeWord.shadowed(if (on) keywords else null, timer.keywords) ->
+                "On, but ${timer.phrase} sounds the same as the wake phrase, so it opens Claude. Pick a different timer phrase below."
             !timerOn -> "Off. Say ${timer.phrase}, wait for the tone, then ask for a timer any way you like: " +
                 "\"10 minutes\", \"for 10:50\", \"the pasta, 9 minutes\". The phone answers out loud."
             !openAiKey || !anthropicKey -> "On, but it needs both API keys below."

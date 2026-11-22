@@ -131,6 +131,15 @@ object WakeWord {
     }
 
     /**
+     * True when every way of saying the timer phrase is also a way of saying the Claude
+     * phrase: [listenFor] then keeps none of it, and the timer phrase would never fire.
+     */
+    fun shadowed(claude: List<Keyword>?, timer: List<Keyword>): Boolean {
+        val taken = claude.orEmpty().map { it.phones }.toSet()
+        return timer.isNotEmpty() && timer.all { it.phones in taken }
+    }
+
+    /**
      * Pronunciations CMUdict does not list but accents produce. "Claude" comes
      * out as "cloud" or "clod" for many speakers, in any phrase that uses it.
      */

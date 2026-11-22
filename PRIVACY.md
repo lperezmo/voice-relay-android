@@ -79,7 +79,8 @@ the phone, with nothing recorded or sent while it only listens. What happens aft
 different, and it is the only time the wake word listener sends audio anywhere:
 
 - The app records what you say next, for 15 seconds at most, and sends that recording to OpenAI
-  with your key to be transcribed, exactly like a dictation. The recording is kept in memory and
+  with your key to be transcribed, exactly like a dictation. The recording is kept in memory,
+  apart from a temporary file used to compress it, which is deleted straight away, and is
   discarded after the request.
 - The transcript goes to Anthropic with your key, together with the phone's current date, time
   and time zone, so Claude can work out how long the timer runs. If Claude asks you a question
@@ -88,7 +89,8 @@ different, and it is the only time the wake word listener sends audio anywhere:
 
 Nothing is recorded or sent unless the timer phrase was heard. The timers themselves (label and
 end time) are kept only on the phone. The logs record timings, sizes and whether a timer was set,
-never what you said or what was answered. With either key missing, the phrase does nothing.
+never what you said or what was answered. With either key missing, the phrase records and
+sends nothing; it shows one notification saying which keys it needs.
 
 While it listens, the app reads Android's audio state (whether another app is recording, the
 audio mode, whether Android has silenced its own recording, and whether music is playing) to pause

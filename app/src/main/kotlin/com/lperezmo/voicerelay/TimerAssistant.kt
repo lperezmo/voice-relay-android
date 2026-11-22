@@ -79,7 +79,7 @@ class TimerAssistant(
             // Every result goes back in one user turn, in the order Claude asked.
             val results = JSONArray()
             for (use in uses) {
-                val result = run(use, questionsLeft = MAX_QUESTIONS - questions)
+                val result = run(use, questionsLeft = MAX_QUESTIONS - questions, timersLeft = MAX_TIMERS - timersSet)
                 if (use.name == TOOL_ASK_USER && !result.isError) questions++
                 if (use.name == TOOL_SET_TIMER && !result.isError) timersSet++
                 results.put(AnthropicClient.toolResult(use.id, result.text, result.isError))
@@ -91,7 +91,7 @@ class TimerAssistant(
 
     private class ToolResult(val text: String, val isError: Boolean = false)
 
-    private fun run(use: ToolUse, questionsLeft: Int): ToolResult = try {
+    private fun run(use: ToolUse, questionsLeft: Int, timersLeft: Int): ToolResult = try {
         when (use.name) {
             TOOL_SET_TIMER -> {
                 val seconds = use.input.optDouble("seconds", Double.NaN)
@@ -100,6 +100,8 @@ class TimerAssistant(
                     seconds.isNaN() -> ToolResult("seconds is required: how long the timer runs, in seconds.", isError = true)
                     seconds < 1 || seconds > Timers.MAX_SECONDS ->
                         ToolResult("seconds must be between 1 and ${Timers.MAX_SECONDS} (24 hours). Nothing was set.", isError = true)
+                    timersLeft <= 0 ->
+                        ToolResult("That is enough timers for one request ($MAX_TIMERS). Nothing more was set.", isError = true)
                     else -> ToolResult(tools.setTimer(Math.round(seconds), label))
                 }
             }
@@ -130,6 +132,8 @@ class TimerAssistant(
         const val MAX_ROUNDS = 5
         /** Spoken questions per request. */
         const val MAX_QUESTIONS = 2
+        /** Timers one request may start, so a misheard sentence cannot start twenty. */
+        const val MAX_TIMERS = 3
 
         const val TOOL_SET_TIMER = "set_timer"
         const val TOOL_GET_TIME = "get_time"
@@ -169,8 +173,8 @@ class TimerAssistant(
             .put(
                 AnthropicClient.tool(
                     TOOL_GET_TIME,
-                    "The phone's current local date, time and time zone. Call it right before working out " +
-                        "how long until a clock time.",
+                    "The phone's current local date, time and time zone. The system prompt has the time the " +
+                        "request was made; call this to get it again after time has passed, such as after ask_user.",
                     JSONObject().put("type", "object").put("properties", JSONObject()),
                 )
             )
@@ -198,7 +202,7 @@ class TimerAssistant(
 
             The phone's local time is ${describe(now)}.
 
-            Work out how long the timer must run and call set_timer with that many seconds. People say it many ways: "10 minutes", "an hour and a half", "for 10:50 AM", "until quarter past", "the pasta, 9 minutes". When they name what it is for, pass a short label ("Pasta"). For a clock time, call get_time first and count from the time it returns.
+            Work out how long the timer must run and call set_timer with that many seconds. People say it many ways: "10 minutes", "an hour and a half", "for 10:50 AM", "until quarter past", "the pasta, 9 minutes". When they name what it is for, pass a short label ("Pasta"). For a clock time, count from the phone's time above; it was read a moment ago. After ask_user, call get_time and count again, since time has passed while they answered.
 
             If a clock time has already passed today, it means tomorrow. Do not set it yet: call ask_user to say so and ask ("That's tomorrow at 10:50, 23 hours from now. Set it?"), then set it only if they say yes. Do not use ask_user for anything you can reasonably work out yourself.
 

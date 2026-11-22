@@ -53,9 +53,18 @@ class TimerVoiceFlow(
 
     @Volatile private var running = false
     @Volatile private var cancelled = false
-    @Volatile private var recorder: Recorder? = null
+    /** When this request gives up, so a bad connection cannot keep the microphone from the wake word for long. */
+    @Volatile private var deadline = 0L
+    /** Counted down to end the recording in progress; only the worker thread stops the recorder. */
+    @Volatile private var recordingEnded: CountDownLatch? = null
+    private val ttsLock = Any()
     private var tts: TextToSpeech? = null
-    private var ttsReady = false
+    @Volatile private var ttsReady = false
+    private var utterance = 0
+    /** Requests give up sooner than dictation does: someone is standing there waiting for an answer. */
+    private val http by lazy {
+        OpenAiClient.sharedHttp.newBuilder().callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS).build()
+    }
     /** The missing-keys notice is shown once, until the keys are there. */
     private var saidKeysMissing = false
 
@@ -64,6 +73,7 @@ class TimerVoiceFlow(
         if (running) return false
         running = true
         cancelled = false
+        deadline = System.currentTimeMillis() + DEADLINE_MS
         thread(name = "VoiceRelay-timer") {
             val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(speechAttributes)
@@ -72,6 +82,7 @@ class TimerVoiceFlow(
                 work(focus)
             } catch (e: Exception) {
                 Log.w(TAG, "Hey timer: failed: ${e.javaClass.simpleName}")
+                finish(TimerAssistant.SAY_PROBLEM)
             } finally {
                 audio.abandonAudioFocusRequest(focus)
                 running = false
@@ -84,17 +95,22 @@ class TimerVoiceFlow(
     /** Stops a request in progress: the service is going away. */
     fun cancel() {
         cancelled = true
-        try { recorder?.stop() } catch (_: Exception) {}
-        tts?.stop()
+        recordingEnded?.countDown()
+        synchronized(ttsLock) { tts?.stop() }
     }
 
     /** Lets go of the speech engine. Call when the service is destroyed. */
     fun shutdown() {
         cancel()
-        tts?.shutdown()
-        tts = null
-        ttsReady = false
+        synchronized(ttsLock) {
+            tts?.shutdown()
+            tts = null
+            ttsReady = false
+        }
     }
+
+    /** True once the request was stopped or has run out of time: nothing more is recorded, sent, set or said. */
+    private fun over() = cancelled || System.currentTimeMillis() > deadline
 
     private fun work(focus: AudioFocusRequest) {
         val started = System.currentTimeMillis()
@@ -127,18 +143,20 @@ class TimerVoiceFlow(
         }
         if (cancelled) return
         status("Setting your timer")
-        val client = AnthropicClient(anthropicKey)
+        val client = AnthropicClient(anthropicKey, http = http)
         val model = settings.timerModel
         val system = TimerAssistant.systemPrompt(ZonedDateTime.now())
         val tools = TimerAssistant.definitions()
         val assistant = TimerAssistant(
             send = { messages ->
-                client.toolTurn(messages, model, system, tools).also {
+                if (over()) Turn(error = "stopped", httpCode = -1)
+                else client.toolTurn(messages, model, system, tools).also {
                     if (it.error == null) usage.recordText(model, it.inputTokens, it.outputTokens)
                 }
             },
             tools = object : TimerAssistant.Tools {
                 override fun setTimer(seconds: Long, label: String?): String {
+                    check(!over()) { "stopped" }
                     val timer = TimerController.get(context).start(seconds, label)
                     return TimerAssistant.describeSet(timer.label, seconds, ZonedDateTime.now())
                 }
@@ -146,8 +164,10 @@ class TimerVoiceFlow(
                 override fun getTime(): String = TimerAssistant.describe(ZonedDateTime.now())
 
                 override fun askUser(question: String): String {
+                    check(!over()) { "stopped" }
                     show(question)
-                    say(question)
+                    // A question nobody heard gets no answer: don't record one.
+                    if (!say(question)) return ""
                     return (listen(openAiKey) as? Heard.Text)?.text.orEmpty()
                 }
             },
@@ -158,7 +178,8 @@ class TimerVoiceFlow(
             "Hey timer: done in ${System.currentTimeMillis() - started} ms, ${outcome.rounds} rounds, " +
                 "${outcome.timersSet} set, ${if (outcome.failed) "failed" else "ok"}"
         )
-        finish(outcome.spoken)
+        val tooLong = outcome.failed && !cancelled && System.currentTimeMillis() > deadline
+        finish(if (tooLong) "That took too long, so no timer was set." else outcome.spoken)
     }
 
     private sealed interface Heard {
@@ -169,7 +190,7 @@ class TimerVoiceFlow(
 
     /** A tone, then records until the speaker stops, then transcribes. */
     private fun listen(openAiKey: String): Heard {
-        if (cancelled) return Heard.Nothing
+        if (over()) return Heard.Nothing
         status("Listening for your timer")
         tone()
         val ended = CountDownLatch(1)
@@ -180,10 +201,11 @@ class TimerVoiceFlow(
             onChunk = { bytes, n -> if (ear.feed(bytes, n)) ended.countDown() },
             onError = { ended.countDown() },
         )
+        recordingEnded = ended
         if (!startRecording(rec)) return Heard.Failed("The microphone is busy, so I couldn't listen.")
-        recorder = rec
-        ended.await(EndOfSpeech.MAX_SECONDS + 2L, TimeUnit.SECONDS)
-        recorder = null
+        // Stopped while the tone played or the mic was being opened: end at once.
+        if (!cancelled) ended.await(EndOfSpeech.MAX_SECONDS + 2L, TimeUnit.SECONDS)
+        recordingEnded = null
         val pcm = try { rec.stop() } catch (_: Exception) { ByteArray(0) }
         val seconds = Recorder.durationSeconds(pcm)
         Log.i(TAG, "Hey timer: recorded %.1f s, speech %s".format(seconds, if (ear.heardSpeech) "heard" else "not heard"))
@@ -193,7 +215,7 @@ class TimerVoiceFlow(
         val file = AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, context.cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
             ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
         val model = settings.transcriptionModel
-        val result = OpenAiClient(openAiKey).transcribe(file, model, settings.vocabulary, settings.languages)
+        val result = OpenAiClient(openAiKey, http = http).transcribe(file, model, settings.vocabulary, settings.languages)
         if (result.error == null) usage.recordTranscription(model, seconds)
         return when {
             result.ok -> Heard.Text(result.text!!.trim())
@@ -207,6 +229,7 @@ class TimerVoiceFlow(
     /** The wake word's own recorder lets go of the mic a moment after it is told to; try a few times. */
     private fun startRecording(rec: Recorder): Boolean {
         repeat(MIC_TRIES) { attempt ->
+            if (cancelled) return false
             try {
                 rec.start()
                 return true
@@ -238,40 +261,53 @@ class TimerVoiceFlow(
         say(line)
     }
 
+
     private fun status(text: String) {
         main.post { onStatus(text) }
     }
 
-    /** Says [line] out loud and waits until it has been said. Without a speech engine the notification still shows it. */
-    private fun say(line: String) {
-        if (cancelled) return
-        val engine = engine() ?: return
+    /**
+     * Says [line] out loud and waits until it has been said. False when it was not said:
+     * the request was stopped, or the phone has no speech engine that works (the
+     * notification still shows the line).
+     */
+    private fun say(line: String): Boolean {
+        val engine = engine() ?: return false
         val said = CountDownLatch(1)
-        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) = said.countDown()
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) = said.countDown()
-            override fun onError(utteranceId: String?, errorCode: Int) = said.countDown()
-            override fun onStop(utteranceId: String?, interrupted: Boolean) = said.countDown()
-        })
-        if (engine.speak(line, TextToSpeech.QUEUE_FLUSH, null, "timer") != TextToSpeech.SUCCESS) return
-        said.await(SPEAK_WAIT_S, TimeUnit.SECONDS)
+        val id: String
+        synchronized(ttsLock) {
+            if (cancelled || tts !== engine) return false
+            id = "timer-${++utterance}"
+            // Only this line's own end counts: a cut-off earlier line reports its end here too.
+            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                private fun end(utteranceId: String?) { if (utteranceId == id) said.countDown() }
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) = end(utteranceId)
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) = end(utteranceId)
+                override fun onError(utteranceId: String?, errorCode: Int) = end(utteranceId)
+                override fun onStop(utteranceId: String?, interrupted: Boolean) = end(utteranceId)
+            })
+            if (engine.speak(line, TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) return false
+        }
+        if (!said.await(SPEAK_WAIT_S, TimeUnit.SECONDS)) synchronized(ttsLock) { tts?.stop() }
+        return !cancelled
     }
 
-    /** The speech engine, started the first time it is needed. Null when the phone has none that works. */
+    /** The speech engine, started the first time it is needed. Null when the phone has none that works (yet). */
     private fun engine(): TextToSpeech? {
-        tts?.let { return if (ttsReady) it else null }
         val ready = CountDownLatch(1)
-        var ok = false
-        val engine = TextToSpeech(context) { status ->
-            ok = status == TextToSpeech.SUCCESS
-            ready.countDown()
+        val engine = synchronized(ttsLock) {
+            if (cancelled) return null
+            tts?.let { return if (ttsReady) it else null }
+            TextToSpeech(context) { status ->
+                // Also when it comes up late: the next line is spoken then.
+                ttsReady = status == TextToSpeech.SUCCESS
+                ready.countDown()
+            }.also { tts = it }
         }
-        tts = engine
         ready.await(TTS_START_S, TimeUnit.SECONDS)
-        ttsReady = ok
-        if (!ok) {
+        if (!ttsReady) {
             Log.w(TAG, "Hey timer: no speech engine")
             return null
         }
@@ -281,6 +317,7 @@ class TimerVoiceFlow(
 
     /** Shows [line] in its own notification: Luis may not be looking, but it is there when he does. */
     private fun show(line: String) {
+        if (cancelled) return
         if (notifications.getNotificationChannel(CHANNEL) == null) {
             notifications.createNotificationChannel(
                 NotificationChannel(CHANNEL, "Hey timer answers", NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -319,6 +356,9 @@ class TimerVoiceFlow(
         const val MIC_TRIES = 5
         const val MIC_RETRY_MS = 200L
         const val SPEAK_WAIT_S = 30L
+        /** One request to OpenAI or Anthropic, and the whole exchange; both well under the wake word's own 180 s limit. */
+        const val CALL_TIMEOUT_S = 30L
+        const val DEADLINE_MS = 90_000L
         const val TTS_START_S = 5L
     }
 }

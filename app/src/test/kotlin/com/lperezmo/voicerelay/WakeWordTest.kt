@@ -613,4 +613,15 @@ class WakeWordTest {
         after.update(10_000, micBusy = false, musicActive = false)
         assertEquals(listOf(Action.StartMic, Action.ResumeMedia), after.update(11_000, micBusy = false, musicActive = false))
     }
+
+    @Test fun `a timer phrase that sounds just like the Claude phrase is reported as shadowed`() {
+        val claude = WakeWord.DEFAULT_KEYWORDS
+        // Every way of saying it is taken: it would never fire.
+        assertTrue(WakeWord.shadowed(claude, listOf(WakeWord.Keyword(claude[0].phones, "SAME"))))
+        // One way of its own is enough.
+        assertFalse(WakeWord.shadowed(claude, WakeWord.TIMER_KEYWORDS + WakeWord.Keyword(claude[1].phones, "SAME")))
+        // With the Claude phrase off, nothing is in the way.
+        assertFalse(WakeWord.shadowed(null, listOf(WakeWord.Keyword(claude[0].phones, "SAME"))))
+        assertFalse(WakeWord.shadowed(claude, emptyList()))
+    }
 }

@@ -209,7 +209,7 @@ class WakeWordService : Service() {
             val n = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_voice_mark)
                 .setContentTitle("Wake word is off")
-                .setContentText("Android stopped it. Tap to listen for ${effectiveWake(context).phrase} again.")
+                .setContentText("Android stopped it. Tap to listen for ${listeningPhrases(context)} again.")
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .build()
@@ -530,7 +530,10 @@ class WakeWordService : Service() {
     private fun onKeyword(label: String, seconds: Float) {
         val musicActive = audio.isMusicActive
         // The label says which phrase it was: the timer phrase stays inside Voice Relay.
-        val actions = controller.onKeyword(now(), musicActive, settings.wakeResumeMedia, timer = WakeWord.isTimerLabel(label))
+        // A detection that was already on its way when that phrase was switched off is dropped.
+        val timerLabel = WakeWord.isTimerLabel(label)
+        if (if (timerLabel) !settings.timerWakeEnabled else !settings.wakeWordEnabled) return
+        val actions = controller.onKeyword(now(), musicActive, settings.wakeResumeMedia, timer = timerLabel)
         if (actions.isEmpty()) return
         Log.i(
             TAG,
@@ -592,6 +595,13 @@ class WakeWordService : Service() {
         ownSessions += rec.audioSessionId
         hearing.reset()
         val keywords = currentKeywords()
+        if (keywords.isEmpty()) {
+            // Both phrases are off: there is nothing to listen for.
+            ownSessions -= rec.audioSessionId
+            rec.release()
+            stopEverything()
+            return
+        }
         mic = MicThread(rec, WakeWord.threshold(settings.wakeSensitivity), WakeWord.streamKeywords(keywords), lastStartedMic.get()).also {
             lastStartedMic.set(it)
             liveThreads.incrementAndGet()

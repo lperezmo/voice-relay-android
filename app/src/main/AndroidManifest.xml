@@ -20,6 +20,10 @@
 
     <!-- Wake word: open Claude's assistant with ACTION_VOICE_ASSIST (package visibility). -->
     <queries>
+        <!-- "Hey timer": the phone's text-to-speech engine, to say the answer out loud. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VOICE_ASSIST" />
         </intent>

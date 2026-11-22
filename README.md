@@ -216,8 +216,8 @@ one tap turns it back on.
 
 ### Timers by voice
 
-Off by default. **Timer phrase** (in the Wake word card, under Timers by voice) is a second wake
-phrase with its own switch, "hey timer" until you change it. The wake word keeps opening Claude;
+Off by default. **Timers by voice** (in the Wake word card) turns on a second wake phrase with
+its own switch, "hey timer" until you change it under **Timer phrase**. The wake word keeps opening Claude;
 this one does the work inside Voice Relay. Both are heard by the same listener at the same time,
 with the same sensitivity, and either can be on without the other. It works with the screen
 locked.
@@ -238,7 +238,13 @@ locked.
 
 A time that has already passed today means tomorrow, so the phone asks first ("That's tomorrow at
 10:50, 23 hours from now. Set it?"), plays the tone again and waits for your yes or no. If it
-hears no time, it says "I didn't catch a time" and sets nothing; with no internet it says so.
+hears no time, or nothing at all for six seconds, it says "I didn't catch a time" and sets
+nothing; with no internet it says so. Saying the phrase again while it is still working on a
+request does nothing.
+
+The Tasker intents only switch the wake word. With Timers by voice on, `WAKE_OFF` stops
+listening for "hey claude" but the microphone stays on for the timer phrase; turn that off in
+Settings or with **Stop** on the notification, which turns both off.
 
 It needs both keys: OpenAI for the speech and Anthropic for Claude. With one missing it does
 nothing, and tells you once in a notification. Each request is one transcription and a few short
@@ -474,8 +480,8 @@ billed to your Anthropic account.
 | Wake word | off | The row's title shows the phrase. See [Wake word](#wake-word). |
 | Wake phrase | hey claude | Any phrase the dictionary knows, or phones typed by hand or generated with AI. **Reset to default** puts "hey claude" back. |
 | Sensitivity | 5 of 7 | Wake word detection threshold, 0.40 (1) to 0.10 (7). |
-| Timer phrase | off | The second wake phrase, "hey timer": sets a timer by voice. Needs both API keys. See [Timers by voice](#timers-by-voice). |
-| Timer phrase (the words) | hey timer | Same editor and checks as the wake phrase. |
+| Timers by voice | off | The second wake phrase, "hey timer": sets a timer by voice. Needs both API keys. See [Timers by voice](#timers-by-voice). |
+| Timer phrase | hey timer | Same editor and checks as the wake phrase. |
 | Timer model | Opus 5.5 | The Claude model that works out how long the timer runs. |
 | Resume music after Claude | on | Presses play once Claude is done, if music was playing when the wake word fired. |
 | Allow other apps to control Voice Relay | on | Whether Tasker, adb and other apps may send the [control intents](#turning-it-on-and-off-from-tasker). |

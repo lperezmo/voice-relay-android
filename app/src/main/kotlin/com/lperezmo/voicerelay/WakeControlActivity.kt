@@ -90,7 +90,8 @@ class WakeControlActivity : Activity() {
             return
         }
         settings.wakeWordEnabled = true
-        WakeWordService.start(this, "control intent")
+        // Starts the listener, or has a running one (on for the timer phrase) pick the wake phrase up too.
+        WakeWordService.sync(this, "control intent")
     }
 
     private fun off(settings: AppSettings) {

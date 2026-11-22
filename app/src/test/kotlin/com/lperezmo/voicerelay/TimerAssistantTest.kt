@@ -178,6 +178,24 @@ class TimerAssistantTest {
         assertEquals("toolu_2", results.getJSONObject(1).getString("tool_use_id"))
     }
 
+    @Test fun `one request starts three timers at most`() {
+        val script = Script(
+            turn(
+                "tool_use", setTimer("toolu_1", 60), setTimer("toolu_2", 120),
+                setTimer("toolu_3", 180), setTimer("toolu_4", 240),
+            ),
+            turn("end_turn", text("Three timers set.")),
+        )
+        val tools = FakeTools()
+        val out = assistant(script, tools).run("set a lot of timers")
+
+        assertEquals(TimerAssistant.MAX_TIMERS, out.timersSet)
+        assertEquals(3, tools.timers.size)
+        val results = results(script, 1)
+        assertFalse(results.getJSONObject(2).optBoolean("is_error"))
+        assertTrue(results.getJSONObject(3).getBoolean("is_error"))
+    }
+
     @Test fun `the label is trimmed and passed through, and a blank label becomes null`() {
         val script = Script(
             turn("tool_use", setTimer("toolu_1", 60, "  Eggs "), setTimer("toolu_2", 120, "   "), setTimer("toolu_3", 180)),
