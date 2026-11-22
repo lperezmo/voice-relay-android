@@ -54,6 +54,8 @@ class TimerVoiceFlow(
         .build()
 
     @Volatile private var running = false
+    /** True while a request is in progress. */
+    val isRunning: Boolean get() = running
     @Volatile private var cancelled = false
     /** When this request gives up, so a bad connection cannot keep the microphone from the wake word for long. */
     @Volatile private var deadline = 0L
@@ -145,7 +147,6 @@ class TimerVoiceFlow(
         }
         if (cancelled) return
         status("Setting your timer")
-        stage(ButtonRing.Voice.THINKING)
         val client = AnthropicClient(anthropicKey, http = http)
         val model = settings.timerModel
         val system = TimerAssistant.systemPrompt(ZonedDateTime.now())
@@ -153,7 +154,8 @@ class TimerVoiceFlow(
         val assistant = TimerAssistant(
             send = { messages ->
                 if (over()) Turn(error = "stopped", httpCode = -1)
-                else client.toolTurn(messages, model, system, tools).also {
+                // Before every call, also after an answer to a question: the ring's limit is per call.
+                else client.also { stage(ButtonRing.Voice.THINKING) }.toolTurn(messages, model, system, tools).also {
                     if (it.error == null) usage.recordText(model, it.inputTokens, it.outputTokens)
                 }
             },

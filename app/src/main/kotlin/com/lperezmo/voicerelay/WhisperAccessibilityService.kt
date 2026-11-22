@@ -193,6 +193,8 @@ class WhisperAccessibilityService : AccessibilityService() {
             arrowPad.hide()
             pills.hide()
             overlayView?.visibility = View.GONE
+            // Hidden under a finger, the button may never see it lift.
+            ring.pressed(false, SystemClock.uptimeMillis())
         } else {
             overlayView?.visibility = View.VISIBLE
             refreshJoystick()
@@ -440,6 +442,12 @@ class WhisperAccessibilityService : AccessibilityService() {
         refreshDim()
     }
 
+    /** A finger went down on the button or came up: it stays bright while held or dragged. */
+    private fun pressed(down: Boolean) {
+        ring.pressed(down, SystemClock.uptimeMillis())
+        refreshDim()
+    }
+
     /**
      * Fades the button and pills when [AppSettings.dimWhenIdle] is on and nothing has
      * happened for a few seconds, and brings them back at once otherwise. Safe to call at any time.
@@ -457,7 +465,9 @@ class WhisperAccessibilityService : AccessibilityService() {
             overlayView?.animate()?.alpha(alpha)?.setDuration(ms)?.start()
             pills.fade(alpha, ms)
         }
-        if (enabled && !dim) handler.postDelayed(checkDim, ring.dimDueIn(now).coerceAtLeast(DIM_RECHECK_MS))
+        // Only something that ends on its own needs a later look; every other change calls this itself.
+        val due = ring.dimDueIn(now)
+        if (enabled && !dim && due != null) handler.postDelayed(checkDim, due.coerceAtLeast(DIM_RECHECK_MS))
     }
 
     // --- Overlay ---
@@ -510,7 +520,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         overlay.setOnTouchListener { v, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    touched()
+                    pressed(true)
                     pressButton(true)
                     startX = params.x; startY = params.y
                     touchX = ev.rawX; touchY = ev.rawY
@@ -532,6 +542,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_UP -> {
                     handler.removeCallbacks(longPress)
                     pressButton(false)
+                    pressed(false)
                     val moved = abs(ev.rawX - touchX) + abs(ev.rawY - touchY)
                     if (moved < TAP_THRESHOLD_DP * dp) {
                         if (!longPressed) machine.onTap(ev.downTime, ev.eventTime)
@@ -544,6 +555,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
                     pressButton(false)
+                    pressed(false)
                     true
                 }
                 else -> false

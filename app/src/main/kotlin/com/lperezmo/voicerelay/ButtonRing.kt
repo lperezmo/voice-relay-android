@@ -57,6 +57,10 @@ class ButtonRing {
     private var dictationAt = 0L
     private var voice: Voice? = null
     private var voiceAt = 0L
+    /** When the step's [limitMs] started counting: [voiceAt], or the last call for a THINKING step. */
+    private var voiceLimitFrom = 0L
+    /** A finger is on the button: it never dims under it. */
+    private var pressed = false
     private var flashColor = 0
     private var flashAt: Long? = null
     private var nextTimer: Float? = null
@@ -82,13 +86,21 @@ class ButtonRing {
         flash(if (timer) BLUE else CLAY, now)
     }
 
-    /** A step of the "hey timer" request. The answer starts with a gold flash. */
+    /**
+     * A step of the "hey timer" request. The answer starts with a gold flash.
+     * THINKING is posted before each call to Claude, and each post starts its limit
+     * again, so the limit holds per call however many calls the request makes.
+     */
     fun voice(stage: Voice, now: Long) {
         activityAt = now
-        if (stage == voice && now - voiceAt < limitMs(stage)) return
+        if (stage == voice && now - voiceLimitFrom < limitMs(stage)) {
+            if (stage == Voice.THINKING) voiceLimitFrom = now
+            return
+        }
         if (stage == Voice.SPEAKING) flash(GOLD, now)
         voice = stage
         voiceAt = now
+        voiceLimitFrom = now
     }
 
     /** The "hey timer" request is over, however it ended. */
@@ -113,6 +125,12 @@ class ButtonRing {
         activityAt = now
     }
 
+    /** A finger went down on the button ([down] true) or came up; while it is down nothing dims. */
+    fun pressed(down: Boolean, now: Long) {
+        pressed = down
+        activityAt = now
+    }
+
     private fun flash(color: Int, now: Long) {
         flashColor = color
         flashAt = now
@@ -120,7 +138,7 @@ class ButtonRing {
     }
 
     /** The wake word or "hey timer" step still showing, or null once it ran past its [limitMs]. */
-    private fun activeVoice(now: Long): Voice? = voice?.takeIf { now - voiceAt < limitMs(it) }
+    private fun activeVoice(now: Long): Voice? = voice?.takeIf { now - voiceLimitFrom < limitMs(it) }
 
     fun mode(now: Long): Mode {
         when (dictation) {
@@ -221,10 +239,22 @@ class ButtonRing {
      * open ([popupsOpen]), nothing going on, and [DIM_AFTER_MS] since the last touch or change.
      */
     fun dimmed(now: Long, enabled: Boolean, popupsOpen: Boolean): Boolean =
-        enabled && !popupsOpen && mode(now) == Mode.IDLE && flashAlpha(now) == 0f && now - activityAt >= DIM_AFTER_MS
+        enabled && !popupsOpen && !pressed && mode(now) == Mode.IDLE && flashAlpha(now) == 0f &&
+            now - activityAt >= DIM_AFTER_MS
 
-    /** How long until [dimmed] may turn true, if nothing else happens; 0 once it is due. */
-    fun dimDueIn(now: Long): Long = (activityAt + DIM_AFTER_MS - now).coerceAtLeast(0)
+    /**
+     * How long until [dimmed] should be checked again if nothing else happens, or null when
+     * only a new event can change it (dictation in progress or failed, a finished timer, a
+     * finger on the button): those events check it themselves, so nothing needs to poll.
+     */
+    fun dimDueIn(now: Long): Long? {
+        if (pressed || dictation == Dictation.RECORDING || dictation == Dictation.WORKING) return null
+        // A wake word or "hey timer" step ends on its own after its limit.
+        activeVoice(now)?.let { return (voiceLimitFrom + limitMs(it) - now).coerceAtLeast(1) }
+        if (timerDone || dictation == Dictation.FAILED) return null
+        val flashLeft = flashAt?.let { it + FLASH_MS - now } ?: 0L
+        return maxOf(activityAt + DIM_AFTER_MS - now, flashLeft, 0L)
+    }
 
     companion object {
         // Instrument colours (see .claude/briefs/visual-directions.md, #10).
@@ -279,13 +309,14 @@ class ButtonRing {
 
         /**
          * How long each wake word or "hey timer" step may show before the ring gives up on it.
-         * Longer than the request's own limits (15 s of listening, 30 s per call, 90 s in all).
+         * Longer than the request's own limits (15 s of listening, 30 s per call). THINKING
+         * starts again with each call to Claude, so its limit is one call's.
          */
         fun limitMs(voice: Voice): Long = when (voice) {
             Voice.CLAUDE -> CLAUDE_MS
             Voice.LISTENING -> 25_000L
             Voice.TRANSCRIBING -> 40_000L
-            Voice.THINKING -> 100_000L
+            Voice.THINKING -> 40_000L
             Voice.SPEAKING -> 35_000L
         }
 

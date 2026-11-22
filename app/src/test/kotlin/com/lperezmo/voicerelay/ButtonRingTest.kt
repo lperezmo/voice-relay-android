@@ -151,6 +151,27 @@ class ButtonRingTest {
         }
     }
 
+    @Test fun `each call to Claude starts the thinking limit again`() {
+        val ring = ButtonRing()
+        val limit = ButtonRing.limitMs(Voice.THINKING)
+        ring.voice(Voice.THINKING, 0)
+        ring.voice(Voice.THINKING, limit - 1000)
+        ring.voice(Voice.THINKING, 2 * limit - 2000)
+        assertEquals(Mode.THINKING, ring.mode(3 * limit - 3001))
+        assertEquals(Mode.IDLE, ring.mode(3 * limit - 2000))
+    }
+
+    @Test fun `after an answer to a question the ring thinks again`() {
+        val ring = ButtonRing()
+        ring.wake(timer = true, now = 0)
+        ring.voice(Voice.THINKING, 1000)
+        ring.voice(Voice.SPEAKING, 2000)
+        ring.voice(Voice.LISTENING, 3000)
+        ring.voice(Voice.TRANSCRIBING, 4000)
+        ring.voice(Voice.THINKING, 5000)
+        assertEquals(Mode.THINKING, ring.mode(6000))
+    }
+
     @Test fun `dictation in progress wins over the wake word, which wins over a failed one`() {
         val ring = ButtonRing()
         ring.dictation(Dictation.FAILED, 0)
@@ -196,7 +217,7 @@ class ButtonRingTest {
         ring.touched(1000)
         val due = 1000 + ButtonRing.DIM_AFTER_MS
         assertFalse(ring.dimmed(due - 1, enabled = true, popupsOpen = false))
-        assertEquals(1, ring.dimDueIn(due - 1))
+        assertEquals(1L, ring.dimDueIn(due - 1))
         assertTrue(ring.dimmed(due, enabled = true, popupsOpen = false))
         assertFalse(ring.dimmed(due, enabled = false, popupsOpen = false))
         assertFalse(ring.dimmed(due, enabled = true, popupsOpen = true))
@@ -220,6 +241,40 @@ class ButtonRingTest {
         val voice = ButtonRing()
         voice.wake(timer = true, now = 0)
         assertFalse(voice.dimmed(ButtonRing.DIM_AFTER_MS, enabled = true, popupsOpen = false))
+    }
+
+    @Test fun `a finger on the button keeps it bright, held or dragged`() {
+        val ring = ButtonRing()
+        ring.pressed(true, 0)
+        val long = ButtonRing.DIM_AFTER_MS * 10
+        assertFalse(ring.dimmed(long, enabled = true, popupsOpen = false))
+        assertNull(ring.dimDueIn(long))
+        ring.pressed(false, long)
+        assertEquals(ButtonRing.DIM_AFTER_MS, ring.dimDueIn(long))
+        assertTrue(ring.dimmed(long + ButtonRing.DIM_AFTER_MS, enabled = true, popupsOpen = false))
+    }
+
+    @Test fun `nothing needs a later look while only an event can change it`() {
+        val done = ButtonRing()
+        done.timers(null, done = true, now = 0)
+        assertNull(done.dimDueIn(ButtonRing.DIM_AFTER_MS * 5))
+
+        val failed = ButtonRing()
+        failed.dictation(Dictation.FAILED, 0)
+        assertNull(failed.dimDueIn(ButtonRing.DIM_AFTER_MS * 5))
+
+        val recording = ButtonRing()
+        recording.dictation(Dictation.RECORDING, 0)
+        assertNull(recording.dimDueIn(ButtonRing.DIM_AFTER_MS * 5))
+
+        // A step that ends on its own is looked at again when it ends.
+        val voice = ButtonRing()
+        voice.voice(Voice.LISTENING, 0)
+        assertEquals(ButtonRing.limitMs(Voice.LISTENING) - 1000, voice.dimDueIn(1000))
+        // Then the flash and the last change count down to the dim.
+        val flash = ButtonRing()
+        flash.delivered(0)
+        assertEquals(ButtonRing.DIM_AFTER_MS - 100, flash.dimDueIn(100))
     }
 
     @Test fun `with alpha scales only the alpha`() {
