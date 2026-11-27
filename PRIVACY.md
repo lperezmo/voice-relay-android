@@ -88,7 +88,7 @@ different, and it is the only time the wake word listener sends audio anywhere:
   ("That's tomorrow. Set it?"), your spoken answer is recorded, transcribed and sent the same way.
 - The answer is read out by the phone's own text-to-speech engine and shown in a notification.
 
-Nothing is recorded or sent unless the timer phrase was heard. The timers themselves (label and
+Nothing is recorded or sent for the timer phrase unless it was heard. The timers themselves (label and
 end time) are kept on the phone; they are only sent, as above, with a request after the phrase.
 The logs record timings, sizes and how many timers were set or cancelled, never what you said or
 what was answered. With either key missing, the phrase records and
@@ -104,6 +104,17 @@ turn the wake word on (only once you have turned it on in the app) or off, open 
 mode, and hide or show the floating buttons. They carry no data in or out. **Allow other apps to
 control Voice Relay** in the settings (on by default) turns all of them off; the app then ignores
 them and logs only that it did.
+
+## Renaming timers (optional, off by default)
+
+With **Rename timers** on, each timer in the timer pill's list has a pencil and a microphone next
+to its name. Tapping the microphone records a short clip, 15 seconds at most, that stops by itself
+when you stop talking. It is sent to OpenAI with your key to be turned into text, exactly like a
+dictation (the audio, the transcription model's name, your vocabulary and your languages), and the
+text becomes the timer's name. Like a "hey timer" request, the clip is kept in memory, apart from a temporary file used to
+compress it, which is deleted straight away, and is discarded after the request. Nothing
+goes to Anthropic. Typing a name with the pencil sends nothing anywhere. The new name is kept on
+the phone with the timer. Nothing is recorded unless you tap the microphone.
 
 ## API keys
 

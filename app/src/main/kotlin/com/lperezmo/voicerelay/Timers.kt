@@ -102,6 +102,17 @@ data class Timers(
     fun markRung(ids: Collection<Int>): Timers =
         copy(list = list.map { if (it.id in ids) it.copy(rung = true) else it })
 
+    /**
+     * Gives a timer a new name, trimmed and cut at [MAX_LABEL] like [start] does. A blank name
+     * or an unknown id changes nothing. [nextNumber] is left alone, so renaming "Timer 2" does
+     * not hand its number to the next one.
+     */
+    fun rename(id: Int, label: String): Timers {
+        val name = label.trim().take(MAX_LABEL)
+        if (name.isEmpty()) return this
+        return copy(list = list.map { if (it.id == id) it.copy(label = name) else it })
+    }
+
     fun toJson(): String = JSONObject()
         .put("nextId", nextId)
         .put("nextNumber", nextNumber)
@@ -234,6 +245,25 @@ object TimerText {
         (if (timer.done(now)) "Dismissed " else "Stopped ") + timer.label
 
     fun clampMinutes(minutes: Int): Int = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
+
+    /**
+     * A timer name from what was said: trimmed, without surrounding quotes or a trailing
+     * . ! ? comma or …, first letter capitalised, cut at [Timers.MAX_LABEL]. Null when nothing
+     * is left.
+     */
+    fun nameFromSpeech(transcript: String): String? {
+        var s = transcript.trim()
+        while (true) {
+            val before = s
+            s = s.trim().trim(*QUOTES).trimEnd('.', '!', '?', ',', '…').trim()
+            if (s == before) break
+        }
+        if (s.isEmpty()) return null
+        s = s.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        return s.take(Timers.MAX_LABEL).trim().ifEmpty { null }
+    }
+
+    private val QUOTES = charArrayOf('"', '\'', '“', '”', '‘', '’', '«', '»')
 }
 
 /**

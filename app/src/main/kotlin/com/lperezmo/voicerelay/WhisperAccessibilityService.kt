@@ -100,6 +100,11 @@ class WhisperAccessibilityService : AccessibilityService() {
     private lateinit var arrowPad: ArrowPad
     /** The volume and Glyph pills that ride with the button ([FloatingPills]). */
     private lateinit var pills: FloatingPills
+    /** The microphone in a timer's row ([TimerRenameVoice]). */
+    private lateinit var renameVoice: TimerRenameVoice
+
+    /** True while the dictate button records. */
+    val dictating: Boolean get() = machine.state == State.RECORDING
     private var undoArrowDrawable: Drawable? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
@@ -148,6 +153,16 @@ class WhisperAccessibilityService : AccessibilityService() {
                 refreshDim()
             },
             onActivity = { touched() },
+            openAiKeySet = { secrets.getApiKey().isNotBlank() },
+            onRenameVoice = { id -> renameVoice.tap(id) },
+        )
+        renameVoice = TimerRenameVoice(
+            this, settings, handler,
+            openAiKey = { secrets.getApiKey() },
+            dictating = { dictating },
+            showFeedback = { text, ms -> showFeedback(text, ms) },
+            onStage = { stage -> onTimerVoice(stage) },
+            onDone = { onTimerVoiceDone() },
         )
         showOverlay()
         machine.restorePending()
@@ -244,6 +259,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         instance = null
         try { unregisterReceiver(screenReceiver) } catch (_: IllegalArgumentException) {}
         pills.stop()
+        renameVoice.cancel()
         // A recording in progress is kept for a retry instead of thrown away.
         machine.destroy()
         voicePress.cancel()
@@ -330,7 +346,11 @@ class WhisperAccessibilityService : AccessibilityService() {
             }
         }
 
-        override fun rememberFocus() = injector.rememberFocus()
+        override fun rememberFocus() {
+            // Dictation can't type into the rename card's field, so close it: the text goes to the app the user sees.
+            pills.hideRenameCard()
+            injector.rememberFocus()
+        }
         override fun forgetSnapshot() = injector.forgetSnapshot()
 
         override fun beginDraft(): DictationMachine.Draft? {
@@ -434,6 +454,8 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     /** The "hey timer" request is over. Main thread. */
     fun onTimerVoiceDone() {
+        // A "hey timer" refused because the rename microphone holds the mic must not clear the rename's ring.
+        if (::renameVoice.isInitialized && renameVoice.isBusy) return
         ring.voiceDone(SystemClock.uptimeMillis())
         button?.refresh()
         refreshDim()
@@ -552,7 +574,8 @@ class WhisperAccessibilityService : AccessibilityService() {
                     pressed(false)
                     val moved = abs(ev.rawX - touchX) + abs(ev.rawY - touchY)
                     if (moved < TAP_THRESHOLD_DP * dp) {
-                        if (!longPressed) machine.onTap(ev.downTime, ev.eventTime)
+                        // While a timer's new name is being recorded, a tap ends that recording instead.
+                        if (!longPressed && !renameVoice.stopEarly()) machine.onTap(ev.downTime, ev.eventTime)
                     } else {
                         settleBubble()
                         saveBubblePosition()

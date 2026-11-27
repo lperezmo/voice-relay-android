@@ -20,4 +20,9 @@ class AppSettingsDefaultsTest {
         // the look is always on; only the fading is a choice
         assertFalse(AppSettings.DEFAULT_DIM_WHEN_IDLE)
     }
+
+    @Test fun `rename timers stays off by default`() {
+        // like the other extras, the pencil and microphone are only shown once turned on
+        assertFalse(AppSettings.DEFAULT_TIMER_RENAME)
+    }
 }

@@ -162,6 +162,96 @@ class TimersTest {
         assertEquals(timers, Timers.fromJson(timers.toJson()))
     }
 
+    @Test fun `rename gives a timer a new name, trimmed`() {
+        val (timers, t) = Timers().start(now, 60)
+        assertEquals("Potatoes", timers.rename(t.id, "  Potatoes  ").find(t.id)!!.label)
+    }
+
+    @Test fun `rename cuts a long name at MAX_LABEL`() {
+        val (timers, t) = Timers().start(now, 60)
+        assertEquals("x".repeat(Timers.MAX_LABEL), timers.rename(t.id, "x".repeat(60)).find(t.id)!!.label)
+    }
+
+    @Test fun `a blank name keeps the old one`() {
+        val (timers, t) = Timers().start(now, 60, "Pasta")
+        assertEquals(timers, timers.rename(t.id, ""))
+        assertEquals(timers, timers.rename(t.id, "   "))
+    }
+
+    @Test fun `renaming an unknown id changes nothing`() {
+        val (timers, _) = Timers().start(now, 60)
+        assertEquals(timers, timers.rename(99, "Pasta"))
+    }
+
+    @Test fun `rename leaves other timers and the rest of the timer alone`() {
+        val (a, first) = Timers().start(now, 60)
+        val (b, second) = a.start(now, 120)
+        val out = b.markRung(listOf(first.id)).rename(first.id, "Eggs")
+        assertEquals(second, out.find(second.id))
+        assertEquals(first.copy(label = "Eggs", rung = true), out.find(first.id))
+        assertEquals(b.nextId, out.nextId)
+    }
+
+    @Test fun `rename does not change the next number`() {
+        val (a, first) = Timers().start(now, 60)
+        val (b, _) = a.start(now, 60)
+        val out = b.rename(first.id, "Rice")
+        assertEquals(3, out.nextNumber)
+        assertEquals("Timer 3", out.start(now, 60).second.label)
+    }
+
+    @Test fun `a renamed timer round trips through JSON`() {
+        val (a, t) = Timers().start(now, 60)
+        val out = a.rename(t.id, "Pasta · 2")
+        assertEquals(out, Timers.fromJson(out.toJson()))
+        assertEquals("Pasta · 2", Timers.fromJson(out.toJson()).find(t.id)!!.label)
+    }
+
+    @Test fun `nameFromSpeech drops the trailing full stop`() {
+        assertEquals("Put the potatoes away", TimerText.nameFromSpeech("Put the potatoes away."))
+    }
+
+    @Test fun `nameFromSpeech drops a trailing ellipsis`() {
+        assertEquals("Pasta", TimerText.nameFromSpeech("Pasta…"))
+        assertEquals("Pasta", TimerText.nameFromSpeech("\"pasta...\""))
+        assertNull(TimerText.nameFromSpeech("…"))
+    }
+
+    @Test fun `nameFromSpeech capitalises the first letter`() {
+        assertEquals("Potatoes", TimerText.nameFromSpeech("potatoes"))
+        assertEquals("Check the oven", TimerText.nameFromSpeech("  check the oven!  "))
+    }
+
+    @Test fun `nameFromSpeech strips quotes and the punctuation inside them`() {
+        assertEquals("Pasta", TimerText.nameFromSpeech("\"pasta.\""))
+        assertEquals("Pasta", TimerText.nameFromSpeech("“Pasta”"))
+        assertEquals("Pasta", TimerText.nameFromSpeech("'Pasta?'"))
+    }
+
+    @Test fun `nameFromSpeech drops several trailing marks`() {
+        assertEquals("Laundry", TimerText.nameFromSpeech("Laundry?!"))
+        assertEquals("Eggs", TimerText.nameFromSpeech("Eggs,"))
+        assertEquals("Eggs", TimerText.nameFromSpeech("Eggs..."))
+    }
+
+    @Test fun `nameFromSpeech keeps punctuation inside the name`() {
+        assertEquals("Mom's bread, round two", TimerText.nameFromSpeech("mom's bread, round two."))
+    }
+
+    @Test fun `nameFromSpeech of only punctuation or nothing is null`() {
+        assertNull(TimerText.nameFromSpeech("."))
+        assertNull(TimerText.nameFromSpeech("?!"))
+        assertNull(TimerText.nameFromSpeech("\"...\""))
+        assertNull(TimerText.nameFromSpeech(""))
+        assertNull(TimerText.nameFromSpeech("   "))
+    }
+
+    @Test fun `nameFromSpeech cuts long text at MAX_LABEL`() {
+        val out = TimerText.nameFromSpeech("take the bread out of the oven and let it cool on the rack.")!!
+        assertEquals(Timers.MAX_LABEL, out.length)
+        assertTrue(out.startsWith("Take the bread"))
+    }
+
     @Test fun `an empty list round trips`() {
         val timers = Timers(nextId = 12, nextNumber = 1)
         assertEquals(timers, Timers.fromJson(timers.toJson()))
