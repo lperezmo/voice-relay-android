@@ -18,6 +18,8 @@ class ActionTest {
             Action.WakeToggle,
             Action.PrintDateLabel,
             Action.Ask,
+            Action.RotateFlip,
+            Action.RotateAuto,
         )
         for (a in all) assertEquals(a, roundTrip(a))
     }
@@ -35,6 +37,16 @@ class ActionTest {
         assertEquals("ask", Action.Ask.toJson().getString("type"))
         assertEquals("Ask the Page", Action.Ask.label)
         assertEquals(Action.Ask, Action.fromJson(JSONObject().put("type", "ask")))
+    }
+
+    @Test
+    fun theRotationActionsHaveTheirOwnTypes() {
+        assertEquals("rotate_flip", Action.RotateFlip.toJson().getString("type"))
+        assertEquals("rotate_auto", Action.RotateAuto.toJson().getString("type"))
+        assertEquals("Flip the screen", Action.RotateFlip.label)
+        assertEquals("Rotation back to auto", Action.RotateAuto.label)
+        assertEquals(Action.RotateFlip, Action.fromJson(JSONObject().put("type", "rotate_flip")))
+        assertEquals(Action.RotateAuto, Action.fromJson(JSONObject().put("type", "rotate_auto")))
     }
 
     @Test
@@ -56,7 +68,7 @@ class ActionTest {
 
     @Test
     fun noActionIsStoredAsTasker() {
-        val all = listOf(Action.Nothing, Action.OpenApp("p", "P"), Action.Url("u"), Action.RelayClipboard, Action.WakeToggle, Action.PrintDateLabel, Action.Ask)
+        val all = listOf(Action.Nothing, Action.OpenApp("p", "P"), Action.Url("u"), Action.RelayClipboard, Action.WakeToggle, Action.PrintDateLabel, Action.Ask, Action.RotateFlip, Action.RotateAuto)
         for (a in all) assertNotEquals("tasker", a.toJson().getString("type"))
     }
 

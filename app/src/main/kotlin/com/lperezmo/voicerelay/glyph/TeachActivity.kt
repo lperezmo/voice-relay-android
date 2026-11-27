@@ -313,6 +313,8 @@ class TeachActivity : Activity() {
             if (AppSettings(this@TeachActivity).askPageEnabled) {
                 add("Ask the Page" to { set(Action.Ask) })
             }
+            add("Flip the screen" to { set(Action.RotateFlip) })
+            add("Rotation back to auto" to { set(Action.RotateAuto) })
             add("Nothing" to { set(Action.Nothing) })
         }
         AlertDialog.Builder(this)
