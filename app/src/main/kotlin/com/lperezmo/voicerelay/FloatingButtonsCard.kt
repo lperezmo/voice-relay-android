@@ -25,6 +25,7 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
     private val timerRow: SettingsUi.SwitchRow
     private val timerNotifyRow: SettingsUi.StatusRow
     private val timerExactRow: SettingsUi.StatusRow
+    private val timerRenameRow: SettingsUi.SwitchRow
     private val glyphRow: SettingsUi.SwitchRow
     private val glyphBuiltInRow: SettingsUi.SwitchRow
     private val glyphShapesRow: SettingsUi.Row
@@ -97,6 +98,12 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
             openExactAlarms()
         }
         card.addView(timerExactRow.view)
+        timerRenameRow = ui.switchRow("Rename timers", "") {
+            settings.timerRename = !settings.timerRename
+            WhisperAccessibilityService.instance?.refreshTimerPill()
+            env.refresh()
+        }
+        card.addView(timerRenameRow.view)
 
         card.addView(ui.sectionTitle("Glyph"))
         glyphRow = ui.switchRow("Show the Glyph pill", "") {
@@ -165,6 +172,11 @@ class FloatingButtonsCard(private val env: SettingsEnv, parent: LinearLayout) : 
         timerExactRow.view.visibility = timerDetail
         timerExactRow.show(timers.exactAlarms, if (timers.exactAlarms) "On: timers ring right when they end"
         else "Off: with the screen off a timer may ring late, by many minutes for a long one. Tap to allow alarms.")
+        timerRenameRow.view.visibility = timerDetail
+        timerRenameRow.switch.isChecked = settings.timerRename
+        timerRenameRow.subtitle.text = if (settings.timerRename)
+            "A pencil and a microphone next to each timer's name, to type or say a new one. The microphone needs your OpenAI key."
+        else "Off. Timers keep the name they started with."
 
         val glyphInstalled = GlyphPillView.glyphInstalled(activity)
         val builtIn = settings.glyphBuiltIn

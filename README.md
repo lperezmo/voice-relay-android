@@ -36,6 +36,9 @@ are off until you turn them on:
   reads "Timer" while nothing runs and shows a countdown while a timer runs. Tap it to see what is
   running, add a minute or stop one, and to start a timer with a V on its track: 5, 10, 15 or 30
   minutes, or your own time.
+- **Rename timers** (off by default): a pencil and a microphone next to each timer's name in the
+  timer pill's list. Tap the pencil to type a new name, or the microphone to say one ("Pasta");
+  OpenAI writes it down, with no Claude and no Anthropic key.
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
   or, with that switched off, the one of Glyph (a separate shape-launcher app) when it is installed.
@@ -103,7 +106,7 @@ repository's releases (see [Signing](#signing-and-forks)).
 
 | Permission | Needed for | Asked when |
 |---|---|---|
-| Microphone | Dictation, the wake word, and recording a timer request after the timer phrase | First launch |
+| Microphone | Dictation, the wake word, recording a timer request after the timer phrase, and saying a timer's new name | First launch |
 | Accessibility service | The floating button, and typing into other apps. It watches which text field is focused so it knows where to type, and reads a field's text only when you dictate into it, fix its grammar, or undo a change there. With Ask the Page on, it also takes one picture of the screen when the Glyph canvas opens, and notes the name and screen title of the app under it (see [Ask the Page](#ask-the-page)) | Setup step 3 |
 | Notifications | The wake word's "listening" notification, the timer phrase's spoken answers in writing, and the notification that rings when a timer ends (Android 13+) | The first time you open Voice Relay (for the timer pill, which is on from the start), and turning on the wake word, the timer phrase or the timer pill |
 | Display over other apps | Letting the wake word open Claude from the background or the lock screen. Nothing is drawn with it | Turning on the wake word |
@@ -403,6 +406,12 @@ them and stop them; they are not the clock app's timers.
   start by accident. Holding or dragging the pill does nothing.
 - **Own** opens a small card for a time of your own: −5, −1, a minutes field you can type in, +1,
   +5, then Cancel or Start.
+- **Rename a timer** (with **Rename timers** on in Settings, Floating buttons, Timers): each timer
+  in the list has a pencil and a microphone after its name. The pencil opens a small card with the
+  name to edit, then Cancel or Save. The microphone listens for a short name, stops by itself when
+  you stop talking, and OpenAI writes it down (it needs your OpenAI key and is not counted in the
+  "hey timer" daily limit). If something else is using the microphone it says "The microphone is
+  busy."
 - The pill is an upright tab with a small gold ring and "Timer" while nothing runs. While a timer
   runs it shows the countdown of the timer that ends first ("9:12", "1h05", read from the bottom
   up) and how many there are, with a thin gold line up its outer side that shrinks as that timer
@@ -527,6 +536,7 @@ billed to your Anthropic account.
 | Switch keyboard automatically | on | Switches to the arrows keyboard and back on its own. |
 | Show the volume pill | off | See [Volume presets](#volume-presets). |
 | Timer pill | on | See [Timer pill](#timer-pill). |
+| Rename timers | off | Shown while the timer pill is on. A pencil and a microphone next to each timer's name, to type or say a new one. The microphone needs your OpenAI key. |
 | Show the Glyph pill | on | Hidden anyway while Glyph is not installed, unless the built-in canvas is on. See [Glyph pill](#glyph-pill). |
 | Use the built-in canvas | on | The pill opens Voice Relay's own Glyph canvas; adds the **Glyph** launcher icon and Quick Settings tile. See [The built-in Glyph canvas](#the-built-in-glyph-canvas). |
 | Ask the Page | off | Shown while the built-in canvas is on. Draw ? and write a question; Claude answers on the page. See [Ask the Page](#ask-the-page). |

@@ -20,7 +20,8 @@ import com.lperezmo.voicerelay.glyph.CanvasActivity
  * ([VolumePillView]) above it, which opens the preset track ([VolumeTrackView]),
  * the Glyph pill ([GlyphPillView]) below it, and the timer pill ([TimerPillView])
  * upright beside it, toward the middle of the screen, with its panel ([TimerPanel]: the
- * running timers over the timer track) and its minutes card ([TimerOwnCard]). Where they
+ * running timers over the timer track), its minutes card ([TimerOwnCard]) and its rename
+ * card ([TimerRenameCard]). Where they
  * sit is [PillLayout].
  *
  * The button stays the service's: [bubble] reads its window as it is now (null
@@ -46,6 +47,10 @@ class FloatingPills(
     private val onTimers: (next: Float?, done: Boolean) -> Unit,
     /** A finger touched a pill, or a pill's popup opened or closed: keeps the cluster from dimming. */
     private val onActivity: () -> Unit,
+    /** True when an OpenAI key is set, read once each time the timer panel opens (it is a decrypt). */
+    private val openAiKeySet: () -> Boolean = { false },
+    /** The microphone in a timer's row was tapped: listen for its new name ([TimerRenameVoice]). */
+    private val onRenameVoice: (id: Int) -> Unit = {},
 ) {
     private var pillView: VolumePillView? = null
     private var pillParams: WindowManager.LayoutParams? = null
@@ -70,6 +75,10 @@ class FloatingPills(
     private var afterPick: Runnable? = null
     private var ownCard: TimerOwnCard? = null
     private var ownParams: WindowManager.LayoutParams? = null
+    private var renameCard: TimerRenameCard? = null
+    private var renameParams: WindowManager.LayoutParams? = null
+    /** The timer [renameCard] renames. */
+    private var renameId = -1
     /** What "your own time" starts at: the last time picked there, until the service restarts. */
     private var ownMinutes = TimerText.DEFAULT_OWN_MINUTES
     private val tickTimers = Runnable { renderTimers() }
@@ -134,8 +143,16 @@ class FloatingPills(
         hideTimerCards()
     }
 
+    /**
+     * Closes the rename card if it is open. Dictation starting calls this: the card's own
+     * field cannot take dictated text, so it would land in the app behind, out of sight.
+     */
+    fun hideRenameCard() {
+        if (renameCard != null) hideTimerCards()
+    }
+
     /** True while the preset track, the timer panel or the minutes card is open. */
-    fun popupsOpen(): Boolean = trackView != null || panel != null || ownCard != null
+    fun popupsOpen(): Boolean = trackView != null || panel != null || ownCard != null || renameCard != null
 
     /** Fades the three pills to [alpha] over [durationMs], for dimming when idle; popups are never faded. */
     fun fade(alpha: Float, durationMs: Long) {
@@ -395,7 +412,7 @@ class FloatingPills(
             onTap = {
                 onActivity()
                 when {
-                    panel != null || ownCard != null -> hideTimerCards()
+                    panel != null || ownCard != null || renameCard != null -> hideTimerCards()
                     android.os.SystemClock.uptimeMillis() - panelClosedOutsideAt > REOPEN_GUARD_MS -> {
                         hidePopups()
                         showPanel()
@@ -441,6 +458,8 @@ class FloatingPills(
         timers.checkDue()
         val now = System.currentTimeMillis()
         val sorted = timers.timers()
+        // The timer being renamed was stopped or dismissed meanwhile: nothing left to rename.
+        if (renameCard != null && sorted.none { it.id == renameId }) hideTimerCards()
         val view = timerView
         onTimers(sorted.firstOrNull { !it.done(now) }?.fractionLeft(now), TimerText.ringDone(sorted, now, view != null))
         if (view == null) {
@@ -484,9 +503,19 @@ class FloatingPills(
             }
             list.onPlus = { id -> timers.addMinute(id) }
             list.onStop = { id -> stopTimer(id) }
+            list.onRename = { id ->
+                hideTimerCards()
+                showRenameCard(id)
+            }
+            list.onRenameVoice = { id ->
+                hideTimerCards()
+                onRenameVoice(id)
+            }
+            // Read here, not on every tick: the key check is a decrypt.
+            list.icons = TimerRename.icons(settings.timerRename, settings.timerRename && openAiKeySet())
             // As many rows as the screen has room for under the track (few in landscape), six at most.
             list.maxRows = ((screenH / dp).toInt() - 2 * PillLayout.TIMER_CARD_MARGIN_DP - TimerListCard.EXTRA_DP -
-                TimerPanel.GAP_DP - VTrackView.H_DP) / TimerListCard.ROW_DP
+                TimerPanel.GAP_DP - VTrackView.H_DP) / TimerListCard.rowDp(list.icons)
             list.show(timers.timers(), System.currentTimeMillis())
             track.onStart = { minutes ->
                 startTimer(minutes)
@@ -551,23 +580,63 @@ class FloatingPills(
         onActivity()
     }
 
+    /** Opens the card that renames timer [id], with the keyboard up: the pencil was tapped to type. */
+    private fun showRenameCard(id: Int) {
+        if (renameCard != null) return
+        val bubble = bubble() ?: return
+        val timer = timers.timers().firstOrNull { it.id == id } ?: return
+        val card = TimerRenameCard(service, timer.label).apply {
+            onSave = { name ->
+                hideTimerCards()
+                // Gone meanwhile, or the name was blank or the same: just close.
+                timers.rename(id, name)?.let { showFeedback(TimerRename.renamed(it.label), TIMER_FEEDBACK_MS) }
+            }
+            onCancel = {
+                // A touch outside cancels the card: when that touch is a tap on the pill, it should not open the panel.
+                panelClosedOutsideAt = android.os.SystemClock.uptimeMillis()
+                hideTimerCards()
+            }
+        }
+        // Focusable, so the name can be typed. Touches outside still reach the app; they close
+        // the card once the keyboard is hidden (while it is up, its keys are outside touches too).
+        val params = cardParams(
+            TimerRenameCard.W_DP,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+        ).apply {
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+        }
+        renameCard = card
+        renameParams = params
+        renameId = id
+        placeTimerCards(bubble, update = false)
+        wm.addView(card, params)
+        card.post { if (renameCard === card) card.startTyping() }
+        timerView?.active = true
+        onActivity()
+    }
+
     private fun cardParams(widthDp: Int, flags: Int) = WindowManager.LayoutParams(
         minOf((widthDp * dp).toInt(), screenW - 2 * (PillLayout.TIMER_CARD_MARGIN_DP * dp).toInt()),
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
     ).apply { gravity = Gravity.TOP or Gravity.START }
 
-    /** Closes the timer panel and the "your own time" card. Safe to call at any time. */
+    /** Closes the timer panel, the "your own time" card and the rename card. Safe to call at any time. */
     private fun hideTimerCards() {
         afterPick?.let { handler.removeCallbacks(it) }
         afterPick = null
-        if (panel != null || ownCard != null) onActivity()
+        if (panel != null || ownCard != null || renameCard != null) onActivity()
         panel?.let { wm.removeView(it) }
         panel = null
         panelParams = null
         ownCard?.let { wm.removeView(it) }
         ownCard = null
         ownParams = null
+        renameCard?.let { wm.removeView(it) }
+        renameCard = null
+        renameParams = null
+        renameId = -1
         timerView?.active = false
     }
 
@@ -575,6 +644,7 @@ class FloatingPills(
     private fun placeTimerCards(bubble: WindowManager.LayoutParams, update: Boolean = true) {
         placeCard(panel, panelParams, bubble, update)
         placeCard(ownCard, ownParams, bubble, update)
+        placeCard(renameCard, renameParams, bubble, update)
     }
 
     private fun placeCard(card: View?, params: WindowManager.LayoutParams?, bubble: WindowManager.LayoutParams, update: Boolean) {

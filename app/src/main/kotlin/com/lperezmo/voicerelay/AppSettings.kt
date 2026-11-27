@@ -126,6 +126,14 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("timer_pill", true)
         set(v) = prefs.edit().putBoolean("timer_pill", v).apply()
 
+    /**
+     * A pencil (type a name) and a microphone (say a name) beside each timer in the timer
+     * panel. The microphone also needs an OpenAI key. Off by default ([DEFAULT_TIMER_RENAME]).
+     */
+    var timerRename: Boolean
+        get() = prefs.getBoolean("timer_rename", DEFAULT_TIMER_RENAME)
+        set(v) = prefs.edit().putBoolean("timer_rename", v).apply()
+
     /** The notification permission was asked once for the timer pill, which is on from the start. */
     var askedTimerNotifications: Boolean
         get() = prefs.getBoolean("asked_timer_notifications", false)
@@ -329,6 +337,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_LANGUAGES = ""
         const val DEFAULT_GLYPH_BUILT_IN = true
         const val DEFAULT_ASK_PAGE = false
+        const val DEFAULT_TIMER_RENAME = false
 
         const val SERVICE_OPENAI = "openai"
         const val SERVICE_CLAUDE = "claude"

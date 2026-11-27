@@ -9,7 +9,6 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -59,8 +58,10 @@ class TimerVoiceFlow(
     @Volatile private var cancelled = false
     /** When this request gives up, so a bad connection cannot keep the microphone from the wake word for long. */
     @Volatile private var deadline = 0L
-    /** Counted down to end the recording in progress; only the worker thread stops the recorder. */
-    @Volatile private var recordingEnded: CountDownLatch? = null
+    /** This request's listener, so [cancel] can end a recording in progress. */
+    @Volatile private var ear: ShortListen? = null
+    /** True while this request holds [MicGuard], so only it lets go. */
+    @Volatile private var holdsMic = false
     private val ttsLock = Any()
     private var tts: TextToSpeech? = null
     @Volatile private var ttsReady = false
@@ -88,6 +89,10 @@ class TimerVoiceFlow(
                 Log.w(TAG, "Hey timer: failed: ${e.javaClass.simpleName}")
                 finish(TimerAssistant.SAY_PROBLEM)
             } finally {
+                ear?.cancel()
+                ear = null
+                if (holdsMic) MicGuard.release(MicGuard.HEY_TIMER)
+                holdsMic = false
                 audio.abandonAudioFocusRequest(focus)
                 running = false
                 main.post(onDone)
@@ -99,7 +104,7 @@ class TimerVoiceFlow(
     /** Stops a request in progress: the service is going away. */
     fun cancel() {
         cancelled = true
-        recordingEnded?.countDown()
+        ear?.cancel()
         synchronized(ttsLock) { tts?.stop() }
     }
 
@@ -131,6 +136,15 @@ class TimerVoiceFlow(
         saidKeysMissing = false
         // Pauses music for the whole exchange; it comes back when the focus is given up.
         audio.requestAudioFocus(focus)
+        // The rename microphone is listening: same as a mic that won't open, and no daily use is spent.
+        if (!MicGuard.tryAcquire(MicGuard.HEY_TIMER)) {
+            Log.i(TAG, "Hey timer: the microphone is held by ${MicGuard.holder()}")
+            return finish(SAY_MIC_BUSY)
+        }
+        holdsMic = true
+        ear = ShortListen(context, settings, http, usage, onStage = ::heard, logName = "Hey timer")
+        // Stopped before the listener existed: it must not record.
+        if (cancelled) ear?.cancel()
 
         val cap = DailyCap().tryAcquire(LocalDate.now().toString(), settings.timerCapDay, settings.timerCapCount)
         settings.saveTimerCap(cap.day, cap.count)
@@ -141,9 +155,8 @@ class TimerVoiceFlow(
         }
 
         val transcript = when (val heard = listen(openAiKey)) {
-            Heard.Nothing -> return finish(TimerAssistant.SAY_NO_TIME)
-            is Heard.Failed -> return finish(heard.say)
-            is Heard.Text -> heard.text
+            is ShortListen.Heard.Text -> heard.text
+            else -> return finish(lineFor(heard))
         }
         if (cancelled) return
         status("Working on it")
@@ -187,7 +200,7 @@ class TimerVoiceFlow(
                     show(question)
                     // A question nobody heard gets no answer: don't record one.
                     if (!say(question)) return ""
-                    return (listen(openAiKey) as? Heard.Text)?.text.orEmpty()
+                    return (listen(openAiKey) as? ShortListen.Heard.Text)?.text.orEmpty()
                 }
             },
         )
@@ -201,79 +214,10 @@ class TimerVoiceFlow(
         finish(if (tooLong) "That took too long, so nothing was changed." else outcome.spoken)
     }
 
-    private sealed interface Heard {
-        data class Text(val text: String) : Heard
-        data object Nothing : Heard
-        data class Failed(val say: String) : Heard
-    }
-
-    /** A tone, then records until the speaker stops, then transcribes. */
-    private fun listen(openAiKey: String): Heard {
-        if (over()) return Heard.Nothing
-        status("Listening for your timer")
-        stage(ButtonRing.Voice.LISTENING)
-        tone()
-        val ended = CountDownLatch(1)
-        val ear = EndOfSpeech()
-        val rec = Recorder(
-            maxSeconds = EndOfSpeech.MAX_SECONDS,
-            onLimit = { ended.countDown() },
-            onChunk = { bytes, n -> if (ear.feed(bytes, n)) ended.countDown() },
-            onError = { ended.countDown() },
-        )
-        recordingEnded = ended
-        if (!startRecording(rec)) return Heard.Failed("The microphone is busy, so I couldn't listen.")
-        // Stopped while the tone played or the mic was being opened: end at once.
-        if (!cancelled) ended.await(EndOfSpeech.MAX_SECONDS + 2L, TimeUnit.SECONDS)
-        recordingEnded = null
-        val pcm = try { rec.stop() } catch (_: Exception) { ByteArray(0) }
-        val seconds = Recorder.durationSeconds(pcm)
-        Log.i(TAG, "Hey timer: recorded %.1f s, speech %s".format(seconds, if (ear.heardSpeech) "heard" else "not heard"))
-        if (cancelled || !ear.heardSpeech) return Heard.Nothing
-
-        status("Working out your timer")
-        stage(ButtonRing.Voice.TRANSCRIBING)
-        val file = AacEncoder.encode(pcm, Recorder.SAMPLE_RATE, context.cacheDir)?.let { OpenAiClient.Audio.m4a(it, seconds) }
-            ?: OpenAiClient.Audio.wav(WavWriter.encode(pcm), seconds)
-        val model = settings.transcriptionModel
-        val result = OpenAiClient(openAiKey, http = http).transcribe(file, model, settings.vocabulary, settings.languages)
-        if (result.error == null) usage.recordTranscription(model, seconds)
-        return when {
-            result.ok -> Heard.Text(result.text!!.trim())
-            result.error == null -> Heard.Nothing
-            result.httpCode == 0 -> Heard.Failed(TimerAssistant.SAY_NO_NETWORK)
-            result.httpCode == 401 -> Heard.Failed("The OpenAI key was not accepted. Check it in Voice Relay.")
-            else -> Heard.Failed("I couldn't turn that into text, so nothing was changed.")
-        }
-    }
-
-    /** The wake word's own recorder lets go of the mic a moment after it is told to; try a few times. */
-    private fun startRecording(rec: Recorder): Boolean {
-        repeat(MIC_TRIES) { attempt ->
-            if (cancelled) return false
-            try {
-                rec.start()
-                return true
-            } catch (e: SecurityException) {
-                return false
-            } catch (e: IllegalStateException) {
-                Log.i(TAG, "Hey timer: mic not free yet (try ${attempt + 1})")
-                Thread.sleep(MIC_RETRY_MS)
-            }
-        }
-        return false
-    }
-
-    /** A short beep that says "go ahead", finished before the recording starts so it is not in it. */
-    private fun tone() {
-        try {
-            val generator = ToneGenerator(AudioManager.STREAM_MUSIC, TONE_VOLUME)
-            generator.startTone(ToneGenerator.TONE_PROP_BEEP, TONE_MS)
-            Thread.sleep(TONE_MS + 100L)
-            generator.release()
-        } catch (e: RuntimeException) {
-            Log.w(TAG, "Hey timer: no tone: ${e.javaClass.simpleName}")
-        }
+    /** A tone, then records until the speaker stops, then transcribes; nothing once the request is over. */
+    private fun listen(openAiKey: String): ShortListen.Heard {
+        if (over()) return ShortListen.Heard.Nothing
+        return ear?.listen(openAiKey) ?: ShortListen.Heard.Nothing
     }
 
     private fun finish(line: String) {
@@ -282,6 +226,18 @@ class TimerVoiceFlow(
         say(line)
     }
 
+
+    /** The listener's steps, as the service's notification and the button ring show them. */
+    private fun heard(step: ShortListen.Stage) = when (step) {
+        ShortListen.Stage.LISTENING -> {
+            status("Listening for your timer")
+            stage(ButtonRing.Voice.LISTENING)
+        }
+        ShortListen.Stage.TRANSCRIBING -> {
+            status("Working out your timer")
+            stage(ButtonRing.Voice.TRANSCRIBING)
+        }
+    }
 
     private fun status(text: String) {
         main.post { onStatus(text) }
@@ -371,20 +327,27 @@ class TimerVoiceFlow(
         }
     }
 
-    private companion object {
-        const val TAG = "VoiceRelay"
-        const val CHANNEL = "timer_voice"
+    internal companion object {
+        private const val TAG = "VoiceRelay"
+        const val SAY_MIC_BUSY = "The microphone is busy, so I couldn't listen."
+
+        /** What "hey timer" says when listening gave no text. Pure, so it is unit tested. */
+        fun lineFor(heard: ShortListen.Heard): String = when (heard) {
+            is ShortListen.Heard.Text -> heard.text
+            ShortListen.Heard.Nothing -> TimerAssistant.SAY_NO_TIME
+            ShortListen.Heard.MicBusy -> SAY_MIC_BUSY
+            ShortListen.Heard.NoNetwork -> TimerAssistant.SAY_NO_NETWORK
+            ShortListen.Heard.KeyRejected -> "The OpenAI key was not accepted. Check it in Voice Relay."
+            is ShortListen.Heard.Failed -> "I couldn't turn that into text, so nothing was changed."
+        }
+        private const val CHANNEL = "timer_voice"
         /** Clear of the wake word's 7001 and 7002 and the Glyph undo's 7101. */
-        const val NOTIFICATION_ID = 7003
-        const val SHOW_MS = 10 * 60_000L
-        const val TONE_MS = 150
-        const val TONE_VOLUME = 80
-        const val MIC_TRIES = 5
-        const val MIC_RETRY_MS = 200L
-        const val SPEAK_WAIT_S = 30L
+        private const val NOTIFICATION_ID = 7003
+        private const val SHOW_MS = 10 * 60_000L
+        private const val SPEAK_WAIT_S = 30L
         /** One request to OpenAI or Anthropic, and the whole exchange; both well under the wake word's own 180 s limit. */
-        const val CALL_TIMEOUT_S = 30L
-        const val DEADLINE_MS = 90_000L
-        const val TTS_START_S = 5L
+        private const val CALL_TIMEOUT_S = 30L
+        private const val DEADLINE_MS = 90_000L
+        private const val TTS_START_S = 5L
     }
 }

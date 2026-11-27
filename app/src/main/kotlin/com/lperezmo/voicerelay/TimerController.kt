@@ -12,6 +12,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -95,6 +96,32 @@ class TimerController private constructor(private val context: Context) {
         return entry
     }
 
+    /**
+     * Gives a timer a new name (see [Timers.rename]). Returns it renamed, or null when the
+     * name was blank, unchanged or the timer is gone. A timer whose "is done" notification is
+     * still up gets it posted again so its title shows the new name.
+     */
+    @Synchronized fun rename(id: Int, label: String): TimerEntry? {
+        val old = book.find(id) ?: return null
+        val next = book.rename(id, label)
+        val entry = next.find(id) ?: return null
+        if (entry.label == old.label) return null
+        save(next)
+        // Only the title changes: a sound still playing goes on, and one already quieted
+        // (the shade pulled down, say) does not start again.
+        shownFor(id)?.let { shownAt -> ring(entry, shownAt, update = true) }
+        Log.i(TAG, "Timer: renamed #$id")
+        return entry
+    }
+
+    /** When this timer's "is done" notification went up, or null when it is not up (stopped, swiped, timed out). */
+    private fun shownFor(id: Int): Long? = try {
+        notifications.activeNotifications.firstOrNull { it.tag == NOTIFICATION_TAG && it.id == id }
+            ?.let { it.notification.extras.getLong(EXTRA_SHOWN_AT, it.postTime) }
+    } catch (_: Exception) {
+        null
+    }
+
     /** Rings every timer whose end has come. Safe to call at any time; each timer rings once. */
     @Synchronized fun checkDue() {
         val due = book.due(now())
@@ -138,10 +165,14 @@ class TimerController private constructor(private val context: Context) {
     )
 
     @SuppressLint("MissingPermission") // checked with canNotify: without it the ringtone plays instead
-    private fun ring(entry: TimerEntry) {
-        Log.i(TAG, "Timer: #${entry.id} is done, notification ${canNotify}")
+    /**
+     * [shownAt] is when it first rang, so posting it again after a rename keeps the same timeout.
+     * [update] posts it again without alerting: no new sound, vibration or heads-up.
+     */
+    private fun ring(entry: TimerEntry, shownAt: Long = now(), update: Boolean = false) {
+        Log.i(TAG, "Timer: #${entry.id} is done, notification ${canNotify}${if (update) ", updated" else ""}")
         if (!canNotify) {
-            main.post { playRingtone() }
+            if (!update) main.post { playRingtone() }
             return
         }
         ensureChannel()
@@ -155,14 +186,16 @@ class TimerController private constructor(private val context: Context) {
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
-            .setTimeoutAfter(RING_MS)
+            .setTimeoutAfter((shownAt + RING_MS - now()).coerceIn(1, RING_MS))
+            .addExtras(Bundle().apply { putLong(EXTRA_SHOWN_AT, shownAt) })
+            .setOnlyAlertOnce(update)
             .build()
         // Keeps the sound going until it is stopped, like an alarm.
         notification.flags = notification.flags or Notification.FLAG_INSISTENT
         try {
             notifications.notify(NOTIFICATION_TAG, entry.id, notification)
         } catch (_: SecurityException) {
-            main.post { playRingtone() }
+            if (!update) main.post { playRingtone() }
         }
     }
 
@@ -213,6 +246,7 @@ class TimerController private constructor(private val context: Context) {
         private const val CHANNEL = "timer_done"
         /** With the timer's id; the tag keeps it clear of the app's other notifications. */
         private const val NOTIFICATION_TAG = "timer"
+        private const val EXTRA_SHOWN_AT = "com.lperezmo.voicerelay.SHOWN_AT"
         private const val RING_MS = TimerText.RING_MS
         private const val RINGTONE_MS = 60_000L
         const val ACTION_FIRE = "com.lperezmo.voicerelay.TIMER_FIRE"
