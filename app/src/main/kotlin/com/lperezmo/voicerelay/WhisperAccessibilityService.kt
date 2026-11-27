@@ -109,6 +109,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var feedbackLayoutParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
+    /** Glyph's "Flip the screen" and "Rotation back to auto" ([RotateForcer]). */
+    val rotation = RotateForcer(this, handler)
     private val hideFeedback = Runnable {
         feedbackLayoutParams?.let { setFeedbackTouchable(it, false) }
         feedbackView?.setOnClickListener(null)
@@ -266,6 +268,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         arrowPad.destroy()
         pills.hide()
         removeOverlay()
+        rotation.release()
         handler.removeCallbacks(checkDim)
         ButtonsTileService.requestUpdate(this)
         super.onDestroy()

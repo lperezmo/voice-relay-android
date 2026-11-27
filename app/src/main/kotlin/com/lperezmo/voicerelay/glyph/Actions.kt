@@ -9,7 +9,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import com.lperezmo.voicerelay.RotateForcer
 import com.lperezmo.voicerelay.WakeControlActivity
+import com.lperezmo.voicerelay.WhisperAccessibilityService
 
 /** Runs an [Action]. Called from the canvas while it is in front, so it may start activities. */
 object Actions {
@@ -53,6 +55,8 @@ object Actions {
                 toast(activity, "Ask the Page is off. Turn it on in Voice Relay's settings.")
                 false
             }
+            Action.RotateFlip -> rotate(activity) { it.flip() }
+            Action.RotateAuto -> rotate(activity) { it.auto() }
         }
     } catch (e: ActivityNotFoundException) {
         toast(activity, "Nothing on this phone opens that.")
@@ -93,6 +97,14 @@ object Actions {
                 .setAction(WakeControlActivity.ACTION_WAKE_TOGGLE)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+        return true
+    }
+
+    /** The floating button's service owns the window that holds the screen ([RotateForcer]). */
+    private fun rotate(context: Context, step: (RotateForcer) -> String): Boolean {
+        val service = WhisperAccessibilityService.instance
+            ?: return false.also { toast(context, Rotate.NO_SERVICE) }
+        toast(context, step(service.rotation))
         return true
     }
 

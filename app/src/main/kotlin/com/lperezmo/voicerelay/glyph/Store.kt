@@ -25,6 +25,10 @@ sealed class Action {
     data object PrintDateLabel : Action()
     /** Ask the Page: the canvas stays open as a page for a handwritten question to Claude. */
     data object Ask : Action()
+    /** Holds the screen the other way from how it shows now (see [Rotate]). */
+    data object RotateFlip : Action()
+    /** Lets go of that hold. */
+    data object RotateAuto : Action()
 
     val label: String
         get() = when (this) {
@@ -35,6 +39,8 @@ sealed class Action {
             WakeToggle -> "Toggle wake word"
             PrintDateLabel -> "Print date label"
             Ask -> "Ask the Page"
+            RotateFlip -> "Flip the screen"
+            RotateAuto -> "Rotation back to auto"
         }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -46,6 +52,8 @@ sealed class Action {
             WakeToggle -> put("type", "wake_toggle")
             PrintDateLabel -> put("type", "print_date_label")
             Ask -> put("type", "ask")
+            RotateFlip -> put("type", "rotate_flip")
+            RotateAuto -> put("type", "rotate_auto")
         }
     }
 
@@ -70,6 +78,8 @@ sealed class Action {
             "wake_toggle" -> WakeToggle
             "print_date_label" -> PrintDateLabel
             "ask" -> Ask
+            "rotate_flip" -> RotateFlip
+            "rotate_auto" -> RotateAuto
             else -> Nothing
         }
     }

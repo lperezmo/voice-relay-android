@@ -42,6 +42,9 @@ are off until you turn them on:
 - **Glyph pill**: opens a shape canvas from below the mic: the **built-in Glyph canvas** (the
   default), which needs no other app and also gets its own launcher icon and Quick Settings tile,
   or, with that switched off, the one of Glyph (a separate shape-launcher app) when it is installed.
+- **Flip the screen**, on the built-in canvas: give a shape "Flip the screen" and drawing it holds
+  the screen the other way (upright or sideways); draw it again to turn it back. It stays that way
+  until you draw a shape set to "Rotation back to auto". Needs the floating button on.
 - **Ask the Page**, on the built-in canvas: draw ?, handwrite a question, circle what it is about,
   and Claude (with your own Anthropic key) writes the answer on the page in gold cursive.
 
@@ -444,7 +447,7 @@ On by default (the separate Glyph app is being retired). With **Use the built-in
 (under **Show the Glyph pill**) the pill opens Voice Relay's own copy of the Glyph canvas, so the
 Glyph app is not needed; the pill then shows whether Glyph is installed or not. It works the same way: draw a shape, and the action
 you gave it runs (open an app or a link, send the clipboard to Phone Relay, turn the wake word on
-or off, print a date label). **Shapes and settings** is where you teach shapes, pick what each one
+or off, print a date label, flip the screen or set rotation back to auto). **Shapes and settings** is where you teach shapes, pick what each one
 does and tune recognition. The shapes and settings are the built-in canvas's own; they are not
 copied from the Glyph app.
 

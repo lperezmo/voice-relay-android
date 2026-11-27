@@ -66,6 +66,8 @@ object UndoX {
         Action.WakeToggle -> "Toggled the wake word"
         Action.PrintDateLabel -> "Printed a date label"
         Action.Ask -> "Opened Ask the Page"
+        Action.RotateFlip -> "Flipped the screen"
+        Action.RotateAuto -> "Set rotation to auto"
     }
 
     @SuppressLint("MissingPermission") // checked: without it the notification is simply not posted
